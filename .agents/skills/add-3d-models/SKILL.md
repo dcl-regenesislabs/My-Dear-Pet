@@ -1,0 +1,257 @@
+---
+name: add-3d-models
+description: Add 3D models (.glb/.gltf) to a Decentraland scene using GltfContainer. Covers loading, positioning, scaling, colliders, parenting, and browsing 5,700+ free assets from the OpenDCL catalog. Use when the user wants to add models, import GLB files, find free 3D assets, or set up model colliders. Do NOT use for materials/textures (see advanced-rendering) or model animations (see animations-tweens).
+---
+
+# Adding 3D Models to Decentraland Scenes
+
+## Where models go: `main-entities.ts`
+
+A 3D model placed at author time is a static visible entity. **Declare it in `main-entities.ts`**, not via `engine.addEntity()` in `src/index.ts`. The build compiles `main-entities.ts` into `main.crdt`, the engine preloads it before `main()` runs, and the editor can drag/rotate the model interactively.
+
+```typescript
+// main-entities.ts
+import type { Scene } from '@dcl/sdk/scene-types'
+
+export const scene = {
+  my_model: {
+    components: {
+      Transform: { position: { x: 8, y: 0, z: 8 } },
+      GltfContainer: {
+        src: 'models/myModel.glb',
+        visibleMeshesCollisionMask: 3 // CL_PHYSICS | CL_POINTER
+      }
+    }
+  }
+} satisfies Scene
+```
+
+> **Always set `visibleMeshesCollisionMask`** on `GltfContainer`. Catalog models don't include separate collider meshes — using the visible mesh as the collider ensures the model is solid and clickable. Use the integer value (`ColliderLayer.CL_PHYSICS = 1`, `CL_POINTER = 2`, both = `3`) inside `main-entities.ts` since enums aren't allowed in the literal.
+
+**When to use `engine.addEntity()` in `src/index.ts` instead**: only when the model is spawned dynamically (procedurally placed in a loop, dropped on an event, gated by NFT ownership, etc.). For static props, always use `main-entities.ts`.
+
+## File Organization
+
+Place model files in a `models/` directory at the project root:
+```
+project/
+├── models/
+│   ├── building.glb
+│   ├── tree.glb
+│   └── furniture/
+│       ├── chair.glb
+│       └── table.glb
+├── src/
+│   └── index.ts
+└── scene.json
+```
+
+## Colliders
+
+### Using Model's Built-in Colliders
+
+```typescript
+// main-entities.ts — declared inline with GltfContainer
+building: {
+  components: {
+    Transform: { position: { x: 8, y: 0, z: 8 } },
+    GltfContainer: {
+      src: 'models/building.glb',
+      visibleMeshesCollisionMask: 3,    // CL_PHYSICS | CL_POINTER
+      invisibleMeshesCollisionMask: 1   // CL_PHYSICS
+    }
+  }
+}
+```
+
+### Adding Simple Colliders
+
+For basic shapes (no GLTF), add `MeshCollider`:
+
+```typescript
+// main-entities.ts
+invisible_wall: {
+  components: {
+    Transform: { position: { x: 0, y: 1, z: 8 }, scale: { x: 0.1, y: 2, z: 16 } },
+    MeshCollider: { mesh: { $case: 'box', box: { uvs: [] } } }
+  }
+}
+```
+
+Other shapes: `{ $case: 'sphere', sphere: {} }`, `{ $case: 'plane', plane: { uvs: [] } }`, `{ $case: 'cylinder', cylinder: {} }`.
+
+## ⚠️ Important: Never Pass `undefined` in Transform Fields
+
+The SDK serializer crashes if any Transform field (`position`, `rotation`, `scale`) is present but `undefined`. **Omit the key entirely** instead — both in `main-entities.ts` literals and in any runtime helpers. In `main-entities.ts` this is natural (you just don't write the field).
+
+## Common Model Operations
+
+### Scaling
+
+```typescript
+// main-entities.ts
+big_statue: {
+  components: {
+    Transform: { position: { x: 8, y: 0, z: 8 }, scale: { x: 2, y: 2, z: 2 } },
+    GltfContainer: { src: 'models/statue.glb' }
+  }
+}
+```
+
+### Rotation (Euler angles converted to a quaternion at author time)
+
+Quaternions are `{ x, y, z, w }`. For `Quaternion.fromEulerDegrees(0, 90, 0)` the equivalent literal is `{ x: 0, y: 0.7071, z: 0, w: 0.7071 }`. If you need exact-degree rotations and don't want to compute by hand, set `rotation` to identity in `main-entities.ts` and rotate at runtime in `src/index.ts` using `Transform.getMutable(entity).rotation = Quaternion.fromEulerDegrees(0, 90, 0)`.
+
+### Parenting
+
+Reference the parent by **name** (a string key from the same `scene` object). The build resolves names to entity IDs in a second pass.
+
+```typescript
+// main-entities.ts
+character: {
+  components: {
+    Transform: { position: { x: 8, y: 0, z: 8 } },
+    GltfContainer: { src: 'models/character.glb' }
+  }
+},
+hat: {
+  components: {
+    Transform: {
+      position: { x: 0, y: 2, z: 0 },  // 2m above parent's origin
+      parent: 'character'
+    },
+    GltfContainer: { src: 'models/hat.glb' }
+  }
+}
+```
+
+## Free 3D Models — OpenDCL Catalog (5,700+ models)
+
+The catalog file is at `{baseDir}/references/model-catalog.md`. Each line has this format:
+```
+slug | dims | tris | size | category/sub | description [tags] [anim: clips] | curl command | preview: thumbnail_url
+```
+
+### How to search
+
+Search with one keyword at a time — try the most specific word first:
+```bash
+grep -i "zombie" {baseDir}/references/model-catalog.md
+```
+
+If no results, try synonyms, broader terms, or related words:
+- "sofa" → "couch" → "seat" → "furniture"
+- "car" → "vehicle" → "truck" → "van"
+- "wall" → "fence" → "barrier" → "structure"
+
+Browse all categories to discover what's available:
+```bash
+grep "^##" {baseDir}/references/model-catalog.md
+```
+
+Search within a specific category:
+```bash
+grep "^##\|chair" {baseDir}/references/model-catalog.md
+```
+
+### How to use models
+
+1. Search the catalog with different keywords until you find matching models
+2. Review the results — check dimensions, triangle count, animations, and description
+3. Download the model with the curl command into `models/`
+4. Reference in code with `GltfContainer.create(entity, { src: 'models/{slug}.glb' })`
+5. If the model has animations (listed in `[anim: ...]`), use the `Animator` component to play them
+6. After placing the model, you can fetch its **preview thumbnail** (`preview:` URL) to see what it looks like
+
+### Example workflow
+```bash
+# Search for zombie models
+grep -i "zombie" {baseDir}/references/model-catalog.md
+
+# Found: zombie-purple | 2.8×2.9×0.5m | 1472 tri | 271KB | character/zombie | ...
+#   [anim: Tpose, ZombieAttack, ZombieUP, ZombieWalk]
+#   preview: https://models.dclregenesislabs.xyz/blobs/bafkrei...
+
+# Download the model
+curl -o models/zombie-purple.glb "https://models.dclregenesislabs.xyz/blobs/bafybeiffc..."
+```
+
+```typescript
+// main-entities.ts — declare the entity with all its initial state
+import type { Scene } from '@dcl/sdk/scene-types'
+
+export const scene = {
+  zombie: {
+    components: {
+      Transform: { position: { x: 8, y: 0, z: 8 } },
+      GltfContainer: { src: 'models/zombie-purple.glb' },
+      Animator: {
+        states: [
+          { clip: 'ZombieWalk', playing: true, loop: true },
+          { clip: 'ZombieAttack', playing: false, loop: false }
+        ]
+      }
+    }
+  }
+} satisfies Scene
+```
+
+To switch animations at runtime (e.g., trigger attack on click), use `src/index.ts`:
+
+```typescript
+import { engine, Animator } from '@dcl/sdk/ecs'
+
+export function main() {
+  const zombie = engine.getEntityOrNullByName('zombie')
+  if (zombie) Animator.playSingleAnimation(zombie, 'ZombieAttack')
+}
+```
+
+> **Important**: `GltfContainer` only works with **local files**. Never use external URLs for the model `src` field. Always download models into `models/` first.
+> **Never `cd` into the models directory**. Always run curl from the project root with `curl -o models/slug.glb "URL"`. Do NOT use `cd models && curl -o slug.glb`.
+
+### Checking Model Load State
+
+Load-state polling is runtime behavior — put it in `src/index.ts` and reference the entity by name:
+
+```typescript
+import { engine, GltfContainerLoadingState, LoadingState } from '@dcl/sdk/ecs'
+
+export function main() {
+  engine.addSystem(() => {
+    const model = engine.getEntityOrNullByName('zombie')
+    if (!model) return
+    const state = GltfContainerLoadingState.getOrNull(model)
+    if (state?.currentState === LoadingState.FINISHED) {
+      console.log('Model loaded successfully')
+    } else if (state?.currentState === LoadingState.FINISHED_WITH_ERROR) {
+      console.log('Model failed to load')
+    }
+  })
+}
+```
+
+## Troubleshooting
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| Model not visible | Wrong file path | Verify the file exists at the exact path relative to project root (e.g., `models/myModel.glb`) |
+| Model not visible | Position outside scene boundaries | Check Transform position is within 0-16 per parcel. Center of 1-parcel scene is (8, 0, 8) |
+| Model not visible | Scale is 0 or very small | Check `Transform.scale` — default is (1,1,1). Try larger values if model was exported very small |
+| Model not visible | Behind the camera | Move the avatar or rotate to look in the model's direction |
+| Model loads but looks wrong | Y-up vs Z-up mismatch | Decentraland uses Y-up. Re-export from Blender with "Y Up" checked |
+| "FINISHED_WITH_ERROR" load state | Corrupted or unsupported .glb | Re-export the model. Use `.glb` (binary GLTF) format. Ensure no unsupported extensions |
+| Clicking model does nothing | Missing collider | Add `visibleMeshesCollisionMask: ColliderLayer.CL_POINTER` to `GltfContainer` or add `MeshCollider` |
+
+> **Need to optimize models for scene limits?** See the **optimize-scene** skill for triangle budgets and LOD patterns.
+> **Need animations from your model?** See the **animations-tweens** skill for playing GLTF animation clips with Animator.
+
+## Model Best Practices
+
+- Keep models under 50MB per file for good loading times
+- Use `.glb` format (binary GLTF) — smaller than `.gltf`
+- Optimize triangle count: aim for under 1,500 triangles per model for small props
+- Use texture atlases when possible to reduce draw calls
+- Models with embedded animations can be played with the `Animator` component
+- Test model orientation — Decentraland uses Y-up coordinate system
+- Materials in models should use PBR (physically-based rendering) for best results
