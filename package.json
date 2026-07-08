@@ -4,6 +4,7 @@
   "description": "SDK7 Template scene",
   "scripts": {
     "start": "sdk-commands start",
+    "start:offline": "NPM_CONFIG_OFFLINE=true sdk-commands start --skip-auth-screen true",
     "deploy": "sdk-commands deploy",
     "build": "sdk-commands build",
     "upgrade-sdk": "npm install --save-dev @dcl/sdk@latest",
@@ -11,8 +12,8 @@
     "server-logs": "sdk-commands sdk-server-logs"
   },
   "devDependencies": {
-    "@dcl/js-runtime": "7.24.2-27769863035.commit-2ed854e",
-    "@dcl/sdk": "^7.24.2-27769863035.commit-2ed854e"
+    "@dcl/js-runtime": "7.24.3-28199504206.commit-1a6c780",
+    "@dcl/sdk": "^7.24.3-28199504206.commit-1a6c780"
   },
   "engines": {
     "node": ">=16.0.0",
