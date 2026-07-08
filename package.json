@@ -11,8 +11,8 @@
     "server-logs": "sdk-commands sdk-server-logs"
   },
   "devDependencies": {
-    "@dcl/js-runtime": "7.24.2-27769863035.commit-2ed854e",
-    "@dcl/sdk": "^7.24.2-27769863035.commit-2ed854e"
+    "@dcl/js-runtime": "7.24.3-28199504206.commit-1a6c780",
+    "@dcl/sdk": "^7.24.3-28199504206.commit-1a6c780"
   },
   "engines": {
     "node": ">=16.0.0",
