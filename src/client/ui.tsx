@@ -79,6 +79,9 @@ function ProfileBar() {
   const base = Cfg.xpForLevel(lvl)
   const next = Cfg.xpForLevel(lvl + 1)
   const frac = next > base ? Math.max(0, Math.min(1, (p.caretakerXp - base) / (next - base))) : 1
+  // Explicit middle width so the flex column never collapses (which would wrap
+  // the label vertically and shove the coins around).
+  const midW = W - S(8) - S(12) - S(48) - S(10) - S(86) - S(8)
 
   return (
     <UiEntity
@@ -88,11 +91,11 @@ function ProfileBar() {
     >
       {/* level badge */}
       <UiEntity uiTransform={{ width: S(48), height: S(48), borderRadius: S(24), alignItems: 'center', justifyContent: 'center', margin: { right: S(10) } }} uiBackground={{ color: C.green }}>
-        <OutlineLabel value={`${lvl}`} fontSize={S(24)} color={C.outline} width={S(48)} height={S(48)} />
+        <OutlineLabel value={`${lvl}`} fontSize={S(24)} color={C.text} outlineColor={C.outline} width={S(48)} height={S(48)} />
       </UiEntity>
       {/* name + xp bar */}
-      <UiEntity uiTransform={{ flex: 1, height: '100%', flexDirection: 'column', justifyContent: 'center' }}>
-        <Label value="Caretaker" fontSize={S(14)} color={C.dim} textAlign="middle-left" uiTransform={{ width: '100%', height: S(18) }} />
+      <UiEntity uiTransform={{ width: midW, height: '100%', flexDirection: 'column', justifyContent: 'center' }}>
+        <Label value={`Caretaker  ·  Lv ${lvl}`} fontSize={S(15)} color={C.text} textAlign="middle-left" textWrap="nowrap" uiTransform={{ width: midW, height: S(18) }} />
         <UiEntity uiTransform={{ width: '100%', height: S(12), borderRadius: S(6), margin: { top: S(2) } }} uiBackground={{ color: C.trackBg }}>
           <UiEntity uiTransform={{ width: `${Math.round(frac * 100)}%`, height: '100%', borderRadius: S(6) }} uiBackground={{ color: C.gold }} />
         </UiEntity>
