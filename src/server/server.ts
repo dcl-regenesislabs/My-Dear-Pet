@@ -5,6 +5,7 @@ import { engine, PlayerIdentityData } from '@dcl/sdk/ecs'
 import { room } from '../shared/messages'
 import type { CareAction, PlayerData, PresenceEntry } from '../shared/types'
 import * as S from './state'
+import { trackEvent } from '../shared/analytics'
 
 const TICK_INTERVAL = 5 // seconds between decay/persist passes
 const SNAPSHOT_INTERVAL = 3 // seconds between owner snapshot pushes
@@ -38,8 +39,15 @@ export function server(): void {
   room.onMessage('requestState', async (_data, ctx) => {
     if (!ctx) return
     console.log('[Server] requestState from', ctx.from)
-    const p = await S.loadPlayer(ctx.from)
+    // requestState repeats every ~2s; the first one this lifetime marks a fresh
+    // scene entry -> emit exactly one `session started`. Mark `connected` BEFORE
+    // the await so two near-simultaneous first requests don't both fire.
+    const firstThisSession = !connected.has(ctx.from)
     connected.add(ctx.from)
+    const p = await S.loadPlayer(ctx.from)
+    if (firstThisSession) {
+      trackEvent('session started', ctx.from, { is_new_user: S.isFreshPlayer(ctx.from) })
+    }
     pushSnapshot(p)
     broadcastPresence()
   })

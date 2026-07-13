@@ -16,6 +16,13 @@ const players = new Map<string, PlayerData>()
 const actionCooldowns = new Map<string, Record<string, number>>()
 // Treat farming guard: giver -> "targetAddr|day" -> count.
 const treatCounts = new Map<string, Record<string, number>>()
+// Addresses whose data was created fresh this server lifetime (no prior save).
+const freshPlayers = new Set<string>()
+
+/** True if this wallet had no saved state when first loaded (a new user). */
+export function isFreshPlayer(address: string): boolean {
+  return freshPlayers.has(address)
+}
 
 export type Notify = { kind: string; message: string }
 
@@ -139,6 +146,7 @@ export async function loadPlayer(address: string): Promise<PlayerData> {
   }
   if (!data || !data.address) {
     data = newPlayer(address)
+    freshPlayers.add(address) // no prior saved state -> new user (for analytics)
   } else {
     // Migrate/sanitize loaded data, then apply offline decay.
     data = sanitize(address, data)
