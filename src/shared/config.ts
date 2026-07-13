@@ -245,3 +245,16 @@ export const PET_FOLLOW_DISTANCE = 2.2
 export const PET_MOVE_SPEED = 4.0 // m/s
 export const PET_ARRIVE_DISTANCE = 0.6
 export const PET_BASE_Y = 0.0
+
+// ---------------------------------------------------------------------------
+// Analytics (PostHog) — see dev-docs/posthog-analytics-integration.md.
+// The project API key is a write-only public capture token: safe to ship.
+// ---------------------------------------------------------------------------
+// Master on/off switch. Flip to `true` when you want to test tracking (events
+// land in PostHog with your wallet); flip back to `false` for day-to-day local
+// dev so repeated preview runs don't pollute retention. MUST be `true` in the
+// production deploy.
+export const ANALYTICS_ENABLED = true
+export const GAME_ID = 'mydearpet' // deadsurge | cozyfarm | mydearpet
+export const POSTHOG_HOST = 'eu.i.posthog.com' // EU Cloud
+export const POSTHOG_PROJECT_API_KEY = 'phc_vnCGXbvJSyfA5qVW7QKGLnMipCMpqUhTZkMFRBKayKUp'

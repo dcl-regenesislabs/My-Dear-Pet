@@ -14,6 +14,7 @@ import { openCaretakerIntro } from './ui/dialog'
 import { setupInput } from './input'
 import { setupPetSystems } from './pet'
 import { setupPeers } from './peers'
+import { setupScene } from './scene'
 
 let introTriggered = false
 
@@ -64,6 +65,7 @@ function registerHandlers(): void {
 export function setupClient(): void {
   resolveMyAddress()
   seedLocalPlayer() // HUD renders immediately, no waiting on the network
+  setupScene() // static decor (pigeon dome, etc.)
   evaluateStreak() // advance / reset the 7-day login streak
   registerHandlers()
   setupUi()
