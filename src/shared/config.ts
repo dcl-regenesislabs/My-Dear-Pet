@@ -250,11 +250,10 @@ export const PET_BASE_Y = 0.0
 // Analytics (PostHog) — see dev-docs/posthog-analytics-integration.md.
 // The project API key is a write-only public capture token: safe to ship.
 // ---------------------------------------------------------------------------
-// Master on/off switch. Flip to `true` when you want to test tracking (events
-// land in PostHog with your wallet); flip back to `false` for day-to-day local
-// dev so repeated preview runs don't pollute retention. MUST be `true` in the
-// production deploy.
-export const ANALYTICS_ENABLED = true
+// Master on/off switch. OFF by default so local dev / preview runs never
+// pollute the stats. Flip to `true` to test tracking locally, AND remember to
+// set it `true` for the production deploy — otherwise production sends nothing.
+export const ANALYTICS_ENABLED = false
 export const GAME_ID = 'mydearpet' // deadsurge | cozyfarm | mydearpet
 export const POSTHOG_HOST = 'eu.i.posthog.com' // EU Cloud
 export const POSTHOG_PROJECT_API_KEY = 'phc_vnCGXbvJSyfA5qVW7QKGLnMipCMpqUhTZkMFRBKayKUp'
