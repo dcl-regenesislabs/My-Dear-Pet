@@ -26,6 +26,9 @@ export const Messages = {
   buySlot: Schemas.Map({}),
   // Spend a spin ticket on the wheel.
   spin: Schemas.Map({}),
+  // Report my pet's follow state (Whistle/Stay) so the server can broadcast it
+  // in presence for everyone to mirror.
+  setFollow: Schemas.Map({ following: Schemas.Boolean }),
 
   // ---- Server -> Client ----
   // Full owner snapshot (PlayerSnapshot JSON) for the requesting client.

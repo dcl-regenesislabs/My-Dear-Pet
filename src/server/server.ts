@@ -138,6 +138,12 @@ export function server(): void {
     pushSnapshot(p)
   })
 
+  room.onMessage('setFollow', (data, ctx) => {
+    if (!ctx) return
+    S.setFollowState(ctx.from, data.following)
+    broadcastPresence() // push the new follow/stay state to everyone right away
+  })
+
   // -- Periodic decay / persist / presence loop -----------------------------
   let tickAcc = 0
   let snapAcc = 0

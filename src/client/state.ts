@@ -189,5 +189,8 @@ export const actions = {
   },
   spin(): void {
     room.send('spin', {})
+  },
+  setFollow(following: boolean): void {
+    room.send('setFollow', { following })
   }
 }

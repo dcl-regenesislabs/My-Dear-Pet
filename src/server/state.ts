@@ -18,6 +18,14 @@ const actionCooldowns = new Map<string, Record<string, number>>()
 const treatCounts = new Map<string, Record<string, number>>()
 // Addresses whose data was created fresh this server lifetime (no prior save).
 const freshPlayers = new Set<string>()
+// Per-player pet follow state (Whistle/Stay), reported by the client. Ephemeral
+// (session-only) — used to broadcast `following` in presence. Defaults to true.
+const followState = new Map<string, boolean>()
+
+/** Record a player's pet follow state so presence can broadcast it. */
+export function setFollowState(address: string, following: boolean): void {
+  followState.set(address.toLowerCase(), following)
+}
 
 /** True if this wallet had no saved state when first loaded (a new user). */
 export function isFreshPlayer(address: string): boolean {
@@ -451,7 +459,8 @@ export function presenceFor(p: PlayerData): PresenceEntry | null {
     name: pet.name,
     size: pet.size,
     mood: deriveMood(pet),
-    level: pet.petLevel
+    level: pet.petLevel,
+    following: followState.get(p.address.toLowerCase()) ?? true
   }
 }
 
