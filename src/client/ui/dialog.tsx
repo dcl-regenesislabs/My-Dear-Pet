@@ -2,26 +2,34 @@
 // body text + a primary button. Used for the Caretaker tutorial and tips.
 
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
+import { getPlayer } from '@dcl/sdk/players'
 import { advanceDialog, clientState, openDialog } from '../state'
 import { C, OutlineLabel, S, TactileButton } from './theme'
 
-export const CARETAKER_INTRO: string[] = [
-  "Welcome to the Care Center! I'm the Caretaker. Let's get you a new best friend.",
-  'Tap "Adopt a Pet" to choose your companion from our roster of cuties.',
-  'Keep your pet happy: Feed it at the Bowl, give it a Bath at the Pond.',
-  'Let it Sleep on the Bed and Play with the Ball to keep its energy and joy up.',
-  'Tap your pet anytime to give it a little love — happiness earns you Coins!',
-  'Spend Coins in the Shop on food and extra pet slots. Now go say hi!'
-]
+/** The local player's display name, or a themed fallback. */
+export function playerName(): string {
+  const n = getPlayer()?.name
+  return n && n.trim() ? n.trim() : 'Settler'
+}
+
+/** Built dynamically so the Caretaker can greet the player by name. */
+export function caretakerIntro(): string[] {
+  return [
+    `Welcome to the Mars colony, ${playerName()}. I'm the Caretaker — out here, every colony is built on the creatures we raise.`,
+    'Tap "Adopt a Pet" to take in your first Martian companion.',
+    'Keep it thriving: Feed at the Bowl, Bath at the Pond, Sleep on the Bed, Play at the Ball. Tap it anytime for some love.',
+    "A healthy, happy pet earns Coins — and soon you'll breed it with other settlers' pets to grow the colony. Let's begin!"
+  ]
+}
 
 export const CARETAKER_TIPS: string[] = [
-  'Happy pets earn more Coins and XP over time, so keep those bars topped up!',
-  'Pet other players\' pets to grow your Giving score. Sharing is caring!',
+  'Happy, healthy pets earn more Coins and XP — and the healthier the pet, the stronger its future offspring.',
+  'Breeding is coming soon: raise your pet\'s level and you\'ll be able to cross it with other colonists\' pets.',
   'Use the Whistle button to call your pet over or tell it to stay put.'
 ]
 
 export function openCaretakerIntro(onDone?: () => void): void {
-  openDialog('Caretaker', CARETAKER_INTRO, 'Adopt now!', onDone)
+  openDialog('Caretaker', caretakerIntro(), 'Adopt now!', onDone)
 }
 
 export function openCaretakerTips(): void {
