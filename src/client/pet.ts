@@ -199,6 +199,7 @@ export function petReact(): void {
 
 export function setFollow(enabled: boolean): void {
   clientState.followEnabled = enabled
+  actions.setFollow(enabled) // tell the server so others mirror our follow/stay
   if (enabled) {
     mode = 'follow'
   } else {
