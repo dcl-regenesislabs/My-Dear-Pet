@@ -19,6 +19,9 @@ export interface PetData {
   petLevel: number
   size: number // visual scale multiplier (1.0 = base), grows with care milestones
   careCount: number // cumulative care actions, drives size growth
+  // Sleep — a state, not an instant top-up: energy refills over time while true.
+  sleeping: boolean
+  sleepOnBed: boolean // resting on the Bed refills at full rate, elsewhere slower
   // Bookkeeping
   bornAt: number // ms timestamp
   lastUpdated: number // ms timestamp of last decay calculation
@@ -38,6 +41,7 @@ export interface PlayerData {
   // Daily streak
   streakCount: number
   lastLoginDay: number // day index (floor(ms / DAY_MS))
+  meteorDay: number // day index of the last collected meteor (-1 = never)
   // Achievements
   achievements: string[] // unlocked ids
   counters: Record<string, number> // generic counters that feed achievements (feedCount, etc.)

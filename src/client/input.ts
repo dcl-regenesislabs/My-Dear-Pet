@@ -90,6 +90,6 @@ export function setupInput(): void {
   onClick(EntityNames.Bed, 'Sleep', () => triggerCare('sleep'))
   onClick(EntityNames.Ball, 'Play', () => triggerCare('play'))
   onClick(EntityNames.Caretaker, 'Talk to Caretaker', () => ui.openCaretaker())
-  onClick(EntityNames.Shop, 'Open Shop', () => ui.openShop())
+  // Shop is suspended for now — the object stays in the scene but isn't clickable.
   setupCareQueue()
 }

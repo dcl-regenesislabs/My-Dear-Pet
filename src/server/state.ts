@@ -52,6 +52,8 @@ function newPet(species: string, name: string): PetData {
     petLevel: 1,
     size: C.SIZE_BASE,
     careCount: 0,
+    sleeping: false,
+    sleepOnBed: false,
     bornAt: t,
     lastUpdated: t
   }
@@ -69,6 +71,7 @@ function newPlayer(address: string): PlayerData {
     spinTickets: 1,
     streakCount: 0,
     lastLoginDay: 0,
+    meteorDay: -1,
     achievements: [],
     counters: {},
     petSlots: C.STARTING_SLOTS,
@@ -94,12 +97,21 @@ function decayPet(pet: PetData, atMs: number): void {
   const elapsedSec = Math.max(0, (atMs - pet.lastUpdated) / 1000)
   if (elapsedSec <= 0) return
 
+  // While asleep the pet rests: energy refills instead of draining, and
+  // everything else decays at a reduced rate.
+  const slow = pet.sleeping ? C.SLEEP_DECAY_FACTOR : 1
   for (const k of STAT_KEYS) {
     if (k === 'happiness') continue
-    pet[k] = clamp(pet[k] - C.DECAY_PER_SEC[k] * elapsedSec)
+    if (k === 'energy' && pet.sleeping) continue // refilled below
+    pet[k] = clamp(pet[k] - C.DECAY_PER_SEC[k] * elapsedSec * slow)
+  }
+  if (pet.sleeping) {
+    const fill = C.SLEEP_FILL_PER_SEC * (pet.sleepOnBed ? 1 : C.SLEEP_OFF_BED_FACTOR)
+    pet.energy = clamp(pet.energy + fill * elapsedSec)
+    if (pet.energy >= 100) pet.sleeping = false // wakes up rested
   }
   // Happiness decays slowly, with extra penalty if other stats are neglected.
-  let happinessLoss = C.DECAY_PER_SEC.happiness * elapsedSec
+  let happinessLoss = C.DECAY_PER_SEC.happiness * elapsedSec * slow
   let neglected = 0
   if (pet.hunger < C.NEGLECT_THRESHOLD) neglected++
   if (pet.hygiene < C.NEGLECT_THRESHOLD) neglected++
@@ -125,8 +137,11 @@ export function tickPlayer(p: PlayerData, atMs = now()): void {
   const active = activePet(p)
   const elapsedSec = Math.max(0, (atMs - p.lastUpdated) / 1000)
   if (active && elapsedSec > 0) {
+    // Cap what a single absence pays out — being away for days shouldn't bank a
+    // fortune. While online this is a no-op (each tick's elapsed is a few secs).
+    const paidSec = Math.min(elapsedSec, C.CURRENCY_OFFLINE_CAP_SEC)
     const rate = C.CURRENCY_BASE_PER_SEC + C.CURRENCY_HAPPINESS_BONUS_PER_SEC * (active.happiness / 100)
-    p.currency += rate * elapsedSec
+    p.currency += rate * paidSec
   }
   p.lastUpdated = atMs
 }
@@ -315,13 +330,26 @@ export function careAction(p: PlayerData, action: CareAction, onBed: boolean): N
     return [{ kind: 'cooldown', message: 'Pet is still busy...' }]
   }
   tickPlayer(p)
-  const effects = C.ACTION_EFFECT[action]
-  for (const key of Object.keys(effects) as StatKey[]) {
-    let delta = effects[key]!
-    if (action === 'sleep' && key === 'energy' && !onBed) {
-      delta = Math.round(delta * C.SLEEP_OFF_BED_FACTOR)
+
+  // Sleep is a toggle into/out of a state, not an instant refill.
+  if (action === 'sleep') {
+    if (pet.sleeping) {
+      pet.sleeping = false
+      return [{ kind: 'sleep', message: `${pet.name} woke up.` }]
     }
-    pet[key] = clamp(pet[key] + delta)
+    pet.sleeping = true
+    pet.sleepOnBed = onBed
+    notes.push({
+      kind: 'sleep',
+      message: onBed ? `${pet.name} is asleep in bed.` : `${pet.name} dozed off — not in bed, so it rests slower.`
+    })
+  } else {
+    // Any other attention wakes the pet before it takes effect.
+    pet.sleeping = false
+    const effects = C.ACTION_EFFECT[action]
+    for (const key of Object.keys(effects) as StatKey[]) {
+      pet[key] = clamp(pet[key] + effects[key]!)
+    }
   }
   pet.careCount += 1
   pet.size = C.sizeForCareCount(pet.careCount)
@@ -412,9 +440,8 @@ export function buySlot(p: PlayerData): Notify[] {
   return [{ kind: 'shop', message: `Unlocked pet slot ${p.petSlots}!` }]
 }
 
-export function spin(p: PlayerData): { notes: Notify[]; reward: C.SpinReward | null; index: number } {
-  if (p.spinTickets <= 0) return { notes: [{ kind: 'error', message: 'No spin tickets' }], reward: null, index: -1 }
-  p.spinTickets -= 1
+/** Roll a weighted reward from the pool and apply it. Shared by spin + meteor. */
+function rollAndApplyReward(p: PlayerData): { reward: C.SpinReward; index: number } {
   const total = C.SPIN_REWARDS.reduce((s, r) => s + r.weight, 0)
   let roll = Math.random() * total
   let index = 0
@@ -426,7 +453,6 @@ export function spin(p: PlayerData): { notes: Notify[]; reward: C.SpinReward | n
     }
   }
   const reward = C.SPIN_REWARDS[index]
-  const notes: Notify[] = []
   switch (reward.kind) {
     case 'currency':
     case 'cosmetic': // cosmetics not built -> pay out as currency-equivalent
@@ -443,8 +469,26 @@ export function spin(p: PlayerData): { notes: Notify[]; reward: C.SpinReward | n
       else p.currency += 200
       break
   }
-  notes.push({ kind: 'spin', message: `Spin: ${reward.label}!` })
-  return { notes, reward, index }
+  return { reward, index }
+}
+
+export function spin(p: PlayerData): { notes: Notify[]; reward: C.SpinReward | null; index: number } {
+  if (p.spinTickets <= 0) return { notes: [{ kind: 'error', message: 'No spin tickets' }], reward: null, index: -1 }
+  p.spinTickets -= 1
+  const { reward, index } = rollAndApplyReward(p)
+  return { notes: [{ kind: 'spin', message: `Spin: ${reward.label}!` }], reward, index }
+}
+
+/** The daily meteor: one free roll from the same pool per day. Server-authoritative
+ *  — the claimed day lives on PlayerData so it survives reloads and can't be farmed. */
+export function openMeteorReward(p: PlayerData): { notes: Notify[]; reward: C.SpinReward | null; index: number } {
+  const today = Math.floor(now() / C.DAY_MS)
+  if (p.meteorDay === today) {
+    return { notes: [{ kind: 'error', message: "Today's meteor is already collected." }], reward: null, index: -1 }
+  }
+  p.meteorDay = today
+  const { reward, index } = rollAndApplyReward(p)
+  return { notes: [{ kind: 'meteor', message: `Meteor: ${reward.label}!` }], reward, index }
 }
 
 // ---------------------------------------------------------------------------

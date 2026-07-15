@@ -16,7 +16,7 @@ import { startAnimSystem } from './ui/anim'
 import { C, Color, OutlineLabel, PanelShell, S, StatBar, TactileButton } from './ui/theme'
 import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './ui/dialog'
 
-type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily'
+type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor'
 
 const uiState = {
   panel: 'none' as Panel,
@@ -49,17 +49,14 @@ export const ui = {
   openDaily(): void {
     uiState.panel = 'daily'
   },
+  openMeteorReward(): void {
+    uiState.panel = 'meteor'
+  },
   // Auto-open the daily reward only when the screen is idle (no clashing popup).
   tryAutoOpenDaily(): void {
     if (uiState.panel === 'none' && !clientState.dialog.open) uiState.panel = 'daily'
   },
   openCaretaker(): void {
-    // TEST: the Caretaker hands out 500 coins each time you talk, for quickly
-    // testing the shop / pet-slot economy. Remove before launch.
-    if (clientState.player) {
-      clientState.player.currency += 500
-      pushToast('Caretaker gave you 500 coins! (test)')
-    }
     if (!clientState.activePet) openCaretakerIntro(() => ui.openAdopt())
     else openCaretakerTips()
   },
@@ -140,7 +137,24 @@ function PetPanel() {
       <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', justifyContent: 'center' }}>
         <TactileButton id="care_feed" label="Feed" width={chipW} height={S(52)} bg={C.hunger} textColor={C.outline} fontSize={S(17)} radius={S(16)} margin={{ left: S(3), right: S(3) }} onClick={() => care('feed')} />
         <TactileButton id="care_bath" label="Bath" width={chipW} height={S(52)} bg={C.hygiene} textColor={C.outline} fontSize={S(17)} radius={S(16)} margin={{ left: S(3), right: S(3) }} onClick={() => care('clean')} />
-        <TactileButton id="care_sleep" label="Sleep" width={chipW} height={S(52)} bg={C.energy} textColor={C.outline} fontSize={S(17)} radius={S(16)} margin={{ left: S(3), right: S(3) }} onClick={() => care('sleep')} />
+        <TactileButton
+          id="care_sleep"
+          label={pet.sleeping ? 'Wake' : 'Sleep'}
+          width={chipW}
+          height={S(52)}
+          bg={C.energy}
+          textColor={C.outline}
+          fontSize={S(17)}
+          radius={S(16)}
+          margin={{ left: S(3), right: S(3) }}
+          onClick={() => {
+            // Waking is instant — no walk back to the bed first.
+            if (pet.sleeping) {
+              pet.sleeping = false
+              actions.care('sleep', true)
+            } else care('sleep')
+          }}
+        />
         <TactileButton id="care_play" label="Play" width={chipW} height={S(52)} bg={C.happy} textColor={C.outline} fontSize={S(17)} radius={S(16)} margin={{ left: S(3), right: S(3) }} onClick={() => care('play')} />
       </UiEntity>
     </UiEntity>
@@ -178,12 +192,9 @@ function SideButtons() {
     <UiEntity uiTransform={{ width: '100%', height: '100%', positionType: 'absolute', position: { top: 0, left: 0 }, pointerFilter: 'none' }}>
       {/* right side */}
       <UiEntity uiTransform={{ positionType: 'absolute', position: { right: S(12), top: 0 }, width: w, height: '100%', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', pointerFilter: 'none' }}>
-        {(() => {
-          const daily = streakClaimable()
-          return <TactileButton id="side_daily" label={daily ? 'Daily!' : 'Daily'} width={w} height={h} bg={daily ? C.gold : C.cardAlt} textColor={daily ? C.outline : C.text} radius={S(20)} margin={{ bottom: S(10) }} pulse={daily} fontSize={S(18)} onClick={() => ui.openDaily()} />
-        })()}
+        {/* Daily reward is suspended for now — the meteor is the daily drop. */}
         <TactileButton id="side_spin" label="Spin" width={w} height={h} bg={spins ? C.pink : C.cardAlt} textColor={spins ? C.outline : C.text} radius={S(20)} margin={{ bottom: S(10) }} pulse={spins} fontSize={S(18)} onClick={() => ui.openSpin()} />
-        <TactileButton id="side_shop" label="Shop" width={w} height={h} bg={C.cardAlt} radius={S(20)} fontSize={S(18)} onClick={() => ui.openShop()} />
+        {/* Shop is suspended for now — the panel still exists, just unreachable. */}
       </UiEntity>
       {/* left side */}
       {hasPet && (
@@ -397,20 +408,6 @@ function ShopPanel() {
               actions.buySlot()
             }}
           />
-          {/* TEST: instant coins for quickly testing the slot economy. */}
-          <TactileButton
-            id="test_coins"
-            label="+500 Coins (test)"
-            width={S(300)}
-            height={S(54)}
-            bg={C.greenDark}
-            fontSize={S(17)}
-            margin={{ top: S(14) }}
-            onClick={() => {
-              if (clientState.player) clientState.player.currency += 500
-              pushToast('+500 coins (test)')
-            }}
-          />
         </UiEntity>
       )}
     </PanelShell>
@@ -446,7 +443,7 @@ function InventoryPanel() {
         <InvCard key="inv-2" id="use_2" title={Cfg.SHOP_ITEMS[1].label} count={t2} color={C.happy} onUse={() => { if (useItemLocal(2)) pushToast('Fed your pet!'); actions.useItem(2) }} />
       </UiEntity>
       <UiEntity uiTransform={{ width: '100%', justifyContent: 'center', margin: { top: S(10) } }}>
-        <TactileButton id="inv_shop" label="Get more in Shop" width={S(300)} height={S(56)} bg={C.cardAlt} fontSize={S(17)} onClick={() => ui.openShop()} />
+        {/* Shop is suspended for now. */}
       </UiEntity>
     </PanelShell>
   )
@@ -526,6 +523,26 @@ function SpinPanel() {
             actions.spin()
           }}
         />
+      </UiEntity>
+    </PanelShell>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Meteor reward — the daily meteor cracked open (reuses the spin reward pool)
+// ---------------------------------------------------------------------------
+function MeteorRewardPanel() {
+  const last = clientState.lastSpin
+  if (!last) return <UiEntity />
+  const r = last.reward
+  const accent = r.rarity === 'jackpot' ? C.happy : r.rarity === 'rare' ? C.energy : C.gold
+  return (
+    <PanelShell title="Meteor Cracked Open!" width={S(520)} onClose={() => ui.close()}>
+      <Label value="A meteor struck the colony — inside you found:" fontSize={S(17)} color={C.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(28) }} />
+      <Label value={r.rarity.toUpperCase()} fontSize={S(15)} color={accent} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24), margin: { top: S(10) } }} />
+      <OutlineLabel value={r.label} fontSize={S(30)} color={accent} width={'100%'} height={S(46)} textAlign="middle-center" />
+      <UiEntity uiTransform={{ width: '100%', justifyContent: 'center', margin: { top: S(16) } }}>
+        <TactileButton id="meteor_collect" label="Collect" width={S(260)} height={S(60)} bg={C.green} textColor={C.outline} fontSize={S(22)} onClick={() => ui.close()} />
       </UiEntity>
     </PanelShell>
   )
@@ -655,6 +672,7 @@ const Root = () => (
     {uiState.panel === 'roster' && <RosterPanel />}
     {uiState.panel === 'inventory' && <InventoryPanel />}
     {uiState.panel === 'spin' && <SpinPanel />}
+    {uiState.panel === 'meteor' && <MeteorRewardPanel />}
     {uiState.panel === 'goals' && <GoalsPanel />}
     {uiState.panel === 'daily' && <DailyRewardPanel />}
     <DialogBox />

@@ -106,6 +106,8 @@ function makeLocalPet(species: string, name: string): PetData {
     petLevel: 1,
     size: SIZE_BASE,
     careCount: 0,
+    sleeping: false,
+    sleepOnBed: false,
     bornAt: t,
     lastUpdated: t
   }
@@ -192,5 +194,8 @@ export const actions = {
   },
   setFollow(following: boolean): void {
     room.send('setFollow', { following })
+  },
+  openMeteor(): void {
+    room.send('openMeteor', {})
   }
 }
