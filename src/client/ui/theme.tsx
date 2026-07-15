@@ -101,30 +101,42 @@ export function TactileButton(props: {
   pulse?: boolean
   radius?: number
   margin?: Partial<{ top: number; right: number; bottom: number; left: number }>
+  /**
+   * Optional background image. When set it replaces the color fill and the label
+   * is skipped — these textures ship with their caption already baked in.
+   */
+  texture?: string
 }) {
   const scale = getPress(props.id) * (props.pulse && !props.disabled ? attentionPulse() : 1)
   const w = Math.round(props.width * scale)
   const h = Math.round(props.height * scale)
+  const textured = !!props.texture
   return (
     <UiEntity
       uiTransform={{ width: props.width, height: props.height, alignItems: 'center', justifyContent: 'center', margin: props.margin }}
     >
       <UiEntity
-        uiTransform={{ width: w, height: h, alignItems: 'center', justifyContent: 'center', borderRadius: props.radius ?? S(16) }}
-        uiBackground={{ color: props.disabled ? dimColor(props.bg) : props.bg ?? C.card }}
+        uiTransform={{ width: w, height: h, alignItems: 'center', justifyContent: 'center', borderRadius: textured ? 0 : props.radius ?? S(16) }}
+        uiBackground={
+          textured
+            ? { texture: { src: props.texture! }, textureMode: 'stretch' }
+            : { color: props.disabled ? dimColor(props.bg) : props.bg ?? C.card }
+        }
         onMouseDown={() => {
           if (props.disabled) return
           triggerPress(props.id)
           props.onClick()
         }}
       >
-        <Label
-          value={props.label}
-          fontSize={props.fontSize ?? S(18)}
-          color={props.disabled ? C.dim : props.textColor ?? C.text}
-          textAlign="middle-center"
-          uiTransform={{ width: w, height: h }}
-        />
+        {!textured && (
+          <Label
+            value={props.label}
+            fontSize={props.fontSize ?? S(18)}
+            color={props.disabled ? C.dim : props.textColor ?? C.text}
+            textAlign="middle-center"
+            uiTransform={{ width: w, height: h }}
+          />
+        )}
       </UiEntity>
     </UiEntity>
   )

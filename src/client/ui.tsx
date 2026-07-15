@@ -171,9 +171,36 @@ function BottomNav() {
   const bh = S(72)
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(18), left: 0 }, width: '100%', height: bh, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', pointerFilter: 'none' }}>
-      <TactileButton id="nav_pets" label="My Pets" width={bw} height={bh} bg={C.cardAlt} fontSize={S(20)} radius={S(20)} margin={{ left: S(8), right: S(8) }} onClick={() => ui.openRoster()} />
-      <TactileButton id="nav_inv" label="Inventory" width={bw} height={bh} bg={C.cardAlt} fontSize={S(20)} radius={S(20)} margin={{ left: S(8), right: S(8) }} onClick={() => ui.openInventory()} />
-      <TactileButton id="nav_goals" label="Goals" width={bw} height={bh} bg={C.cardAlt} fontSize={S(20)} radius={S(20)} margin={{ left: S(8), right: S(8) }} onClick={() => ui.openGoals()} />
+      <TactileButton
+        id="nav_pets"
+        label="My Pets"
+        texture={uiState.panel === 'roster' ? 'assets/images/ui/mypets_selected.png' : 'assets/images/ui/mypets_unselected.png'}
+        width={bw}
+        height={bh}
+        fontSize={S(20)}
+        margin={{ left: S(8), right: S(8) }}
+        onClick={() => ui.openRoster()}
+      />
+      <TactileButton
+        id="nav_inv"
+        label="Inventory"
+        texture={uiState.panel === 'inventory' ? 'assets/images/ui/inventory_selected.png' : 'assets/images/ui/inventory_unselected.png'}
+        width={bw}
+        height={bh}
+        fontSize={S(20)}
+        margin={{ left: S(8), right: S(8) }}
+        onClick={() => ui.openInventory()}
+      />
+      <TactileButton
+        id="nav_goals"
+        label="Goals"
+        texture={uiState.panel === 'goals' ? 'assets/images/ui/goals_selected.png' : 'assets/images/ui/goals_unselected.png'}
+        width={bw}
+        height={bh}
+        fontSize={S(20)}
+        margin={{ left: S(8), right: S(8) }}
+        onClick={() => ui.openGoals()}
+      />
     </UiEntity>
   )
 }
