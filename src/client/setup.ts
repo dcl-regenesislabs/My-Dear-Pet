@@ -51,6 +51,17 @@ function registerHandlers(): void {
     pushToast(data.message)
   })
 
+  // Daily meteor: the server rolled and persisted it — show what we got.
+  room.onMessage('meteorResult', (data) => {
+    try {
+      const reward = JSON.parse(data.json) as SpinReward
+      clientState.lastSpin = { reward, index: data.index, at: Date.now() }
+      ui.openMeteorReward()
+    } catch (e) {
+      console.log('[Client] bad meteor result', e)
+    }
+  })
+
   room.onMessage('spinResult', (data) => {
     try {
       const reward = JSON.parse(data.json) as SpinReward

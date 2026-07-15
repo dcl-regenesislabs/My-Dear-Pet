@@ -138,6 +138,16 @@ export function server(): void {
     pushSnapshot(p)
   })
 
+  room.onMessage('openMeteor', async (_data, ctx) => {
+    if (!ctx) return
+    const p = await S.loadPlayer(ctx.from)
+    const { notes, reward, index } = S.openMeteorReward(p)
+    await S.savePlayer(ctx.from)
+    forwardNotes(ctx.from, notes)
+    if (reward) room.send('meteorResult', { json: JSON.stringify(reward), index }, { to: [ctx.from] })
+    pushSnapshot(p)
+  })
+
   room.onMessage('setFollow', (data, ctx) => {
     if (!ctx) return
     S.setFollowState(ctx.from, data.following)

@@ -41,6 +41,7 @@ export interface PlayerData {
   // Daily streak
   streakCount: number
   lastLoginDay: number // day index (floor(ms / DAY_MS))
+  meteorDay: number // day index of the last collected meteor (-1 = never)
   // Achievements
   achievements: string[] // unlocked ids
   counters: Record<string, number> // generic counters that feed achievements (feedCount, etc.)

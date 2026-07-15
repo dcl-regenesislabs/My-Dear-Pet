@@ -33,6 +33,7 @@ export function seedLocalPlayer(): void {
     spinTickets: 1,
     streakCount: 1,
     lastLoginDay: Math.floor(t / Cfg.DAY_MS),
+    meteorDay: -1,
     achievements: [],
     counters: {},
     petSlots: Cfg.STARTING_SLOTS,
@@ -211,17 +212,16 @@ export function spinLocal(): { reward: Cfg.SpinReward; index: number } | null {
   return rollReward()
 }
 
-/** The daily meteor is available if it hasn't been opened yet today. */
-export function meteorAvailable(): boolean {
-  return clientState.meteorDay !== todayIndex()
-}
-
-/** Open the daily meteor: free roll from the same pool, once per day. */
-export function openMeteor(): { reward: Cfg.SpinReward; index: number } | null {
+/**
+ * Whether today's meteor is still up for grabs. Read from the server-owned
+ * `meteorDay` on PlayerData (arrives in the snapshot), NOT from local state —
+ * the server rolls and persists the reward, so a reload can't farm it.
+ * Returns null while we're still waiting for the first snapshot.
+ */
+export function meteorAvailable(): boolean | null {
   const p = clientState.player
-  if (!p || !meteorAvailable()) return null
-  clientState.meteorDay = todayIndex()
-  return rollReward()
+  if (!p) return null
+  return p.meteorDay !== todayIndex()
 }
 
 /** Apply a care action's effect locally (optimistic; server snapshot corrects). */

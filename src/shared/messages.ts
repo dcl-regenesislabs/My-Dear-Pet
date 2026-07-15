@@ -26,6 +26,8 @@ export const Messages = {
   buySlot: Schemas.Map({}),
   // Spend a spin ticket on the wheel.
   spin: Schemas.Map({}),
+  // Crack open the daily meteor (server rolls, applies and persists the reward).
+  openMeteor: Schemas.Map({}),
   // Report my pet's follow state (Whistle/Stay) so the server can broadcast it
   // in presence for everyone to mirror.
   setFollow: Schemas.Map({ following: Schemas.Boolean }),
@@ -38,7 +40,9 @@ export const Messages = {
   // Toast / notification.
   notify: Schemas.Map({ kind: Schemas.String, message: Schemas.String }),
   // Spin wheel result (SpinReward JSON + landing index for animation).
-  spinResult: Schemas.Map({ json: Schemas.String, index: Schemas.Int })
+  spinResult: Schemas.Map({ json: Schemas.String, index: Schemas.Int }),
+  // Daily meteor result (SpinReward JSON + index), mirrors spinResult.
+  meteorResult: Schemas.Map({ json: Schemas.String, index: Schemas.Int })
 }
 
 export const room = registerMessages(Messages)

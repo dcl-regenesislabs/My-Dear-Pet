@@ -32,8 +32,6 @@ export const clientState: {
   pendingUntil: number
   // 7-day login streak (client-owned so it works without the server).
   streak: { count: number; lastDay: number; claimedDay: number }
-  // Day index the daily meteor was last opened (-1 = never; available today).
-  meteorDay: number
 } = {
   myAddress: '',
   player: null,
@@ -46,8 +44,7 @@ export const clientState: {
   introShown: false,
   pendingPet: null,
   pendingUntil: 0,
-  streak: { count: 1, lastDay: 0, claimedDay: 0 },
-  meteorDay: -1
+  streak: { count: 1, lastDay: 0, claimedDay: 0 }
 }
 
 /** Open a multi-page NPC dialog. Advancing past the last page closes it. */
@@ -197,5 +194,8 @@ export const actions = {
   },
   setFollow(following: boolean): void {
     room.send('setFollow', { following })
+  },
+  openMeteor(): void {
+    room.send('openMeteor', {})
   }
 }

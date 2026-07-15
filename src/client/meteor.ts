@@ -1,7 +1,9 @@
 // Daily meteor reward — Mars reskin of the old "spin". A couple of seconds after
-// the scene loads, a meteor falls from the sky (landing anim) and settles into a
-// struck idle. Clicking it cracks it open: you get a reward from the spin pool,
-// the reward UI shows what you won, and the meteor disappears. Once per day.
+// the scene loads a meteor falls from the sky (landing anim) and settles into a
+// struck idle. Clicking it cracks it open: the SERVER rolls, applies and persists
+// the reward, then answers with `meteorResult` and the reward panel opens.
+//
+// The claimed day lives on PlayerData (server-owned), so a reload can't farm it.
 
 import {
   engine,
@@ -14,9 +16,8 @@ import {
   InputAction
 } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion } from '@dcl/sdk/math'
-import { clientState } from './state'
-import { meteorAvailable, openMeteor } from './sim'
-import { ui } from './ui'
+import { actions } from './state'
+import { meteorAvailable } from './sim'
 
 const MODEL = 'assets/scene/Models/meteor_gold.glb'
 const LANDING_CLIP = 'meteorLanding'
@@ -32,9 +33,19 @@ const SPAWN = {
 }
 
 export function setupMeteor(): void {
-  // Only drop the meteor if today's reward hasn't been claimed yet.
-  if (!meteorAvailable()) return
+  // Wait for the first server snapshot before deciding whether to drop it — the
+  // claimed day comes from the server, so spawning early could show a meteor
+  // that was already collected today.
+  const waitForState = (): void => {
+    const available = meteorAvailable()
+    if (available === null) return // no snapshot yet
+    engine.removeSystem(waitForState)
+    if (available) spawnMeteor()
+  }
+  engine.addSystem(waitForState)
+}
 
+function spawnMeteor(): void {
   const meteor = engine.addEntity()
   Transform.create(meteor, {
     position: SPAWN.position,
@@ -47,7 +58,6 @@ export function setupMeteor(): void {
   // the delay before the landing animation kicks in.
   VisibilityComponent.create(meteor, { visible: false })
 
-  // Nothing plays yet; both clips are staged.
   Animator.create(meteor, {
     states: [
       { clip: LANDING_CLIP, playing: false, loop: false, shouldReset: true },
@@ -55,27 +65,10 @@ export function setupMeteor(): void {
     ]
   })
 
-  let removed = false
-
-  // Click to crack it open: roll the daily reward, show it, remove the meteor.
-  pointerEventsSystem.onPointerDown(
-    { entity: meteor, opts: { button: InputAction.IA_POINTER, hoverText: 'Explore', maxDistance: 12 } },
-    () => {
-      if (removed) return
-      const res = openMeteor()
-      if (!res) return // already claimed today
-      removed = true
-      clientState.lastSpin = { reward: res.reward, index: res.index, at: Date.now() }
-      ui.openMeteorReward()
-      engine.removeEntity(meteor)
-    }
-  )
-
-  // Timeline: wait FALL_DELAY -> reveal + fall -> after landing, settle to idle.
+  // Timeline: wait -> reveal + fall -> settle into idle, then retire the system.
   let t = 0
-  let phase = 0 // 0 = waiting, 1 = falling, 2 = settled
-  engine.addSystem((dt: number) => {
-    if (removed || phase === 2) return
+  let phase = 0 // 0 = waiting, 1 = falling
+  const timeline = (dt: number): void => {
     t += dt
     if (phase === 0 && t >= FALL_DELAY) {
       phase = 1
@@ -83,8 +76,23 @@ export function setupMeteor(): void {
       VisibilityComponent.getMutable(meteor).visible = true
       Animator.playSingleAnimation(meteor, LANDING_CLIP, true)
     } else if (phase === 1 && t >= LANDING_DURATION) {
-      phase = 2
       Animator.playSingleAnimation(meteor, IDLE_CLIP, false)
+      engine.removeSystem(timeline) // settled — nothing left to drive
     }
-  })
+  }
+  engine.addSystem(timeline)
+
+  // Click to crack it open. The server owns the roll, the payout and the daily
+  // gate; the panel opens when `meteorResult` comes back.
+  let collected = false
+  pointerEventsSystem.onPointerDown(
+    { entity: meteor, opts: { button: InputAction.IA_POINTER, hoverText: 'Explore', maxDistance: 12 } },
+    () => {
+      if (collected) return
+      collected = true
+      actions.openMeteor()
+      engine.removeSystem(timeline)
+      engine.removeEntity(meteor)
+    }
+  )
 }

@@ -71,6 +71,7 @@ function newPlayer(address: string): PlayerData {
     spinTickets: 1,
     streakCount: 0,
     lastLoginDay: 0,
+    meteorDay: -1,
     achievements: [],
     counters: {},
     petSlots: C.STARTING_SLOTS,
@@ -439,9 +440,8 @@ export function buySlot(p: PlayerData): Notify[] {
   return [{ kind: 'shop', message: `Unlocked pet slot ${p.petSlots}!` }]
 }
 
-export function spin(p: PlayerData): { notes: Notify[]; reward: C.SpinReward | null; index: number } {
-  if (p.spinTickets <= 0) return { notes: [{ kind: 'error', message: 'No spin tickets' }], reward: null, index: -1 }
-  p.spinTickets -= 1
+/** Roll a weighted reward from the pool and apply it. Shared by spin + meteor. */
+function rollAndApplyReward(p: PlayerData): { reward: C.SpinReward; index: number } {
   const total = C.SPIN_REWARDS.reduce((s, r) => s + r.weight, 0)
   let roll = Math.random() * total
   let index = 0
@@ -453,7 +453,6 @@ export function spin(p: PlayerData): { notes: Notify[]; reward: C.SpinReward | n
     }
   }
   const reward = C.SPIN_REWARDS[index]
-  const notes: Notify[] = []
   switch (reward.kind) {
     case 'currency':
     case 'cosmetic': // cosmetics not built -> pay out as currency-equivalent
@@ -470,8 +469,26 @@ export function spin(p: PlayerData): { notes: Notify[]; reward: C.SpinReward | n
       else p.currency += 200
       break
   }
-  notes.push({ kind: 'spin', message: `Spin: ${reward.label}!` })
-  return { notes, reward, index }
+  return { reward, index }
+}
+
+export function spin(p: PlayerData): { notes: Notify[]; reward: C.SpinReward | null; index: number } {
+  if (p.spinTickets <= 0) return { notes: [{ kind: 'error', message: 'No spin tickets' }], reward: null, index: -1 }
+  p.spinTickets -= 1
+  const { reward, index } = rollAndApplyReward(p)
+  return { notes: [{ kind: 'spin', message: `Spin: ${reward.label}!` }], reward, index }
+}
+
+/** The daily meteor: one free roll from the same pool per day. Server-authoritative
+ *  — the claimed day lives on PlayerData so it survives reloads and can't be farmed. */
+export function openMeteorReward(p: PlayerData): { notes: Notify[]; reward: C.SpinReward | null; index: number } {
+  const today = Math.floor(now() / C.DAY_MS)
+  if (p.meteorDay === today) {
+    return { notes: [{ kind: 'error', message: "Today's meteor is already collected." }], reward: null, index: -1 }
+  }
+  p.meteorDay = today
+  const { reward, index } = rollAndApplyReward(p)
+  return { notes: [{ kind: 'meteor', message: `Meteor: ${reward.label}!` }], reward, index }
 }
 
 // ---------------------------------------------------------------------------
