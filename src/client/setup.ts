@@ -8,11 +8,12 @@ import { room } from '../shared/messages'
 import type { PlayerSnapshot, PresenceEntry } from '../shared/types'
 import type { SpinReward } from '../shared/config'
 import { actions, applyPresence, applySnapshot, clientState, pushToast, resolveMyAddress } from './state'
-import { evaluateStreak, seedLocalPlayer, simTick, streakClaimable } from './sim'
+import { evaluateStreak, seedLocalPlayer, simTick } from './sim'
 import { setupUi, ui } from './ui'
 import { openCaretakerIntro } from './ui/dialog'
 import { setupInput } from './input'
 import { setupPetSystems } from './pet'
+import { setupMeteor } from './meteor'
 
 let introTriggered = false
 
@@ -63,6 +64,7 @@ function registerHandlers(): void {
 export function setupClient(): void {
   resolveMyAddress()
   seedLocalPlayer() // HUD renders immediately, no waiting on the network
+  setupMeteor() // meteor reward drop (falls, settles, clickable)
   evaluateStreak() // advance / reset the 7-day login streak
   registerHandlers()
   setupUi()
@@ -72,7 +74,6 @@ export function setupClient(): void {
   // Try to load persisted state from the server (retry until it answers).
   let sinceReq = 99
   let elapsed = 0
-  let dailyShown = false
   actions.requestState()
   engine.addSystem((dt: number) => {
     elapsed += dt
@@ -93,11 +94,7 @@ export function setupClient(): void {
       showIntro()
     }
 
-    // Show the daily reward once the screen is idle (after any intro/adoption).
-    if (!dailyShown && elapsed >= 4 && streakClaimable() && !clientState.dialog.open && clientState.activePet) {
-      dailyShown = true
-      ui.tryAutoOpenDaily()
-    }
+    // Daily reward is suspended for now — the meteor covers the daily drop.
   })
 
   console.log('[Client] MyDearPet client ready')

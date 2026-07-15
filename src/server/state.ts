@@ -52,6 +52,8 @@ function newPet(species: string, name: string): PetData {
     petLevel: 1,
     size: C.SIZE_BASE,
     careCount: 0,
+    sleeping: false,
+    sleepOnBed: false,
     bornAt: t,
     lastUpdated: t
   }
@@ -94,12 +96,21 @@ function decayPet(pet: PetData, atMs: number): void {
   const elapsedSec = Math.max(0, (atMs - pet.lastUpdated) / 1000)
   if (elapsedSec <= 0) return
 
+  // While asleep the pet rests: energy refills instead of draining, and
+  // everything else decays at a reduced rate.
+  const slow = pet.sleeping ? C.SLEEP_DECAY_FACTOR : 1
   for (const k of STAT_KEYS) {
     if (k === 'happiness') continue
-    pet[k] = clamp(pet[k] - C.DECAY_PER_SEC[k] * elapsedSec)
+    if (k === 'energy' && pet.sleeping) continue // refilled below
+    pet[k] = clamp(pet[k] - C.DECAY_PER_SEC[k] * elapsedSec * slow)
+  }
+  if (pet.sleeping) {
+    const fill = C.SLEEP_FILL_PER_SEC * (pet.sleepOnBed ? 1 : C.SLEEP_OFF_BED_FACTOR)
+    pet.energy = clamp(pet.energy + fill * elapsedSec)
+    if (pet.energy >= 100) pet.sleeping = false // wakes up rested
   }
   // Happiness decays slowly, with extra penalty if other stats are neglected.
-  let happinessLoss = C.DECAY_PER_SEC.happiness * elapsedSec
+  let happinessLoss = C.DECAY_PER_SEC.happiness * elapsedSec * slow
   let neglected = 0
   if (pet.hunger < C.NEGLECT_THRESHOLD) neglected++
   if (pet.hygiene < C.NEGLECT_THRESHOLD) neglected++
@@ -125,8 +136,11 @@ export function tickPlayer(p: PlayerData, atMs = now()): void {
   const active = activePet(p)
   const elapsedSec = Math.max(0, (atMs - p.lastUpdated) / 1000)
   if (active && elapsedSec > 0) {
+    // Cap what a single absence pays out — being away for days shouldn't bank a
+    // fortune. While online this is a no-op (each tick's elapsed is a few secs).
+    const paidSec = Math.min(elapsedSec, C.CURRENCY_OFFLINE_CAP_SEC)
     const rate = C.CURRENCY_BASE_PER_SEC + C.CURRENCY_HAPPINESS_BONUS_PER_SEC * (active.happiness / 100)
-    p.currency += rate * elapsedSec
+    p.currency += rate * paidSec
   }
   p.lastUpdated = atMs
 }
@@ -315,13 +329,26 @@ export function careAction(p: PlayerData, action: CareAction, onBed: boolean): N
     return [{ kind: 'cooldown', message: 'Pet is still busy...' }]
   }
   tickPlayer(p)
-  const effects = C.ACTION_EFFECT[action]
-  for (const key of Object.keys(effects) as StatKey[]) {
-    let delta = effects[key]!
-    if (action === 'sleep' && key === 'energy' && !onBed) {
-      delta = Math.round(delta * C.SLEEP_OFF_BED_FACTOR)
+
+  // Sleep is a toggle into/out of a state, not an instant refill.
+  if (action === 'sleep') {
+    if (pet.sleeping) {
+      pet.sleeping = false
+      return [{ kind: 'sleep', message: `${pet.name} woke up.` }]
     }
-    pet[key] = clamp(pet[key] + delta)
+    pet.sleeping = true
+    pet.sleepOnBed = onBed
+    notes.push({
+      kind: 'sleep',
+      message: onBed ? `${pet.name} is asleep in bed.` : `${pet.name} dozed off — not in bed, so it rests slower.`
+    })
+  } else {
+    // Any other attention wakes the pet before it takes effect.
+    pet.sleeping = false
+    const effects = C.ACTION_EFFECT[action]
+    for (const key of Object.keys(effects) as StatKey[]) {
+      pet[key] = clamp(pet[key] + effects[key]!)
+    }
   }
   pet.careCount += 1
   pet.size = C.sizeForCareCount(pet.careCount)

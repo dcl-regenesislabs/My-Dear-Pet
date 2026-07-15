@@ -32,6 +32,8 @@ export const clientState: {
   pendingUntil: number
   // 7-day login streak (client-owned so it works without the server).
   streak: { count: number; lastDay: number; claimedDay: number }
+  // Day index the daily meteor was last opened (-1 = never; available today).
+  meteorDay: number
 } = {
   myAddress: '',
   player: null,
@@ -44,7 +46,8 @@ export const clientState: {
   introShown: false,
   pendingPet: null,
   pendingUntil: 0,
-  streak: { count: 1, lastDay: 0, claimedDay: 0 }
+  streak: { count: 1, lastDay: 0, claimedDay: 0 },
+  meteorDay: -1
 }
 
 /** Open a multi-page NPC dialog. Advancing past the last page closes it. */
@@ -106,6 +109,8 @@ function makeLocalPet(species: string, name: string): PetData {
     petLevel: 1,
     size: SIZE_BASE,
     careCount: 0,
+    sleeping: false,
+    sleepOnBed: false,
     bornAt: t,
     lastUpdated: t
   }

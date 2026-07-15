@@ -50,11 +50,19 @@ export function simTick(dt: number): void {
   const pet = clientState.activePet
   if (!pet) return
 
+  // Mirrors the server: asleep -> energy refills, everything else slows down.
+  const slow = pet.sleeping ? Cfg.SLEEP_DECAY_FACTOR : 1
   for (const k of STAT_KEYS) {
     if (k === 'happiness') continue
-    pet[k] = clamp(pet[k] - Cfg.DECAY_PER_SEC[k] * dt)
+    if (k === 'energy' && pet.sleeping) continue // refilled below
+    pet[k] = clamp(pet[k] - Cfg.DECAY_PER_SEC[k] * dt * slow)
   }
-  let happinessLoss = Cfg.DECAY_PER_SEC.happiness * dt
+  if (pet.sleeping) {
+    const fill = Cfg.SLEEP_FILL_PER_SEC * (pet.sleepOnBed ? 1 : Cfg.SLEEP_OFF_BED_FACTOR)
+    pet.energy = clamp(pet.energy + fill * dt)
+    if (pet.energy >= 100) pet.sleeping = false // wakes up rested
+  }
+  let happinessLoss = Cfg.DECAY_PER_SEC.happiness * dt * slow
   let neglected = 0
   if (pet.hunger < Cfg.NEGLECT_THRESHOLD) neglected++
   if (pet.hygiene < Cfg.NEGLECT_THRESHOLD) neglected++
@@ -163,10 +171,9 @@ export function useItemLocal(tier: number): boolean {
   return true
 }
 
-export function spinLocal(): { reward: Cfg.SpinReward; index: number } | null {
-  const p = clientState.player
-  if (!p || p.spinTickets <= 0) return null
-  p.spinTickets -= 1
+/** Roll a weighted reward from the pool and apply it to the player. */
+function rollReward(): { reward: Cfg.SpinReward; index: number } {
+  const p = clientState.player!
   const total = Cfg.SPIN_REWARDS.reduce((s, r) => s + r.weight, 0)
   let roll = Math.random() * total
   let index = 0
@@ -197,16 +204,45 @@ export function spinLocal(): { reward: Cfg.SpinReward; index: number } | null {
   return { reward, index }
 }
 
+export function spinLocal(): { reward: Cfg.SpinReward; index: number } | null {
+  const p = clientState.player
+  if (!p || p.spinTickets <= 0) return null
+  p.spinTickets -= 1
+  return rollReward()
+}
+
+/** The daily meteor is available if it hasn't been opened yet today. */
+export function meteorAvailable(): boolean {
+  return clientState.meteorDay !== todayIndex()
+}
+
+/** Open the daily meteor: free roll from the same pool, once per day. */
+export function openMeteor(): { reward: Cfg.SpinReward; index: number } | null {
+  const p = clientState.player
+  if (!p || !meteorAvailable()) return null
+  clientState.meteorDay = todayIndex()
+  return rollReward()
+}
+
 /** Apply a care action's effect locally (optimistic; server snapshot corrects). */
 export function applyCareLocal(action: CareAction, onBed: boolean): void {
   const p = clientState.player
   const pet = clientState.activePet
   if (!p || !pet) return
-  const effects = Cfg.ACTION_EFFECT[action]
-  for (const key of Object.keys(effects) as StatKey[]) {
-    let delta = effects[key]!
-    if (action === 'sleep' && key === 'energy' && !onBed) delta = Math.round(delta * Cfg.SLEEP_OFF_BED_FACTOR)
-    pet[key] = clamp(pet[key] + delta)
+  // Sleep toggles the rest state; anything else wakes the pet and applies.
+  if (action === 'sleep') {
+    if (pet.sleeping) {
+      pet.sleeping = false
+      return
+    }
+    pet.sleeping = true
+    pet.sleepOnBed = onBed
+  } else {
+    pet.sleeping = false
+    const effects = Cfg.ACTION_EFFECT[action]
+    for (const key of Object.keys(effects) as StatKey[]) {
+      pet[key] = clamp(pet[key] + effects[key]!)
+    }
   }
   pet.careCount += 1
   pet.size = Cfg.sizeForCareCount(pet.careCount)

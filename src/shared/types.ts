@@ -19,6 +19,9 @@ export interface PetData {
   petLevel: number
   size: number // visual scale multiplier (1.0 = base), grows with care milestones
   careCount: number // cumulative care actions, drives size growth
+  // Sleep — a state, not an instant top-up: energy refills over time while true.
+  sleeping: boolean
+  sleepOnBed: boolean // resting on the Bed refills at full rate, elsewhere slower
   // Bookkeeping
   bornAt: number // ms timestamp
   lastUpdated: number // ms timestamp of last decay calculation

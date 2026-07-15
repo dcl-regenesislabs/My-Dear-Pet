@@ -50,24 +50,29 @@ export const ACTION_OBJECT: Record<CareAction, Vector3> = {
 
 // ---------------------------------------------------------------------------
 // Stat decay — points lost per real second. Hunger fastest, happiness slowest.
-// (Generous starting values; tune live.)
+// Tuned for a relaxed cadence: the player is expected back every 2-3 days, so a
+// pet left alone that long is hungry and sad but still recoverable.
 // ---------------------------------------------------------------------------
 export const DECAY_PER_SEC: Record<StatKey, number> = {
-  hunger: 0.06, // ~28 min to empty from full
-  hygiene: 0.035,
-  energy: 0.03,
-  happiness: 0.02
+  hunger: 0.0004, // ~2.9 days to empty from full
+  hygiene: 0.0003, // ~3.9 days
+  energy: 0.00033, // ~3.5 days
+  happiness: 0.00023 // ~5 days
 }
 
-/** Extra happiness penalty per second when another stat sits at/near zero. */
-export const HAPPINESS_NEGLECT_PENALTY = 0.04
+/**
+ * Extra happiness penalty per second, per neglected stat. Kept in scale with the
+ * decay rates above: fully neglected (3 stats down) drains happiness in ~28h —
+ * a real consequence, but not an instant wipe.
+ */
+export const HAPPINESS_NEGLECT_PENALTY = 0.00025
 export const NEGLECT_THRESHOLD = 15 // a stat below this counts as "neglected"
 
 /** How much each care action refills. Energy is drained by play. */
 export const ACTION_EFFECT: Record<CareAction, Partial<Record<StatKey, number>>> = {
   feed: { hunger: 35 },
   clean: { hygiene: 45 },
-  sleep: { energy: 50 },
+  sleep: {}, // sleep is a State, not an instant effect — see SLEEP_FILL_PER_SEC
   play: { happiness: 30, energy: -12 }
 }
 
@@ -75,12 +80,21 @@ export const ACTION_EFFECT: Record<CareAction, Partial<Record<StatKey, number>>>
 export const ACTION_COOLDOWN_MS: Record<CareAction, number> = {
   feed: 8000,
   clean: 12000,
-  sleep: 15000,
+  sleep: 2000, // just a toggle now (sleep/wake), so keep it responsive
   play: 8000
 }
 
-/** Sleeping somewhere other than the Bed refills at this fraction (quality). */
+// ---------------------------------------------------------------------------
+// Sleep — a duration state. The pet stays asleep and energy refills in real
+// time; you wake it (or it wakes itself once rested). Leaving it asleep before
+// you log off is the intended play: come back to a rested pet.
+// ---------------------------------------------------------------------------
+/** Energy refilled per second while asleep on the Bed: 0 -> 100 in ~1 hour. */
+export const SLEEP_FILL_PER_SEC = 100 / 3600
+/** Sleeping somewhere other than the Bed refills at this fraction (~2h). */
 export const SLEEP_OFF_BED_FACTOR = 0.5
+/** Everything else decays at this fraction while the pet sleeps. */
+export const SLEEP_DECAY_FACTOR = 0.5
 
 // Petting (own pet): instant small happiness, lightly rate-limited.
 export const PET_SELF_HAPPINESS = 4
@@ -93,10 +107,16 @@ export const PET_OTHER_DAILY_CAP = 3 // per giver->pet pair per day
 export const PET_OTHER_COOLDOWN_MS = 4000
 
 // ---------------------------------------------------------------------------
-// Currency — passive income scaled by happiness, accrued per second.
+// Currency — passive income, accrued per second. Happiness is the ONLY source:
+// a neglected pet earns nothing ("caring well IS the economy"). Since happiness
+// decays while you're away, a long absence self-limits what you earn.
+// Calibrated against the shop scale (kibble 15 / feast 40 / slot 250).
 // ---------------------------------------------------------------------------
-export const CURRENCY_BASE_PER_SEC = 0.05
-export const CURRENCY_HAPPINESS_BONUS_PER_SEC = 0.15 // multiplied by happiness/100
+export const CURRENCY_BASE_PER_SEC = 0 // no floor: an unhappy pet earns zero
+export const CURRENCY_HAPPINESS_BONUS_PER_SEC = 0.0028 // multiplied by happiness/100
+
+/** Max seconds of passive income paid out for a single absence (anti-hoarding). */
+export const CURRENCY_OFFLINE_CAP_SEC = 8 * 3600 // 8h
 export const STARTING_CURRENCY = 50
 
 // ---------------------------------------------------------------------------
