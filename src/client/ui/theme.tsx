@@ -194,14 +194,67 @@ export function Pill(props: { label: string; value: string; bg?: Color; accent?:
 }
 
 // ---- Stat bar (rounded) --------------------------------------------------
-export function StatBar(props: { label: string; value: number; color: Color; width: number }) {
+/** Track art aspect (bar_track.png is 600x30). Keeps the groove undistorted. */
+const TRACK_ASPECT = 20
+
+/**
+ * A bar texture plus the normalized width of its rounded cap. We nine-slice on
+ * that inset so the caps keep their radius no matter how far the bar is
+ * stretched — the art ships at different lengths, and the fill's width tracks
+ * the live stat value, so plain 'stretch' would distort every bar differently.
+ */
+export type BarArt = { src: string; slice: number }
+
+function nineSlice(a: BarArt) {
+  return {
+    texture: { src: a.src },
+    textureMode: 'nine-slices' as const,
+    textureSlices: { top: 0, right: a.slice, bottom: 0, left: a.slice }
+  }
+}
+
+export function StatBar(props: {
+  label: string
+  value: number
+  color: Color
+  width: number
+  /** Optional art. `icon` replaces the text label; `track`/`fill` the flat bars. */
+  icon?: string
+  track?: BarArt
+  fill?: BarArt
+}) {
   const v = Math.max(0, Math.min(100, props.value))
-  const trackW = props.width - S(64)
+  const textured = !!(props.track && props.fill)
+  const iconW = S(24)
+  const gap = S(8)
+  const headW = props.icon ? iconW : S(58)
+  const trackW = props.width - headW - gap
+  const trackH = textured ? Math.round(trackW / TRACK_ASPECT) : S(15)
+  const rowH = Math.max(S(26), props.icon ? iconW : S(22))
   return (
-    <UiEntity uiTransform={{ width: props.width, height: S(26), flexDirection: 'row', alignItems: 'center', margin: { bottom: S(5) } }}>
-      <Label value={props.label} fontSize={S(13)} color={C.text} textAlign="middle-left" uiTransform={{ width: S(58), height: S(22) }} />
-      <UiEntity uiTransform={{ width: trackW, height: S(15), borderRadius: S(8) }} uiBackground={{ color: C.trackBg }}>
-        <UiEntity uiTransform={{ width: `${v}%`, height: '100%', borderRadius: S(8) }} uiBackground={{ color: props.color }} />
+    <UiEntity uiTransform={{ width: props.width, height: rowH, flexDirection: 'row', alignItems: 'center', margin: { bottom: S(4) } }}>
+      {props.icon ? (
+        <UiEntity
+          uiTransform={{ width: iconW, height: iconW, margin: { right: gap } }}
+          uiBackground={{ texture: { src: props.icon }, textureMode: 'stretch' }}
+        />
+      ) : (
+        <Label
+          value={props.label}
+          fontSize={S(13)}
+          color={C.text}
+          textAlign="middle-left"
+          uiTransform={{ width: headW, height: S(22), margin: { right: gap } }}
+        />
+      )}
+      <UiEntity
+        uiTransform={{ width: trackW, height: trackH, borderRadius: textured ? 0 : S(8) }}
+        uiBackground={textured ? nineSlice(props.track!) : { color: C.trackBg }}
+      >
+        <UiEntity
+          uiTransform={{ width: `${v}%`, height: '100%', borderRadius: textured ? 0 : S(8) }}
+          uiBackground={textured ? nineSlice(props.fill!) : { color: props.color }}
+        />
       </UiEntity>
     </UiEntity>
   )

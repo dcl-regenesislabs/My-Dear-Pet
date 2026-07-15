@@ -23,6 +23,13 @@ function pushSnapshot(p: PlayerData): void {
   room.send('stateSnapshot', { json: JSON.stringify(S.snapshotFor(p)) }, { to: [p.address] })
 }
 
+/** The shared colony population: every pet raised across the colony. */
+function broadcastColony(): void {
+  let population = 0
+  for (const p of S.allCached()) population += p.pets.length
+  room.send('colony', { population })
+}
+
 function broadcastPresence(): void {
   const entries: PresenceEntry[] = []
   for (const p of S.allCached()) {
@@ -50,6 +57,7 @@ export function server(): void {
     }
     pushSnapshot(p)
     broadcastPresence()
+    broadcastColony() // a player joined -> their pets count toward the colony
   })
 
   room.onMessage('adopt', async (data, ctx) => {
@@ -61,6 +69,7 @@ export function server(): void {
     forwardNotes(ctx.from, notes)
     pushSnapshot(p)
     broadcastPresence()
+    broadcastColony() // one more pet in the colony
   })
 
   room.onMessage('careAction', async (data, ctx) => {
@@ -168,6 +177,7 @@ export function server(): void {
         void S.savePlayer(p.address)
       }
       broadcastPresence()
+      broadcastColony()
     }
 
     if (snapAcc >= SNAPSHOT_INTERVAL) {

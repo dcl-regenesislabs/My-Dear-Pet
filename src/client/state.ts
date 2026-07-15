@@ -4,7 +4,7 @@
 import { getPlayer } from '@dcl/sdk/players'
 import { room } from '../shared/messages'
 import type { CareAction, PetData, PlayerData, PlayerSnapshot, PresenceEntry } from '../shared/types'
-import { SIZE_BASE, type SpinReward } from '../shared/config'
+import { SERVER_TIMEOUT_MS, SIZE_BASE, type SpinReward } from '../shared/config'
 
 export type DialogState = {
   open: boolean
@@ -32,6 +32,11 @@ export const clientState: {
   pendingUntil: number
   // 7-day login streak (client-owned so it works without the server).
   streak: { count: number; lastDay: number; claimedDay: number }
+  // ms timestamp of the last message received from the authoritative server
+  // (0 = never heard from it). Drives the connection indicator.
+  lastServerMsgAt: number
+  // Shared Mars colony population, broadcast by the server (same for everyone).
+  colonyPopulation: number
 } = {
   myAddress: '',
   player: null,
@@ -44,7 +49,23 @@ export const clientState: {
   introShown: false,
   pendingPet: null,
   pendingUntil: 0,
-  streak: { count: 1, lastDay: 0, claimedDay: 0 }
+  streak: { count: 1, lastDay: 0, claimedDay: 0 },
+  lastServerMsgAt: 0,
+  colonyPopulation: 0
+}
+
+/** Stamp that the server just talked to us. Called from every server handler. */
+export function markServerAlive(): void {
+  clientState.lastServerMsgAt = Date.now()
+}
+
+/**
+ * True while the authoritative server has answered recently. False means we're
+ * running on the local simulation only — progress won't persist.
+ */
+export function serverConnected(): boolean {
+  if (clientState.lastServerMsgAt === 0) return false // never heard from it
+  return Date.now() - clientState.lastServerMsgAt < SERVER_TIMEOUT_MS
 }
 
 /** Open a multi-page NPC dialog. Advancing past the last page closes it. */

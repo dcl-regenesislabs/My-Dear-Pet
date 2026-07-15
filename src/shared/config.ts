@@ -6,6 +6,21 @@ import type { CareAction, StatKey } from './types'
 
 export const DAY_MS = 24 * 60 * 60 * 1000
 
+/**
+ * No message from the authoritative server in this long -> treat the connection
+ * as down. The server pushes a snapshot every ~3s and presence every ~5s, so
+ * this allows a couple of missed beats before warning.
+ */
+export const SERVER_TIMEOUT_MS = 10000
+
+// ---------------------------------------------------------------------------
+// Colony — the shared Mars population everyone is building toward. Teaser for
+// now: the server counts pets across the players it knows about and broadcasts
+// the total, so every client shows the same number. Real persistent aggregation
+// (Storage.world) comes with the colony ring.
+// ---------------------------------------------------------------------------
+export const COLONY_GOAL = 100 // target population for the current milestone
+
 // ---------------------------------------------------------------------------
 // Pet roster — the 11 species already modeled under assets/scene/Models/.
 // ---------------------------------------------------------------------------

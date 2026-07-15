@@ -7,7 +7,7 @@ import { engine } from '@dcl/sdk/ecs'
 import { room } from '../shared/messages'
 import type { PlayerSnapshot, PresenceEntry } from '../shared/types'
 import type { SpinReward } from '../shared/config'
-import { actions, applyPresence, applySnapshot, clientState, pushToast, resolveMyAddress } from './state'
+import { actions, applyPresence, applySnapshot, clientState, markServerAlive, pushToast, resolveMyAddress } from './state'
 import { evaluateStreak, seedLocalPlayer, simTick } from './sim'
 import { setupUi, ui } from './ui'
 import { openCaretakerIntro } from './ui/dialog'
@@ -29,6 +29,7 @@ function showIntro(): void {
 
 function registerHandlers(): void {
   room.onMessage('stateSnapshot', (data) => {
+    markServerAlive()
     try {
       const snap = JSON.parse(data.json) as PlayerSnapshot
       applySnapshot(snap)
@@ -40,6 +41,7 @@ function registerHandlers(): void {
   })
 
   room.onMessage('presence', (data) => {
+    markServerAlive()
     try {
       applyPresence(JSON.parse(data.json) as PresenceEntry[])
     } catch (e) {
@@ -47,12 +49,20 @@ function registerHandlers(): void {
     }
   })
 
+  // Shared colony population — same number for every player.
+  room.onMessage('colony', (data) => {
+    markServerAlive()
+    clientState.colonyPopulation = data.population
+  })
+
   room.onMessage('notify', (data) => {
+    markServerAlive()
     pushToast(data.message)
   })
 
   // Daily meteor: the server rolled and persisted it — show what we got.
   room.onMessage('meteorResult', (data) => {
+    markServerAlive()
     try {
       const reward = JSON.parse(data.json) as SpinReward
       clientState.lastSpin = { reward, index: data.index, at: Date.now() }
@@ -63,6 +73,7 @@ function registerHandlers(): void {
   })
 
   room.onMessage('spinResult', (data) => {
+    markServerAlive()
     try {
       const reward = JSON.parse(data.json) as SpinReward
       clientState.lastSpin = { reward, index: data.index, at: Date.now() }

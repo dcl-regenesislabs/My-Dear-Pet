@@ -8,7 +8,7 @@
 import ReactEcs, { ReactEcsRenderer, Label, UiEntity, Input } from '@dcl/sdk/react-ecs'
 import * as Cfg from '../shared/config'
 import type { CareAction } from '../shared/types'
-import { actions, adoptPet, clientState, pushToast, switchActivePet } from './state'
+import { actions, adoptPet, clientState, pushToast, serverConnected, switchActivePet } from './state'
 import { setFollow } from './pet'
 import { triggerCare, careActive, queueLength } from './input'
 import { buyItemLocal, buySlotLocal, claimStreak, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
@@ -109,44 +109,132 @@ function ProfileBar() {
 }
 
 // ---------------------------------------------------------------------------
+// Colony meter (top, right of the profile) — the shared Mars population and the
+// milestone we're all building toward. Broadcast by the server, so every player
+// sees the same number.
+// ---------------------------------------------------------------------------
+function ColonyBar() {
+  const pop = clientState.colonyPopulation
+  const goal = Cfg.COLONY_GOAL
+  const frac = goal > 0 ? Math.max(0, Math.min(1, pop / goal)) : 0
+  const W = S(190)
+  return (
+    <UiEntity
+      uiTransform={{
+        positionType: 'absolute',
+        position: { top: S(10), left: '50%' },
+        margin: { left: S(360) / 2 + S(10) },
+        width: W,
+        height: S(64),
+        flexDirection: 'column',
+        justifyContent: 'center',
+        padding: { left: S(16), right: S(16) },
+        borderRadius: S(32),
+        pointerFilter: 'none'
+      }}
+      uiBackground={{ color: C.panelBg }}
+    >
+      <Label
+        value="Mars Colony"
+        fontSize={S(12)}
+        color={C.dim}
+        textAlign="middle-left"
+        textWrap="nowrap"
+        uiTransform={{ width: '100%', height: S(16) }}
+      />
+      <Label
+        value={`${pop} / ${goal} pets`}
+        fontSize={S(17)}
+        color={C.text}
+        textAlign="middle-left"
+        textWrap="nowrap"
+        uiTransform={{ width: '100%', height: S(22) }}
+      />
+      <UiEntity
+        uiTransform={{ width: '100%', height: S(9), borderRadius: S(5), margin: { top: S(3) } }}
+        uiBackground={{ color: C.trackBg }}
+      >
+        <UiEntity
+          uiTransform={{ width: `${Math.round(frac * 100)}%`, height: '100%', borderRadius: S(5) }}
+          uiBackground={{ color: C.green }}
+        />
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Selected-pet panel (top): stats + care actions
 // ---------------------------------------------------------------------------
+// Art for the pet panel. Bar fills map to the stat colors: orange = Hunger,
+// celest = Hygiene, yellow = Energy, pink = Happy.
+// Every bar is drawn with the same 12px rounded cap, but the art ships at
+// different lengths — so each one's cap is a different fraction of its width.
+// Nine-slicing on that exact fraction keeps all four radii identical on screen.
+const CAP_PX = 12
+const bar = (file: string, srcWidth: number) => ({
+  src: `assets/images/petPanelUi/${file}`,
+  slice: CAP_PX / srcWidth
+})
+
+const PET_UI = {
+  bg: 'assets/images/petPanelUi/panel-bg.png',
+  track: bar('bar_track.png', 600),
+  fillHunger: bar('bar_fill_orange.png', 372),
+  fillHygiene: bar('bar_fill_celest.png', 510),
+  fillEnergy: bar('bar_fill_yllow.png', 288),
+  fillHappy: bar('bar_fill_pink.png', 432),
+  iconHunger: 'assets/images/petPanelUi/stat_hunger.png',
+  iconHygiene: 'assets/images/petPanelUi/stat_hygiene.png',
+  iconEnergy: 'assets/images/petPanelUi/stat_energy.png',
+  iconHappy: 'assets/images/petPanelUi/stat_happy.png',
+  feed: 'assets/images/petPanelUi/feed.png',
+  bath: 'assets/images/petPanelUi/bath.png',
+  sleep: 'assets/images/petPanelUi/sleep.png',
+  play: 'assets/images/petPanelUi/play.png'
+}
+
 function PetPanel() {
   const pet = clientState.activePet
   if (!pet) return <UiEntity />
-  const W = S(420)
   const care = (a: CareAction) => triggerCare(a)
-  const half = (W - S(24)) / 2 - S(4)
-  const chipW = (W - S(24)) / 4 - S(6)
+  // Content sizing — deliberately independent of the panel art below, so the
+  // background can grow to frame the content without scaling it too.
+  // Rows get an explicit width: '100%' inside a padded parent resolves to the
+  // parent's FULL width and would spill past the art on the right.
+  const rowW = S(430) - S(26) * 2
+  const chipW = Math.round((rowW - S(18)) / 4)
+  const chipH = Math.round((chipW * 100) / 178) // action art is 1.78:1
+  // Panel art — drawn larger than the content so it fully frames it.
+  const PW = S(520)
+  const PH = Math.round((PW * 524) / 944) // keep the art's aspect (1.80:1)
 
   return (
     <UiEntity
-      uiTransform={{ positionType: 'absolute', position: { top: S(84), left: '50%' }, margin: { left: -W / 2 }, width: W, flexDirection: 'column', alignItems: 'center', padding: S(10), borderRadius: S(20), pointerFilter: 'block' }}
-      uiBackground={{ color: C.panelBg }}
+      uiTransform={{ positionType: 'absolute', position: { top: S(84), left: '50%' }, margin: { left: -PW / 2 }, width: PW, height: PH, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
+      uiBackground={{ texture: { src: PET_UI.bg }, textureMode: 'stretch' }}
     >
-      <UiEntity uiTransform={{ width: '100%', height: S(26), flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-        <OutlineLabel value={`${pet.name}   Lv ${pet.petLevel}`} fontSize={S(18)} color={C.gold} width={S(220)} height={S(24)} textAlign="middle-center" />
-        {careActive() && <Label value={`busy${queueLength() > 0 ? ` +${queueLength()}` : ''}`} fontSize={S(13)} color={C.dim} textAlign="middle-left" uiTransform={{ width: S(70), height: S(24), margin: { left: S(8) } }} />}
+      <UiEntity uiTransform={{ width: rowW, height: S(24), flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+        <OutlineLabel value={`${pet.name}   Lv ${pet.petLevel}`} fontSize={S(17)} color={C.gold} width={S(220)} height={S(22)} textAlign="middle-center" />
+        {careActive() && <Label value={`busy${queueLength() > 0 ? ` +${queueLength()}` : ''}`} fontSize={S(13)} color={C.dim} textAlign="middle-left" uiTransform={{ width: S(70), height: S(22), margin: { left: S(8) } }} />}
       </UiEntity>
-      <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', margin: { top: S(4), bottom: S(6) } }}>
-        <StatBar label="Hunger" value={pet.hunger} color={C.hunger} width={half} />
-        <StatBar label="Hygiene" value={pet.hygiene} color={C.hygiene} width={half} />
-        <StatBar label="Energy" value={pet.energy} color={C.energy} width={half} />
-        <StatBar label="Happy" value={pet.happiness} color={C.happy} width={half} />
+      {/* Four full-width bars, stacked (matches the panel art). */}
+      <UiEntity uiTransform={{ width: rowW, flexDirection: 'column', margin: { top: S(6) } }}>
+        <StatBar label="Hunger" value={pet.hunger} color={C.hunger} width={rowW} icon={PET_UI.iconHunger} track={PET_UI.track} fill={PET_UI.fillHunger} />
+        <StatBar label="Hygiene" value={pet.hygiene} color={C.hygiene} width={rowW} icon={PET_UI.iconHygiene} track={PET_UI.track} fill={PET_UI.fillHygiene} />
+        <StatBar label="Energy" value={pet.energy} color={C.energy} width={rowW} icon={PET_UI.iconEnergy} track={PET_UI.track} fill={PET_UI.fillEnergy} />
+        <StatBar label="Happy" value={pet.happiness} color={C.happy} width={rowW} icon={PET_UI.iconHappy} track={PET_UI.track} fill={PET_UI.fillHappy} />
       </UiEntity>
-      <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', justifyContent: 'center' }}>
-        <TactileButton id="care_feed" label="Feed" width={chipW} height={S(52)} bg={C.hunger} textColor={C.outline} fontSize={S(17)} radius={S(16)} margin={{ left: S(3), right: S(3) }} onClick={() => care('feed')} />
-        <TactileButton id="care_bath" label="Bath" width={chipW} height={S(52)} bg={C.hygiene} textColor={C.outline} fontSize={S(17)} radius={S(16)} margin={{ left: S(3), right: S(3) }} onClick={() => care('clean')} />
+      <UiEntity uiTransform={{ width: rowW, flexDirection: 'row', justifyContent: 'center', margin: { top: S(6) } }}>
+        <TactileButton id="care_feed" label="Feed" texture={PET_UI.feed} width={chipW} height={chipH} margin={{ left: S(2), right: S(2) }} onClick={() => care('feed')} />
+        <TactileButton id="care_bath" label="Bath" texture={PET_UI.bath} width={chipW} height={chipH} margin={{ left: S(2), right: S(2) }} onClick={() => care('clean')} />
         <TactileButton
           id="care_sleep"
           label={pet.sleeping ? 'Wake' : 'Sleep'}
+          texture={PET_UI.sleep}
           width={chipW}
-          height={S(52)}
-          bg={C.energy}
-          textColor={C.outline}
-          fontSize={S(17)}
-          radius={S(16)}
-          margin={{ left: S(3), right: S(3) }}
+          height={chipH}
+          margin={{ left: S(2), right: S(2) }}
           onClick={() => {
             // Waking is instant — no walk back to the bed first.
             if (pet.sleeping) {
@@ -155,7 +243,7 @@ function PetPanel() {
             } else care('sleep')
           }}
         />
-        <TactileButton id="care_play" label="Play" width={chipW} height={S(52)} bg={C.happy} textColor={C.outline} fontSize={S(17)} radius={S(16)} margin={{ left: S(3), right: S(3) }} onClick={() => care('play')} />
+        <TactileButton id="care_play" label="Play" texture={PET_UI.play} width={chipW} height={chipH} margin={{ left: S(2), right: S(2) }} onClick={() => care('play')} />
       </UiEntity>
     </UiEntity>
   )
@@ -174,7 +262,7 @@ function BottomNav() {
       <TactileButton
         id="nav_pets"
         label="My Pets"
-        texture={uiState.panel === 'roster' ? 'assets/images/ui/mypets_selected.png' : 'assets/images/ui/mypets_unselected.png'}
+        texture={uiState.panel === 'roster' ? 'assets/images/navButtonUi/mypets_selected.png' : 'assets/images/navButtonUi/mypets_unselected.png'}
         width={bw}
         height={bh}
         fontSize={S(20)}
@@ -184,7 +272,7 @@ function BottomNav() {
       <TactileButton
         id="nav_inv"
         label="Inventory"
-        texture={uiState.panel === 'inventory' ? 'assets/images/ui/inventory_selected.png' : 'assets/images/ui/inventory_unselected.png'}
+        texture={uiState.panel === 'inventory' ? 'assets/images/navButtonUi/inventory_selected.png' : 'assets/images/navButtonUi/inventory_unselected.png'}
         width={bw}
         height={bh}
         fontSize={S(20)}
@@ -194,7 +282,7 @@ function BottomNav() {
       <TactileButton
         id="nav_goals"
         label="Goals"
-        texture={uiState.panel === 'goals' ? 'assets/images/ui/goals_selected.png' : 'assets/images/ui/goals_unselected.png'}
+        texture={uiState.panel === 'goals' ? 'assets/images/navButtonUi/goals_selected.png' : 'assets/images/navButtonUi/goals_unselected.png'}
         width={bw}
         height={bh}
         fontSize={S(20)}
@@ -556,6 +644,45 @@ function SpinPanel() {
 }
 
 // ---------------------------------------------------------------------------
+// Server connection indicator — dev/debug. Green while the authoritative server
+// is answering; a red warning when it goes quiet (we're on local sim only, so
+// nothing persists).
+// ---------------------------------------------------------------------------
+const WARN_RED: Color = { r: 0.9, g: 0.26, b: 0.2, a: 1 }
+
+function ServerStatus() {
+  const ok = serverConnected()
+  return (
+    <UiEntity
+      uiTransform={{
+        positionType: 'absolute',
+        position: { bottom: S(10), right: S(12) },
+        height: S(30),
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: { left: S(8), right: S(12) },
+        borderRadius: S(15),
+        pointerFilter: 'none'
+      }}
+      uiBackground={{ color: ok ? C.panelBg : WARN_RED }}
+    >
+      <UiEntity
+        uiTransform={{ width: S(10), height: S(10), borderRadius: S(5), margin: { right: S(7) } }}
+        uiBackground={{ color: ok ? C.green : C.text }}
+      />
+      <Label
+        value={ok ? 'Server' : 'Server offline — not saving'}
+        fontSize={S(12)}
+        color={C.text}
+        textAlign="middle-left"
+        textWrap="nowrap"
+        uiTransform={{ height: S(20) }}
+      />
+    </UiEntity>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Meteor reward — the daily meteor cracked open (reuses the spin reward pool)
 // ---------------------------------------------------------------------------
 function MeteorRewardPanel() {
@@ -689,7 +816,9 @@ function Toasts() {
 // ---------------------------------------------------------------------------
 const Root = () => (
   <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
+    <ServerStatus />
     <ProfileBar />
+    <ColonyBar />
     <PetPanel />
     <SideButtons />
     <BottomNav />
