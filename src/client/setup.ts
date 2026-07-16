@@ -14,6 +14,7 @@ import { openCaretakerIntro } from './ui/dialog'
 import { setupInput } from './input'
 import { setupPetSystems } from './pet'
 import { setupMeteor } from './meteor'
+import { setupSkybox } from './skybox'
 
 let introTriggered = false
 
@@ -86,6 +87,7 @@ function registerHandlers(): void {
 export function setupClient(): void {
   resolveMyAddress()
   seedLocalPlayer() // HUD renders immediately, no waiting on the network
+  setupSkybox() // Mars ground, sky sphere + nebula clouds, boundary colliders
   setupMeteor() // meteor reward drop (falls, settles, clickable)
   evaluateStreak() // advance / reset the 7-day login streak
   registerHandlers()

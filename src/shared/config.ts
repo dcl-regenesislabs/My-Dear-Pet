@@ -45,14 +45,16 @@ export function modelForSpecies(species: string): string {
 // ---------------------------------------------------------------------------
 // Scene object world positions (read from assets/scene/main.composite).
 // Used for pet navigation targets and care-action object click handlers.
+// Relocated around the "here" anchor brought in from skybox-test (see
+// client/skybox.ts) — offset from the original cluster near the map origin.
 // ---------------------------------------------------------------------------
 export const OBJECTS = {
-  Bowl: Vector3.create(18.3, 0, 25.0),
-  Bed: Vector3.create(9.8, 0, 21.3),
-  Ball: Vector3.create(13.8, 0, 17.3),
-  Pond: Vector3.create(22.5, 0, 16.8),
-  Caretaker: Vector3.create(11.5, 0, 10.8),
-  Shop: Vector3.create(4.0, 0, 12.0)
+  Bowl: Vector3.create(209.5, 0.5, 248.8),
+  Bed: Vector3.create(201.0, 0.5, 245.1),
+  Ball: Vector3.create(205.0, 0.5, 241.1),
+  Pond: Vector3.create(213.7, 0.5, 240.6),
+  Caretaker: Vector3.create(202.7, 0.5, 234.6),
+  Shop: Vector3.create(195.2, 0.5, 235.8)
 }
 
 /** Which object a care action navigates to. */
@@ -279,7 +281,7 @@ export const SPIN_REWARDS: SpinReward[] = [
 export const PET_FOLLOW_DISTANCE = 2.2
 export const PET_MOVE_SPEED = 4.0 // m/s
 export const PET_ARRIVE_DISTANCE = 0.6
-export const PET_BASE_Y = 0.0
+export const PET_BASE_Y = 0.5
 
 // ---------------------------------------------------------------------------
 // Analytics (PostHog) — see dev-docs/posthog-analytics-integration.md.
