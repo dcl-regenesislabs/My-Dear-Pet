@@ -29,14 +29,14 @@ const ANIM_CLIPS = ['idle', 'walk', 'run', 'eat', 'dance', 'gesture-positive', '
 let localPet: Entity | null = null
 let localSpecies = ''
 let mode: Mode = 'follow'
-let target = Vector3.create(8, 0, 8)
+let target = Vector3.create(199.2, 0, 231.8)
 let onArrive: (() => void) | null = null
 let interactTimer = 0
 let interactClip = 'idle'
 const curClip = new Map<Entity, string>()
 
 // Wander state (used while the pet is dismissed / told to stay).
-let wanderHome = Vector3.create(8, 0, 8)
+let wanderHome = Vector3.create(199.2, 0, 231.8)
 let wanderTarget: Vector3 | null = null
 let wanderPause = 0
 
@@ -47,9 +47,9 @@ const remoteSpecies = new Map<string, string>()
 type Roamer = { entity: Entity; species: string; tag: Entity; tagName: string; home: Vector3; target: Vector3 | null; pause: number }
 const inactivePets = new Map<string, Roamer>()
 
-// Pick a random point inside the care area (objects sit ~x4-22, z10-32).
+// Pick a random point inside the care area (objects sit ~x195-214, z235-249).
 function careAreaPoint(): Vector3 {
-  return Vector3.create(6 + Math.random() * 14, C.PET_BASE_Y, 12 + Math.random() * 18)
+  return Vector3.create(197.2 + Math.random() * 14, C.PET_BASE_Y, 235.8 + Math.random() * 18)
 }
 
 // Floating name tags (billboard) above each pet.
@@ -158,7 +158,7 @@ function ensureLocalPet(): void {
   }
   if (!localPet) {
     localPet = engine.addEntity()
-    Transform.create(localPet, { position: Vector3.create(6, C.PET_BASE_Y, 6), scale: Vector3.scale(Vector3.One(), pet.size) })
+    Transform.create(localPet, { position: Vector3.create(197.2, C.PET_BASE_Y, 229.8), scale: Vector3.scale(Vector3.One(), pet.size) })
     pointerEventsSystem.onPointerDown(
       { entity: localPet, opts: { button: InputAction.IA_POINTER, hoverText: 'Pet', maxDistance: 8 } },
       () => {
@@ -211,7 +211,7 @@ export function setFollow(enabled: boolean): void {
 }
 
 function playerPos(): Vector3 {
-  if (!Transform.has(engine.PlayerEntity)) return Vector3.create(8, 0, 8)
+  if (!Transform.has(engine.PlayerEntity)) return Vector3.create(199.2, 0, 231.8)
   return Transform.get(engine.PlayerEntity).position
 }
 

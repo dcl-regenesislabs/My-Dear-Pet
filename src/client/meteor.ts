@@ -25,9 +25,9 @@ const IDLE_CLIP = 'meteorStruckIdle'
 const FALL_DELAY = 2 // seconds after the scene loads before it falls
 const LANDING_DURATION = 4.9 // seconds — from the GLB (meteorLanding ~4.83s)
 
-// Where the meteor lands. Tune freely (meters; scene is 160x160, base 0,0).
+// Where the meteor lands. Tune freely (meters; scene is 480x480, base 0,0).
 const SPAWN = {
-  position: Vector3.create(12, 0, 6),
+  position: Vector3.create(203.2, 0.5, 229.8),
   rotationDeg: Vector3.create(0, 0, 0),
   scale: Vector3.create(0.7, 0.7, 0.7)
 }
