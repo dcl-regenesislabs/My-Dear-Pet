@@ -2,9 +2,8 @@
 //
 // Everything here is created by code (not placed in the Creator Hub): the ground,
 // the skybox sphere, the "here" anchor marker, the 4 boundary planes, the nebula
-// cloud billboards, the invisible player-bubble collider, and the systems that
-// make the sphere + clouds follow the camera 1:1 (so the sky feels infinite
-// instead of close) plus a slow rotation.
+// cloud billboards, and the systems that make the sphere + clouds follow the
+// camera 1:1 (so the sky feels infinite instead of close) plus a slow rotation.
 //
 // The gameplay area (Bowl/Bed/Ball/Pond/Caretaker/Shop) was moved in
 // `main.composite` to sit around the "here" anchor below — see `shared/config.ts`.
@@ -20,7 +19,6 @@ import {
   MaterialTransparencyMode,
   GltfContainer,
   ColliderLayer,
-  VisibilityComponent,
   Entity,
   inputSystem,
   InputAction,
@@ -38,11 +36,6 @@ const SKYBOX_POSITION = Vector3.create(200.5, -3.5, 232.25)
 
 // The empty "here" anchor entity — the center of the relocated gameplay area.
 const HERE_POSITION = Vector3.create(204.5, 1, 241)
-
-// The player-bubble collider is centered on "here" (the real ground/gameplay
-// center) — skybox-test itself had this pointing at a stale (160,0,160), which
-// didn't match its actual ground position. Fixed here.
-const BUBBLE_CENTER = HERE_POSITION
 
 interface PlaneDef {
   x: number
@@ -62,8 +55,6 @@ const BOUNDARY_PLANES: PlaneDef[] = [
 const SKYBOX_RADIUS = 40
 const BLENDER_REFERENCE_RADIUS = 500
 const SCALE_RATIO = SKYBOX_RADIUS / BLENDER_REFERENCE_RADIUS
-
-const PLAYER_BUBBLE_RADIUS = 30
 
 const SKYBOX_ROTATION_DEG_PER_SEC = 360 / (4 * 60 * 60)
 
@@ -123,9 +114,6 @@ export function setupSkybox() {
   createGroundAndSkybox()
   createHereMarker()
   createBoundaryPlanes()
-  // createPlayerBubbleCollider() disabled — the dome mesh blocks the player from
-  // outside-in instead of just containing them inside, so it walls off the whole
-  // care area instead of only capping how far out you can wander.
   createSkyboxAndClouds()
 
   engine.addSystem(skyboxAnimSystem, 1, 'SkyboxAnimSystem')
@@ -179,21 +167,6 @@ function createBoundaryPlanes() {
     })
     MeshCollider.setPlane(plane, ColliderLayer.CL_PHYSICS)
   }
-}
-
-function createPlayerBubbleCollider() {
-  const scale = PLAYER_BUBBLE_RADIUS / 0.5
-  const dome = engine.addEntity()
-  GltfContainer.create(dome, {
-    src: 'assets/asset-packs/invisible_dome/invisible_semisphere.glb',
-    visibleMeshesCollisionMask: ColliderLayer.CL_PHYSICS,
-    invisibleMeshesCollisionMask: ColliderLayer.CL_NONE
-  })
-  VisibilityComponent.create(dome, { visible: false })
-  Transform.create(dome, {
-    position: BUBBLE_CENTER,
-    scale: Vector3.create(scale, scale, scale)
-  })
 }
 
 function createSkyboxAndClouds() {
