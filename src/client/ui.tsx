@@ -196,7 +196,7 @@ const PET_UI = {
 
 function PetPanel() {
   const pet = clientState.activePet
-  if (!pet) return <UiEntity />
+  if (!pet || !clientState.petPanelOpen) return <UiEntity />
   const care = (a: CareAction) => triggerCare(a)
   // Content sizing — deliberately independent of the panel art below, so the
   // background can grow to frame the content without scaling it too.
@@ -214,6 +214,12 @@ function PetPanel() {
       uiTransform={{ positionType: 'absolute', position: { top: S(84), left: '50%' }, margin: { left: -PW / 2 }, width: PW, height: PH, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
       uiBackground={{ texture: { src: PET_UI.bg }, textureMode: 'stretch' }}
     >
+      {/* Close button (designer art, square) */}
+      <UiEntity
+        uiTransform={{ positionType: 'absolute', position: { top: S(14), right: S(18) }, width: S(36), height: S(36), pointerFilter: 'block' }}
+        uiBackground={{ texture: { src: 'assets/images/btn_close.png' }, textureMode: 'stretch' }}
+        onMouseDown={() => (clientState.petPanelOpen = false)}
+      />
       <UiEntity uiTransform={{ width: rowW, height: S(24), flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
         <OutlineLabel value={`${pet.name}   Lv ${pet.petLevel}`} fontSize={S(17)} color={C.gold} width={S(220)} height={S(22)} textAlign="middle-center" />
         {careActive() && <Label value={`busy${queueLength() > 0 ? ` +${queueLength()}` : ''}`} fontSize={S(13)} color={C.dim} textAlign="middle-left" uiTransform={{ width: S(70), height: S(22), margin: { left: S(8) } }} />}
