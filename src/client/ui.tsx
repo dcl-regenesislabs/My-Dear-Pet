@@ -13,7 +13,7 @@ import { setFollow } from './pet'
 import { triggerCare, careActive, queueLength } from './input'
 import { buyItemLocal, buySlotLocal, claimStreak, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
 import { startAnimSystem } from './ui/anim'
-import { C, Color, OutlineLabel, PanelShell, S, StatBar, TactileButton } from './ui/theme'
+import { C, Color, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, StatBar, TactileButton } from './ui/theme'
 import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './ui/dialog'
 
 type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor'
@@ -196,7 +196,7 @@ const PET_UI = {
 
 function PetPanel() {
   const pet = clientState.activePet
-  if (!pet) return <UiEntity />
+  if (!pet || !clientState.petPanelOpen) return <UiEntity />
   const care = (a: CareAction) => triggerCare(a)
   // Content sizing — deliberately independent of the panel art below, so the
   // background can grow to frame the content without scaling it too.
@@ -214,6 +214,14 @@ function PetPanel() {
       uiTransform={{ positionType: 'absolute', position: { top: S(84), left: '50%' }, margin: { left: -PW / 2 }, width: PW, height: PH, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
       uiBackground={{ texture: { src: PET_UI.bg }, textureMode: 'stretch' }}
     >
+      {/* Close button */}
+      <UiEntity
+        uiTransform={{ positionType: 'absolute', position: { top: S(14), right: S(18) }, width: S(34), height: S(34), borderRadius: S(17), alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
+        uiBackground={{ color: { r: 0.5, g: 0.2, b: 0.16, a: 1 } }}
+        onMouseDown={() => (clientState.petPanelOpen = false)}
+      >
+        <OutlineLabel value="X" fontSize={S(18)} color={C.text} width={S(34)} height={S(34)} textAlign="middle-center" />
+      </UiEntity>
       <UiEntity uiTransform={{ width: rowW, height: S(24), flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
         <OutlineLabel value={`${pet.name}   Lv ${pet.petLevel}`} fontSize={S(17)} color={C.gold} width={S(220)} height={S(22)} textAlign="middle-center" />
         {careActive() && <Label value={`busy${queueLength() > 0 ? ` +${queueLength()}` : ''}`} fontSize={S(13)} color={C.dim} textAlign="middle-left" uiTransform={{ width: S(70), height: S(22), margin: { left: S(8) } }} />}
@@ -254,9 +262,10 @@ function PetPanel() {
 // ---------------------------------------------------------------------------
 function BottomNav() {
   const p = clientState.player
-  if (!p) return <UiEntity />
-  const bw = S(160)
-  const bh = S(72)
+  // Hidden while a dialog is open — the dialog sits where these buttons are.
+  if (!p || clientState.dialog.open) return <UiEntity />
+  const bw = Sbtn(160)
+  const bh = Sbtn(72)
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(18), left: 0 }, width: '100%', height: bh, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', pointerFilter: 'none' }}>
       <TactileButton
@@ -300,8 +309,8 @@ function SideButtons() {
   const p = clientState.player
   if (!p) return <UiEntity />
   const hasPet = !!clientState.activePet
-  const w = S(112)
-  const h = S(58)
+  const w = Sbtn(112)
+  const h = Sbtn(58)
   const spins = p.spinTickets > 0
   return (
     <UiEntity uiTransform={{ width: '100%', height: '100%', positionType: 'absolute', position: { top: 0, left: 0 }, pointerFilter: 'none' }}>
@@ -836,6 +845,7 @@ const Root = () => (
 )
 
 export function setupUi(): void {
+  resolveRuntimePlatform() // detect mobile early so S() scales the HUD up
   startAnimSystem()
   ReactEcsRenderer.setUiRenderer(Root, { virtualWidth: 1920, virtualHeight: 1080 })
 }

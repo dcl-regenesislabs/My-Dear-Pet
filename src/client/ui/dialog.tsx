@@ -3,8 +3,17 @@
 
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
 import { getPlayer } from '@dcl/sdk/players'
-import { advanceDialog, clientState, openDialog } from '../state'
-import { C, OutlineLabel, S, TactileButton } from './theme'
+import { advanceDialog, clientState, closeDialog, openDialog } from '../state'
+import { C, mobile, OutlineLabel, S, TactileButton } from './theme'
+
+// Tutorial dialog art (image aspect ratios noted for undistorted sizing).
+const DLG = {
+  modal: 'assets/images/tutorialUi/modal.png', // 960x680  (1.41:1)
+  character: 'assets/images/tutorialUi/ui-character-1024.png', // square
+  next: 'assets/images/tutorialUi/btn_next.png', // 639x378 (1.69:1)
+  adopt: 'assets/images/tutorialUi/btn_adopt.png', // 897x378 (2.37:1)
+  close: 'assets/images/tutorialUi/btn_close.png' // 256x256 (square)
+}
 
 /** The local player's display name, or a themed fallback. */
 export function playerName(): string {
@@ -41,40 +50,69 @@ export function DialogBox() {
   if (!d.open) return <UiEntity />
   const isLast = d.page >= d.pages.length - 1
   const body = d.pages[d.page] ?? ''
-  const W = S(720)
-  const H = S(220)
+
+  // Modal art (960x680) is nine-sliced so it can be wide with crisp corners.
+  // Desktop keeps the approved layout; mobile-only overrides make it narrower
+  // and shrink the character (S()'s 1.6x boost over-inflates a big panel there).
+  const isM = mobile()
+  const MW = isM ? S(700) : S(940)
+  const MH = isM ? Math.round(MW * 0.346) : S(325)
+  const padX = isM ? Math.round(MW * 0.07) : S(50)
+  const padY = isM ? Math.round(MH * 0.15) : S(34)
+  const innerH = MH - padY * 2
+  const gap = isM ? Math.round(MW * 0.02) : S(18)
+  const charH = isM ? Math.round(innerH * 0.6) : innerH // full-height on desktop, ~half on mobile
+  const charW = charH // character art is square
+  const textW = MW - padX * 2 - charW - gap
+  const btnH = isM ? Math.round(MH * 0.17) : S(50)
+  const nameH = isM ? Math.round(MH * 0.09) : S(28)
+  const nameFont = isM ? Math.round(MH * 0.075) : S(22)
+  const bodyFont = isM ? Math.round(MH * 0.056) : S(17)
+  const bodyH = isM ? innerH - nameH - btnH - Math.round(MH * 0.07) : charH - S(28) - btnH - S(16)
+  const nextW = Math.round((btnH * 639) / 378)
+  const adoptW = Math.round((btnH * 897) / 378)
+  const closeSize = isM ? Math.round(MW * 0.05) : S(42)
+  const closeInsetX = Math.round(MW * 0.06)
+  const closeInsetY = Math.round(MH * (isM ? 0.1 : 0.08))
 
   return (
     <UiEntity
-      uiTransform={{ positionType: 'absolute', position: { bottom: S(28), left: 0 }, width: '100%', height: H, alignItems: 'center', justifyContent: 'center', pointerFilter: 'none' }}
+      uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', pointerFilter: 'none' }}
     >
       <UiEntity
-        uiTransform={{ width: W, height: H, flexDirection: 'row', padding: S(16), borderRadius: S(22), pointerFilter: 'block' }}
-        uiBackground={{ color: C.panelBg }}
+        uiTransform={{ width: MW, height: MH, flexDirection: 'row', alignItems: 'center', padding: { left: padX, right: padX, top: padY, bottom: padY }, margin: { bottom: S(18) }, pointerFilter: 'block' }}
+        uiBackground={{
+          texture: { src: DLG.modal },
+          textureMode: 'nine-slices',
+          textureSlices: { top: 0.17, bottom: 0.17, left: 0.13, right: 0.13 }
+        }}
       >
-        {/* Portrait */}
-        <UiEntity uiTransform={{ width: S(110), height: '100%', alignItems: 'center', justifyContent: 'flex-start' }}>
-          <UiEntity
-            uiTransform={{ width: S(96), height: S(96), borderRadius: S(20), alignItems: 'center', justifyContent: 'center' }}
-            uiBackground={{ color: C.greenDark }}
-          >
-            <OutlineLabel value=":)" fontSize={S(40)} color={C.text} width={S(96)} height={S(96)} />
-          </UiEntity>
-        </UiEntity>
+        {/* Close (X) — inset so it sits inside the visible frame */}
+        <UiEntity
+          uiTransform={{ positionType: 'absolute', position: { top: closeInsetY, right: closeInsetX }, width: closeSize, height: closeSize, pointerFilter: 'block' }}
+          uiBackground={{ texture: { src: DLG.close }, textureMode: 'stretch' }}
+          onMouseDown={() => closeDialog()}
+        />
 
-        {/* Text + button */}
-        <UiEntity uiTransform={{ flex: 1, height: '100%', flexDirection: 'column', padding: { left: S(10) } }}>
-          <OutlineLabel value={d.npcName} fontSize={S(24)} color={C.gold} width={'100%'} height={S(30)} textAlign="middle-left" />
+        {/* Character */}
+        <UiEntity
+          uiTransform={{ width: charW, height: charH, margin: { right: gap } }}
+          uiBackground={{ texture: { src: DLG.character }, textureMode: 'stretch' }}
+        />
+
+        {/* Name + body + controls */}
+        <UiEntity uiTransform={{ width: textW, height: '100%', flexDirection: 'column', justifyContent: 'center' }}>
+          <OutlineLabel value={d.npcName} fontSize={nameFont} color={C.gold} width={textW} height={nameH} textAlign="middle-left" />
           <Label
             value={body}
-            fontSize={S(18)}
+            fontSize={bodyFont}
             color={C.text}
             textAlign="top-left"
-            uiTransform={{ width: '100%', height: H - S(96), margin: { top: S(6) } }}
+            uiTransform={{ width: textW, height: bodyH, margin: { top: S(4) } }}
           />
-          <UiEntity uiTransform={{ width: '100%', height: S(46), flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            {/* page dots */}
-            <UiEntity uiTransform={{ flexDirection: 'row', alignItems: 'center', height: S(46) }}>
+          {/* page dots + advance button */}
+          <UiEntity uiTransform={{ width: textW, height: btnH, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', margin: { top: S(6) } }}>
+            <UiEntity uiTransform={{ flexDirection: 'row', alignItems: 'center', height: btnH }}>
               {d.pages.map((_, i) => (
                 <UiEntity
                   key={`dot-${i}`}
@@ -86,11 +124,9 @@ export function DialogBox() {
             <TactileButton
               id="dialog_next"
               label={isLast ? d.finalLabel : 'Next'}
-              width={S(160)}
-              height={S(42)}
-              bg={C.green}
-              textColor={C.outline}
-              fontSize={S(18)}
+              texture={isLast ? DLG.adopt : DLG.next}
+              width={isLast ? adoptW : nextW}
+              height={btnH}
               onClick={() => advanceDialog()}
             />
           </UiEntity>

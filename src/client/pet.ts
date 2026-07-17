@@ -160,10 +160,11 @@ function ensureLocalPet(): void {
     localPet = engine.addEntity()
     Transform.create(localPet, { position: Vector3.create(197.2, C.PET_BASE_Y, 229.8), scale: Vector3.scale(Vector3.One(), pet.size) })
     pointerEventsSystem.onPointerDown(
-      { entity: localPet, opts: { button: InputAction.IA_POINTER, hoverText: 'Pet', maxDistance: 8 } },
+      { entity: localPet, opts: { button: InputAction.IA_POINTER, hoverText: 'Open', maxDistance: 8 } },
       () => {
-        actions.petSelf()
-        petReact()
+        // Clicking the pet opens its control panel. (The "pet for happiness"
+        // action is suspended for now — was: actions.petSelf() + petReact().)
+        clientState.petPanelOpen = true
       }
     )
     localTag = makeTag()
