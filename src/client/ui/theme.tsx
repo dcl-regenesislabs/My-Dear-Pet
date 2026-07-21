@@ -39,8 +39,9 @@ export function dimColor(c?: Color): Color {
 // Robust mobile detection. The SDK's isMobile() resolves the platform
 // asynchronously and has no fallback: on some mobile app builds it never reports
 // 'mobile', leaving the whole HUD at desktop scale (tiny). We resolve it
-// ourselves and add an agent-string fallback (same idea as dead-surge's
-// detectMobileUserAgent), then store the result so S() reads it every render.
+// ourselves and add an agent-string fallback, then store the result so S() reads
+// it every render (React-ECS re-renders each frame, so the HUD resizes once the
+// lookup resolves).
 let isMobileRuntime = false
 let platformLookupStarted = false
 

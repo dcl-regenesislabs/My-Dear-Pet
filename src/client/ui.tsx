@@ -214,14 +214,12 @@ function PetPanel() {
       uiTransform={{ positionType: 'absolute', position: { top: S(84), left: '50%' }, margin: { left: -PW / 2 }, width: PW, height: PH, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
       uiBackground={{ texture: { src: PET_UI.bg }, textureMode: 'stretch' }}
     >
-      {/* Close button */}
+      {/* Close button (designer art, square) */}
       <UiEntity
-        uiTransform={{ positionType: 'absolute', position: { top: S(14), right: S(18) }, width: S(34), height: S(34), borderRadius: S(17), alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
-        uiBackground={{ color: { r: 0.5, g: 0.2, b: 0.16, a: 1 } }}
+        uiTransform={{ positionType: 'absolute', position: { top: S(14), right: S(18) }, width: S(36), height: S(36), pointerFilter: 'block' }}
+        uiBackground={{ texture: { src: 'assets/images/btn_close.png' }, textureMode: 'stretch' }}
         onMouseDown={() => (clientState.petPanelOpen = false)}
-      >
-        <OutlineLabel value="X" fontSize={S(18)} color={C.text} width={S(34)} height={S(34)} textAlign="middle-center" />
-      </UiEntity>
+      />
       <UiEntity uiTransform={{ width: rowW, height: S(24), flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
         <OutlineLabel value={`${pet.name}   Lv ${pet.petLevel}`} fontSize={S(17)} color={C.gold} width={S(220)} height={S(22)} textAlign="middle-center" />
         {careActive() && <Label value={`busy${queueLength() > 0 ? ` +${queueLength()}` : ''}`} fontSize={S(13)} color={C.dim} textAlign="middle-left" uiTransform={{ width: S(70), height: S(22), margin: { left: S(8) } }} />}
@@ -253,6 +251,31 @@ function PetPanel() {
         />
         <TactileButton id="care_play" label="Play" texture={PET_UI.play} width={chipW} height={chipH} margin={{ left: S(2), right: S(2) }} onClick={() => care('play')} />
       </UiEntity>
+      {/* Breeding teaser — locked until Lv X, then shows as unlocked. No breeding
+          logic yet (issue #18 / #10): unlocked just toasts "coming soon". */}
+      {(() => {
+        const unlocked = pet.petLevel >= Cfg.BREEDING_UNLOCK_LEVEL
+        return (
+          <UiEntity uiTransform={{ width: rowW, flexDirection: 'row', justifyContent: 'center', margin: { top: S(8) } }}>
+            <TactileButton
+              id="breed_teaser"
+              label={unlocked ? 'Breed' : `Breed  ·  Unlocks at Lv ${Cfg.BREEDING_UNLOCK_LEVEL}`}
+              width={rowW}
+              height={S(38)}
+              bg={unlocked ? C.pink : C.cardAlt}
+              textColor={unlocked ? C.outline : C.dim}
+              fontSize={S(15)}
+              radius={S(14)}
+              pulse={unlocked}
+              onClick={() =>
+                pushToast(
+                  unlocked ? 'Breeding coming soon!' : `Breeding unlocks at level ${Cfg.BREEDING_UNLOCK_LEVEL}.`
+                )
+              }
+            />
+          </UiEntity>
+        )
+      })()}
     </UiEntity>
   )
 }
