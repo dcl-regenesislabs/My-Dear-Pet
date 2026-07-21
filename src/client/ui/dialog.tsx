@@ -55,12 +55,12 @@ export function DialogBox() {
   // Desktop keeps the approved layout; mobile-only overrides make it narrower
   // and shrink the character (S()'s 1.6x boost over-inflates a big panel there).
   const isM = mobile()
-  const MW = isM ? S(700) : S(940)
+  const MW = isM ? S(860) : S(940) // bigger on mobile so buttons/text aren't cramped
   const MH = isM ? Math.round(MW * 0.346) : S(325)
-  const padX = isM ? Math.round(MW * 0.07) : S(50)
+  const padX = isM ? Math.round(MW * 0.1) : S(50) // more horizontal inset so the X and Next sit inside the frame
   const padY = isM ? Math.round(MH * 0.15) : S(34)
   const innerH = MH - padY * 2
-  const gap = isM ? Math.round(MW * 0.02) : S(18)
+  const gap = isM ? Math.round(MW * 0.045) : S(18) // more space between the character and the text
   const charH = isM ? Math.round(innerH * 0.6) : innerH // full-height on desktop, ~half on mobile
   const charW = charH // character art is square
   const textW = MW - padX * 2 - charW - gap
@@ -72,8 +72,9 @@ export function DialogBox() {
   const nextW = Math.round((btnH * 639) / 378)
   const adoptW = Math.round((btnH * 897) / 378)
   const closeSize = isM ? Math.round(MW * 0.05) : S(42)
-  const closeInsetX = Math.round(MW * 0.06)
-  const closeInsetY = Math.round(MH * (isM ? 0.1 : 0.08))
+  const closeInsetX = Math.round(MW * (isM ? 0.10 : 0.06)) // more inset on mobile so the X sits inside, toward center
+  const closeInsetY = Math.round(MH * (isM ? 0.12 : 0.08)) + (isM ? S(15) : 0) // nudge the X down on mobile
+  const textNudge = isM ? S(20) : 0 // nudge the text block down on mobile so it sits inside the frame
 
   return (
     <UiEntity
@@ -101,7 +102,7 @@ export function DialogBox() {
         />
 
         {/* Name + body + controls */}
-        <UiEntity uiTransform={{ width: textW, height: '100%', flexDirection: 'column', justifyContent: 'center' }}>
+        <UiEntity uiTransform={{ width: textW, height: '100%', flexDirection: 'column', justifyContent: 'center', margin: { top: textNudge } }}>
           <OutlineLabel value={d.npcName} fontSize={nameFont} color={C.gold} width={textW} height={nameH} textAlign="middle-left" />
           <Label
             value={body}
@@ -110,8 +111,8 @@ export function DialogBox() {
             textAlign="top-left"
             uiTransform={{ width: textW, height: bodyH, margin: { top: S(4) } }}
           />
-          {/* page dots + advance button */}
-          <UiEntity uiTransform={{ width: textW, height: btnH, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', margin: { top: S(6) } }}>
+          {/* page dots + advance button (pulled up on mobile to offset textNudge) */}
+          <UiEntity uiTransform={{ width: textW, height: btnH, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', margin: { top: isM ? -S(18) : S(6) } }}>
             <UiEntity uiTransform={{ flexDirection: 'row', alignItems: 'center', height: btnH }}>
               {d.pages.map((_, i) => (
                 <UiEntity
