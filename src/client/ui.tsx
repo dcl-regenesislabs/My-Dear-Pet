@@ -13,7 +13,7 @@ import { setFollow } from './pet'
 import { triggerCare, careActive, queueLength } from './input'
 import { buyItemLocal, buySlotLocal, claimStreak, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
 import { startAnimSystem } from './ui/anim'
-import { C, Color, OutlineLabel, PanelShell, S, StatBar, TactileButton } from './ui/theme'
+import { C, Color, OutlineLabel, PanelShell, resolveRuntimePlatform, S, StatBar, TactileButton } from './ui/theme'
 import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './ui/dialog'
 
 type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor'
@@ -842,6 +842,7 @@ const Root = () => (
 )
 
 export function setupUi(): void {
+  resolveRuntimePlatform() // detect mobile early so S() scales the HUD up
   startAnimSystem()
   ReactEcsRenderer.setUiRenderer(Root, { virtualWidth: 1920, virtualHeight: 1080 })
 }
