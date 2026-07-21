@@ -3,7 +3,7 @@
 // panel shell that blocks the mobile joystick. Inspired by the cozy-farm UI.
 
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
-import { isMobile } from '@dcl/sdk/platform'
+import { getExplorerInformation } from '~system/Runtime'
 import { getPress, triggerPress, attentionPulse } from './anim'
 
 export type Color = { r: number; g: number; b: number; a: number }
@@ -36,14 +36,39 @@ export function dimColor(c?: Color): Color {
 }
 
 // ---- Responsive scaling (virtual 1920x1080) ------------------------------
-// Mobile gets larger touch targets / fonts.
+// Robust mobile detection. The SDK's isMobile() resolves the platform
+// asynchronously and has no fallback: on some mobile app builds it never reports
+// 'mobile', leaving the whole HUD at desktop scale (tiny). We resolve it
+// ourselves and add an agent-string fallback, then store the result so S() reads
+// it every render (React-ECS re-renders each frame, so the HUD resizes once the
+// lookup resolves).
+let isMobileRuntime = false
+let platformLookupStarted = false
+
+const MOBILE_AGENT_RE = /mobile|android|iphone|ipad|ios/
+
+/** Kick off the (async) platform lookup once. Safe to call from setup. */
+export function resolveRuntimePlatform(): void {
+  if (platformLookupStarted) return
+  platformLookupStarted = true
+  void getExplorerInformation({})
+    .then((info) => {
+      const platform = (info.platform ?? '').toLowerCase()
+      const agent = (info.agent ?? '').toLowerCase()
+      isMobileRuntime = platform === 'mobile' || MOBILE_AGENT_RE.test(agent)
+    })
+    .catch(() => {
+      // Couldn't read it — stay at desktop scale rather than guess wrong.
+    })
+}
+
 export function mobile(): boolean {
-  return isMobile()
+  return isMobileRuntime
 }
 // Global UI scale — larger touch targets on mobile, slightly larger on desktop
 // too (mobile-testing friendly).
 export function S(n: number): number {
-  return Math.round(n * (isMobile() ? 1.6 : 1.18))
+  return Math.round(n * (isMobileRuntime ? 1.6 : 1.18))
 }
 
 // ---- Outlined label (readable over the 3D world) -------------------------
