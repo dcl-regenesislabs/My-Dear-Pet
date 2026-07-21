@@ -163,6 +163,10 @@ export const SLOT_PRICE = 250 // currency to buy an extra slot directly
 // ---------------------------------------------------------------------------
 export const PET_XP_PER_ACTION = 8
 export const PET_XP_PASSIVE_PER_SEC = 0.05 // scaled by happiness/100
+
+/** Pet level at which breeding unlocks. Teaser only for now — no breeding logic
+ *  yet (see issue #10); the pet panel shows a locked "Breed" gated on this. */
+export const BREEDING_UNLOCK_LEVEL = 5
 export const CARETAKER_XP_PER_ACTION = 5
 export const CARETAKER_XP_PER_GIVING = 3
 

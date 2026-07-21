@@ -251,6 +251,31 @@ function PetPanel() {
         />
         <TactileButton id="care_play" label="Play" texture={PET_UI.play} width={chipW} height={chipH} margin={{ left: S(2), right: S(2) }} onClick={() => care('play')} />
       </UiEntity>
+      {/* Breeding teaser — locked until Lv X, then shows as unlocked. No breeding
+          logic yet (issue #18 / #10): unlocked just toasts "coming soon". */}
+      {(() => {
+        const unlocked = pet.petLevel >= Cfg.BREEDING_UNLOCK_LEVEL
+        return (
+          <UiEntity uiTransform={{ width: rowW, flexDirection: 'row', justifyContent: 'center', margin: { top: S(8) } }}>
+            <TactileButton
+              id="breed_teaser"
+              label={unlocked ? 'Breed' : `Breed  ·  Unlocks at Lv ${Cfg.BREEDING_UNLOCK_LEVEL}`}
+              width={rowW}
+              height={S(38)}
+              bg={unlocked ? C.pink : C.cardAlt}
+              textColor={unlocked ? C.outline : C.dim}
+              fontSize={S(15)}
+              radius={S(14)}
+              pulse={unlocked}
+              onClick={() =>
+                pushToast(
+                  unlocked ? 'Breeding coming soon!' : `Breeding unlocks at level ${Cfg.BREEDING_UNLOCK_LEVEL}.`
+                )
+              }
+            />
+          </UiEntity>
+        )
+      })()}
     </UiEntity>
   )
 }
