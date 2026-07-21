@@ -66,9 +66,16 @@ export function mobile(): boolean {
   return isMobileRuntime
 }
 // Global UI scale — larger touch targets on mobile, slightly larger on desktop
-// too (mobile-testing friendly).
+// too (mobile-testing friendly). React-ECS re-renders every frame, so the HUD
+// resizes automatically once the platform lookup resolves.
 export function S(n: number): number {
   return Math.round(n * (isMobileRuntime ? 1.6 : 1.18))
+}
+
+/** Extra bump for touch buttons on mobile only (on top of S). Tune freely. */
+export const MOBILE_BTN_BOOST = 1.2
+export function Sbtn(n: number): number {
+  return Math.round(S(n) * (isMobileRuntime ? MOBILE_BTN_BOOST : 1))
 }
 
 // ---- Outlined label (readable over the 3D world) -------------------------

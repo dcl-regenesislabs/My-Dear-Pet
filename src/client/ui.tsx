@@ -13,7 +13,7 @@ import { setFollow } from './pet'
 import { triggerCare, careActive, queueLength } from './input'
 import { buyItemLocal, buySlotLocal, claimStreak, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
 import { startAnimSystem } from './ui/anim'
-import { C, Color, OutlineLabel, PanelShell, resolveRuntimePlatform, S, StatBar, TactileButton } from './ui/theme'
+import { C, Color, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, StatBar, TactileButton } from './ui/theme'
 import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './ui/dialog'
 
 type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor'
@@ -285,9 +285,10 @@ function PetPanel() {
 // ---------------------------------------------------------------------------
 function BottomNav() {
   const p = clientState.player
-  if (!p) return <UiEntity />
-  const bw = S(160)
-  const bh = S(72)
+  // Hidden while a dialog is open — the dialog sits where these buttons are.
+  if (!p || clientState.dialog.open) return <UiEntity />
+  const bw = Sbtn(160)
+  const bh = Sbtn(72)
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(18), left: 0 }, width: '100%', height: bh, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', pointerFilter: 'none' }}>
       <TactileButton
@@ -331,8 +332,8 @@ function SideButtons() {
   const p = clientState.player
   if (!p) return <UiEntity />
   const hasPet = !!clientState.activePet
-  const w = S(112)
-  const h = S(58)
+  const w = Sbtn(112)
+  const h = Sbtn(58)
   const spins = p.spinTickets > 0
   return (
     <UiEntity uiTransform={{ width: '100%', height: '100%', positionType: 'absolute', position: { top: 0, left: 0 }, pointerFilter: 'none' }}>
