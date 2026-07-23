@@ -2,7 +2,7 @@
 // "tuning pass" in mvp.md never has to hunt through logic files.
 
 import { Vector3 } from '@dcl/sdk/math'
-import type { CareAction, StatKey } from './types'
+import type { CareAction, Rarity, StatKey } from './types'
 
 export const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -162,11 +162,28 @@ export const SLOT_PRICE = 250 // currency to buy an extra slot directly
 // XP & leveling — data-driven so unlock rewards can grow post-MVP.
 // ---------------------------------------------------------------------------
 export const PET_XP_PER_ACTION = 8
-export const PET_XP_PASSIVE_PER_SEC = 0.05 // scaled by happiness/100
+export const PET_XP_PASSIVE_PER_SEC = 0.007 // scaled by happiness/100; ~2-3 days to reach the breeding unlock level
 
 /** Pet level at which breeding unlocks. Teaser only for now — no breeding logic
  *  yet (see issue #10); the pet panel shows a locked "Breed" gated on this. */
 export const BREEDING_UNLOCK_LEVEL = 5
+
+// ---------------------------------------------------------------------------
+// Breeding rarity — the offspring's tier is a random d10 (the "surprise") plus a
+// bonus from how well both parents were cared for. Well-kept pets don't
+// guarantee a legendary, but they multiply the odds. See shared/breeding.ts.
+// ---------------------------------------------------------------------------
+/** Extra points added to the d10 when both parents are at full condition (0-100
+ *  average health scales this from 0 up to this max). */
+export const BREEDING_CARE_BONUS_MAX = 3
+/** Min (dice + care bonus) score for each tier, highest first. Below the last
+ *  entry falls through to 'common'. Tunable. */
+export const BREEDING_RARITY_THRESHOLDS: [Rarity, number][] = [
+  ['legendary', 10],
+  ['ultraRare', 8],
+  ['rare', 6],
+  ['uncommon', 4]
+]
 export const CARETAKER_XP_PER_ACTION = 5
 export const CARETAKER_XP_PER_GIVING = 3
 

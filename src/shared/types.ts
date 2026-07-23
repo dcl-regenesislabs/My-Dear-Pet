@@ -4,11 +4,15 @@
 export type CareAction = 'feed' | 'clean' | 'sleep' | 'play'
 export type StatKey = 'hunger' | 'hygiene' | 'energy' | 'happiness'
 
+/** Offspring cosmetic rarity tiers, common -> legendary (à la Adopt Me). */
+export type Rarity = 'common' | 'uncommon' | 'rare' | 'ultraRare' | 'legendary'
+
 /** Per-pet state. Every pet (active or stored) carries its own stats & XP. */
 export interface PetData {
   id: string
   species: string // e.g. 'PetPanda' (matches assets/scene/Models/<species>/<species>.glb)
   name: string
+  rarity: Rarity // cosmetic tier; 'common' for adopted starters, rolled for offspring
   // Core stats, 0-100
   hunger: number
   hygiene: number

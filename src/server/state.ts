@@ -4,8 +4,9 @@
 // validated and persisted in one place.
 
 import { Storage } from '@dcl/sdk/server'
-import type { CareAction, PetData, PlayerData, PresenceEntry, StatKey } from '../shared/types'
+import type { CareAction, PetData, PlayerData, PresenceEntry, Rarity, StatKey } from '../shared/types'
 import * as C from '../shared/config'
+import { rollRarity } from '../shared/breeding'
 
 const STORAGE_KEY = 'petdata-v1'
 const STAT_KEYS: StatKey[] = ['hunger', 'hygiene', 'energy', 'happiness']
@@ -44,6 +45,7 @@ function newPet(species: string, name: string): PetData {
     id: `pet_${t}_${Math.floor(Math.random() * 100000)}`,
     species,
     name: name || species.replace('Pet', ''),
+    rarity: 'common',
     hunger: 80,
     hygiene: 80,
     energy: 80,
@@ -320,6 +322,36 @@ export function adopt(p: PlayerData, species: string, name: string): Notify[] {
   bump(p, 'adoptCount')
   notes.push({ kind: 'adopt', message: `You adopted ${pet.name}!` })
   return notes
+}
+
+// ---------------------------------------------------------------------------
+// Breeding — cross the active pet with a partner into a new offspring. Rarity is
+// rolled from both parents' condition + luck (see shared/breeding.ts). For now
+// the partner is another pet the player owns; cross-player (async registry) is
+// the follow-up. Offspring inherits a parent's species (random for now — real
+// genetics later) and starts fresh.
+// ---------------------------------------------------------------------------
+export function breed(p: PlayerData, partnerId: string): { notes: Notify[]; rarity: Rarity | null } {
+  tickPlayer(p)
+  const a = activePet(p)
+  if (!a) return { notes: [{ kind: 'error', message: 'No active pet' }], rarity: null }
+  const b = p.pets.find((x) => x.id === partnerId && x.id !== a.id)
+  if (!b) return { notes: [{ kind: 'error', message: 'Pick a different pet to breed with' }], rarity: null }
+  if (a.petLevel < C.BREEDING_UNLOCK_LEVEL || b.petLevel < C.BREEDING_UNLOCK_LEVEL) {
+    return { notes: [{ kind: 'error', message: `Both pets must reach level ${C.BREEDING_UNLOCK_LEVEL} to breed` }], rarity: null }
+  }
+  if (p.pets.length >= p.petSlots) {
+    return { notes: [{ kind: 'error', message: 'No free pet slots for the offspring' }], rarity: null }
+  }
+
+  const rarity = rollRarity(a, b)
+  const species = Math.random() < 0.5 ? a.species : b.species // TODO: real genetics
+  const child = newPet(species, '')
+  child.rarity = rarity
+  p.pets.push(child)
+  bump(p, 'breedCount')
+
+  return { notes: [{ kind: 'breed', message: `A ${rarity} ${child.name} was born!` }], rarity }
 }
 
 export function careAction(p: PlayerData, action: CareAction, onBed: boolean): Notify[] {

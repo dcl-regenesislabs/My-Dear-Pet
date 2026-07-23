@@ -123,6 +123,7 @@ function makeLocalPet(species: string, name: string): PetData {
     id: `local_${t}`,
     species,
     name: name || species.replace('Pet', ''),
+    rarity: 'common',
     hunger: 80,
     hygiene: 80,
     energy: 80,
@@ -222,5 +223,8 @@ export const actions = {
   },
   openMeteor(): void {
     room.send('openMeteor', {})
+  },
+  breed(partnerPetId: string): void {
+    room.send('breed', { partnerPetId })
   }
 }
