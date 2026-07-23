@@ -61,6 +61,12 @@ function registerHandlers(): void {
     pushToast(data.message)
   })
 
+  // Breeding result — the offspring's rolled rarity (reveal comes later).
+  room.onMessage('breedResult', (data) => {
+    markServerAlive()
+    pushToast(`Offspring rarity: ${data.rarity.toUpperCase()}!`)
+  })
+
   // Daily meteor: the server rolled and persisted it — show what we got.
   room.onMessage('meteorResult', (data) => {
     markServerAlive()

@@ -147,6 +147,17 @@ export function server(): void {
     pushSnapshot(p)
   })
 
+  room.onMessage('breed', async (data, ctx) => {
+    if (!ctx) return
+    const p = await S.loadPlayer(ctx.from)
+    const { notes, rarity } = S.breed(p, data.partnerPetId)
+    await S.savePlayer(ctx.from)
+    forwardNotes(ctx.from, notes)
+    if (rarity) room.send('breedResult', { rarity }, { to: [ctx.from] })
+    pushSnapshot(p)
+    broadcastColony() // a new pet joined the colony
+  })
+
   room.onMessage('openMeteor', async (_data, ctx) => {
     if (!ctx) return
     const p = await S.loadPlayer(ctx.from)
