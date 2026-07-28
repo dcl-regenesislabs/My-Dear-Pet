@@ -42,6 +42,11 @@ export function attentionPulse(): number {
   return 1 + 0.12 * Math.abs(Math.sin(pulseT * Math.PI * 1.4))
 }
 
+/** Signed left/right oscillation in [-1, 1] — drives the swipe-hint hand. */
+export function sway(): number {
+  return Math.sin(pulseT * Math.PI * 1.6)
+}
+
 let started = false
 export function startAnimSystem(): void {
   if (started) return

@@ -29,6 +29,9 @@ export const clientState: {
   // Whether the pet control panel (stats + care) is open. Closed by default so
   // it doesn't cover the screen; opens by clicking the pet, closes with the X.
   petPanelOpen: boolean
+  // Hold-to-pet gesture: active while the overlay is up; progress 0..1 fills
+  // while the pointer is held and ebbs back when released.
+  petting: { active: boolean; progress: number }
   // Optimistic adoption: render the new pet instantly while the server catches
   // up, so adoption never feels like "nothing happened" if a message is slow.
   pendingPet: PetData | null
@@ -51,6 +54,7 @@ export const clientState: {
   dialog: { open: false, npcName: '', pages: [], page: 0, finalLabel: 'Got it!', onDone: null },
   introShown: false,
   petPanelOpen: false,
+  petting: { active: false, progress: 0 },
   pendingPet: null,
   pendingUntil: 0,
   streak: { count: 1, lastDay: 0, claimedDay: 0 },
