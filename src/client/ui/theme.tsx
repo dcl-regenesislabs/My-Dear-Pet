@@ -3,6 +3,7 @@
 // panel shell that blocks the mobile joystick. Inspired by the cozy-farm UI.
 
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
+import { engine, UiCanvasInformation } from '@dcl/sdk/ecs'
 import { getExplorerInformation } from '~system/Runtime'
 import { getPress, triggerPress, attentionPulse } from './anim'
 
@@ -43,12 +44,37 @@ export function dimColor(c?: Color): Color {
 // it every render (React-ECS re-renders each frame, so the HUD resizes once the
 // lookup resolves).
 let isMobileRuntime = false
+// The Bevy explorer reports platform:"web" agent:"bevy" and renders the HUD
+// small at 1920x1080 — it needs the compact virtual canvas like mobile does.
+let isBevyRuntime = false
 let platformLookupStarted = false
 
 const MOBILE_AGENT_RE = /mobile|android|iphone|ipad|ios/
 
-/** Kick off the (async) platform lookup once. Safe to call from setup. */
-export function resolveRuntimePlatform(): void {
+/** True when the UI should use the smaller virtual canvas (mobile only). Bevy is
+ * handled separately via a devicePixelRatio scale in S() — see below. */
+export function useCompactCanvas(): boolean {
+  return isMobileRuntime
+}
+
+/**
+ * Live device pixel ratio, read from the renderer. Bevy (web) rasterizes the HUD
+ * at the PHYSICAL resolution, so on a retina screen (dpr 2) everything comes out
+ * half-size. We multiply S() by this on Bevy to compensate — resolution- and
+ * density-independent, since it's read at render time.
+ */
+function devicePixelRatio(): number {
+  const ci = UiCanvasInformation.getOrNull(engine.RootEntity)
+  return ci?.devicePixelRatio || 1
+}
+
+/**
+ * Kick off the (async) platform lookup once. Safe to call from setup.
+ * `onResolved` fires once the lookup settles (success OR failure) — used to
+ * re-apply the UI renderer with the right virtual canvas for mobile, since
+ * virtualWidth/Height are fixed at setUiRenderer time and can't update per frame.
+ */
+export function resolveRuntimePlatform(onResolved?: () => void): void {
   if (platformLookupStarted) return
   platformLookupStarted = true
   void getExplorerInformation({})
@@ -56,9 +82,14 @@ export function resolveRuntimePlatform(): void {
       const platform = (info.platform ?? '').toLowerCase()
       const agent = (info.agent ?? '').toLowerCase()
       isMobileRuntime = platform === 'mobile' || MOBILE_AGENT_RE.test(agent)
+      isBevyRuntime = agent.includes('bevy')
+      console.log('[Platform]', `platform:${platform || '?'} agent:${agent || '?'}`)
     })
     .catch(() => {
       // Couldn't read it — stay at desktop scale rather than guess wrong.
+    })
+    .then(() => {
+      if (onResolved) onResolved()
     })
 }
 
@@ -69,6 +100,8 @@ export function mobile(): boolean {
 // too (mobile-testing friendly). React-ECS re-renders every frame, so the HUD
 // resizes automatically once the platform lookup resolves.
 export function S(n: number): number {
+  // Bevy renders at physical resolution, so compensate for the pixel ratio.
+  if (isBevyRuntime) return Math.round(n * 1.18 * devicePixelRatio())
   return Math.round(n * (isMobileRuntime ? 1.6 : 1.18))
 }
 

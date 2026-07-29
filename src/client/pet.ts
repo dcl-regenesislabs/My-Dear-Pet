@@ -14,13 +14,19 @@ import {
   TextShape,
   Billboard,
   pointerEventsSystem,
+  inputSystem,
   InputAction,
-  PlayerIdentityData
+  PlayerIdentityData,
+  PrimaryPointerInfo,
+  UiCanvasInformation,
+  VirtualCamera,
+  MainCamera,
+  InputModifier
 } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion } from '@dcl/sdk/math'
 import * as C from '../shared/config'
 import { modelForSpecies } from '../shared/config'
-import { clientState, actions, switchActivePet } from './state'
+import { clientState, actions, pushToast, switchActivePet } from './state'
 
 type Mode = 'follow' | 'goto' | 'interact' | 'wander'
 
@@ -198,6 +204,77 @@ export function petReact(): void {
   interactTimer = 0.9
 }
 
+// ---------------------------------------------------------------------------
+// Pet gesture (Adopt-Me style): lock the camera on the pet, then swipe left/right
+// across the screen (the pet is centered, so it reads as petting it) for a few
+// seconds. A dedicated virtual camera frames the pet; the avatar is frozen.
+// ---------------------------------------------------------------------------
+let petCam: Entity | null = null
+
+/** Enter petting mode: frame the pet, face it to camera, freeze the avatar. */
+export function startPetting(): void {
+  if (!clientState.activePet || !localPet) return
+  clientState.petting.active = true
+  clientState.petting.progress = 0
+
+  const petPos = Transform.get(localPet).position
+  // Camera sits a few metres out and slightly up, looking straight at the pet.
+  const camPos = Vector3.create(petPos.x, petPos.y + 1.15, petPos.z + 2.8)
+  if (!petCam) petCam = engine.addEntity()
+  Transform.createOrReplace(petCam, { position: camPos })
+  VirtualCamera.createOrReplace(petCam, { lookAtEntity: localPet })
+  MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: petCam })
+
+  // Turn the pet to face the camera so we see its front, and freeze it there.
+  Transform.getMutable(localPet).rotation = yawToward(petPos, camPos)
+  InputModifier.createOrReplace(engine.PlayerEntity, { mode: InputModifier.Mode.Standard({ disableAll: true }) })
+}
+
+/** Hand the camera + avatar control back to the player. */
+function releasePettingView(): void {
+  if (MainCamera.has(engine.CameraEntity)) MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: undefined })
+  if (InputModifier.has(engine.PlayerEntity)) InputModifier.deleteFrom(engine.PlayerEntity)
+}
+
+/** Leave petting mode without completing (BACK button). */
+export function cancelPetting(): void {
+  clientState.petting.active = false
+  clientState.petting.progress = 0
+  releasePettingView()
+}
+
+/** Advance progress while actively swiping; complete rewards happiness. */
+function updatePetting(dt: number): void {
+  const st = clientState.petting
+  if (!st.active) return
+  if (!clientState.activePet || !localPet) {
+    cancelPetting()
+    return
+  }
+  const pressed = inputSystem.isPressed(InputAction.IA_POINTER)
+  const info = PrimaryPointerInfo.getOrNull(engine.RootEntity)
+  const dx = Math.abs(info?.screenDelta?.x ?? 0)
+  // Scale the swipe threshold by the pixel ratio: on high-DPI screens screenDelta
+  // is reported in physical pixels, so a fixed px threshold would let jitter count
+  // as swiping. dpr-scaling keeps the "is the user actually swiping" test uniform.
+  const dpr = UiCanvasInformation.getOrNull(engine.RootEntity)?.devicePixelRatio || 1
+  const swiping = pressed && dx > C.PET_SWIPE_EPS * dpr
+  const rate = dt / C.PET_GESTURE_SECONDS
+  st.progress += swiping ? rate : -rate * C.PET_GESTURE_DECAY_FACTOR
+  st.progress = Math.max(0, Math.min(1, st.progress))
+
+  if (st.progress >= 1) {
+    st.active = false
+    st.progress = 0
+    releasePettingView()
+    const pet = clientState.activePet
+    if (pet) pet.happiness = Math.min(100, pet.happiness + C.PET_SELF_HAPPINESS)
+    actions.petSelf() // server is authoritative; this is the "happiness" action
+    petReact()
+    pushToast('Your pet loved that!  +Happy')
+  }
+}
+
 export function setFollow(enabled: boolean): void {
   clientState.followEnabled = enabled
   actions.setFollow(enabled) // tell the server so others mirror our follow/stay
@@ -243,6 +320,18 @@ function updateWander(dt: number): number {
 function updateLocalPet(dt: number): void {
   ensureLocalPet()
   if (!localPet) return
+
+  // While the hold-to-pet overlay is up, the pet stays put and plays its happy
+  // gesture — the whole focus is on petting it.
+  if (clientState.petting.active) {
+    setClip(localPet, 'gesture-positive')
+    if (localTag) {
+      const petT = clientState.activePet
+      localTagName = updateTag(localTag, Transform.get(localPet).position, petT ? petT.size : 0.55, petT ? petT.name : '', localTagName)
+    }
+    return
+  }
+
   let moved = 0
   let moveClip = 'walk'
 
@@ -436,6 +525,7 @@ function updateInactivePets(dt: number): void {
 
 export function setupPetSystems(): void {
   engine.addSystem((dt: number) => {
+    updatePetting(dt)
     updateLocalPet(dt)
     updateInactivePets(dt)
     updateRemotePets(dt)

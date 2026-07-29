@@ -117,6 +117,13 @@ export const SLEEP_DECAY_FACTOR = 0.5
 export const PET_SELF_HAPPINESS = 4
 export const PET_SELF_COOLDOWN_MS = 1500
 
+// Pet gesture (Adopt-Me style): clicking Pet locks the camera on the pet and you
+// swipe left/right across it to fill a progress bar. Progress advances only while
+// actively swiping; it ebbs back when you stop.
+export const PET_GESTURE_SECONDS = 3 // swipe time to fill from empty to full
+export const PET_GESTURE_DECAY_FACTOR = 0.5 // ebb rate (× fill rate) while idle
+export const PET_SWIPE_EPS = 2 // min |screenDelta.x| (px) counted as swiping
+
 // Treating / petting other players' pets.
 export const PET_OTHER_HAPPINESS = 5
 export const PET_OTHER_GIVING_POINTS = 2

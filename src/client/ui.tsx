@@ -9,12 +9,12 @@ import ReactEcs, { ReactEcsRenderer, Label, UiEntity, Input } from '@dcl/sdk/rea
 import * as Cfg from '../shared/config'
 import type { CareAction } from '../shared/types'
 import { actions, adoptPet, clientState, pushToast, serverConnected, switchActivePet } from './state'
-import { setFollow } from './pet'
+import { setFollow, startPetting, cancelPetting } from './pet'
 import { throwMeteor } from './play'
 import { triggerCare, careActive, queueLength } from './input'
 import { buyItemLocal, buySlotLocal, claimStreak, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
-import { startAnimSystem } from './ui/anim'
-import { C, Color, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, StatBar, TactileButton } from './ui/theme'
+import { sway, startAnimSystem } from './ui/anim'
+import { C, Color, mobile, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, StatBar, TactileButton, useCompactCanvas } from './ui/theme'
 import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './ui/dialog'
 
 type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor'
@@ -264,22 +264,37 @@ function PetPanel() {
           }}
         />
       </UiEntity>
-      {/* Breed — locked until Lv X. For now it crosses with the first other owned
-          pet (cross-player registry is the follow-up). */}
+      {/* Pet + Breed, side by side and equal size. Pet is the affection gesture
+          (raises Happy); Breed is locked until Lv X and crosses with the first
+          other owned pet (cross-player registry is the follow-up). */}
       {(() => {
         const unlocked = pet.petLevel >= Cfg.BREEDING_UNLOCK_LEVEL
         const partner = clientState.player?.pets.find((x) => x.id !== pet.id)
+        const halfW = Math.round((rowW - S(8)) / 2)
         return (
           <UiEntity uiTransform={{ width: rowW, flexDirection: 'row', justifyContent: 'center', margin: { top: S(8) } }}>
             <TactileButton
+              id="pet_gesture"
+              label="Pet  ·  +Happy"
+              width={halfW}
+              height={S(38)}
+              bg={C.happy}
+              textColor={C.outline}
+              fontSize={S(15)}
+              radius={S(14)}
+              margin={{ right: S(4) }}
+              onClick={() => startPetting()}
+            />
+            <TactileButton
               id="breed_teaser"
-              label={unlocked ? 'Breed' : `Breed  ·  Unlocks at Lv ${Cfg.BREEDING_UNLOCK_LEVEL}`}
-              width={rowW}
+              label={unlocked ? 'Breed' : `Breed  ·  Lv ${Cfg.BREEDING_UNLOCK_LEVEL}`}
+              width={halfW}
               height={S(38)}
               bg={unlocked ? C.pink : C.cardAlt}
               textColor={unlocked ? C.outline : C.dim}
               fontSize={S(15)}
               radius={S(14)}
+              margin={{ left: S(4) }}
               pulse={unlocked}
               onClick={() => {
                 if (!unlocked) {
@@ -865,6 +880,59 @@ function Toasts() {
 }
 
 // ---------------------------------------------------------------------------
+// Pet gesture overlay — the camera is locked on the pet (rendered underneath),
+// so this is a transparent layer: a BACK button, a hand that sways left/right to
+// hint the swipe, and a progress bar. The hand is a placeholder (disc + emoji)
+// until the designer's hand image lands.
+// ---------------------------------------------------------------------------
+function PettingOverlay() {
+  const st = clientState.petting
+  if (!st.active) return <UiEntity />
+  const pct = Math.round(st.progress * 100)
+  const handD = S(96)
+  const swayX = Math.round(sway() * S(150)) // left/right travel around center
+  return (
+    // Full-screen blocker (transparent) so touches drive the swipe and never
+    // reach the avatar. The pet shows through from the fixed camera.
+    <UiEntity
+      uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'block' }}
+      uiBackground={{ color: { r: 0, g: 0, b: 0, a: 0 } }}
+      onMouseDown={() => {}}
+    >
+      {/* BACK button (top, horizontally centered) */}
+      <UiEntity
+        uiTransform={{ positionType: 'absolute', position: { top: S(20), left: '50%' }, margin: { left: -S(75) }, width: S(150), height: S(56), alignItems: 'center', justifyContent: 'center', borderRadius: S(28), pointerFilter: 'block' }}
+        uiBackground={{ color: C.pink }}
+        onMouseDown={() => cancelPetting()}
+      >
+        <OutlineLabel value="BACK" fontSize={S(24)} color={C.text} width={'100%'} height={S(30)} textAlign="middle-center" />
+      </UiEntity>
+      {/* Swipe hint: a hand that drifts side to side across the middle (over the
+          centered pet). Placeholder disc + emoji until the hand art arrives. */}
+      <UiEntity
+        uiTransform={{ positionType: 'absolute', position: { top: '34%', left: '50%' }, width: handD, height: handD, margin: { left: -handD / 2 + swayX }, alignItems: 'center', justifyContent: 'center', pointerFilter: 'none' }}
+      >
+        <UiEntity
+          uiTransform={{ width: handD, height: handD, borderRadius: Math.round(handD), alignItems: 'center', justifyContent: 'center' }}
+          uiBackground={{ color: { r: 0.8, g: 0.8, b: 0.8, a: 0.28 } }}
+        >
+          <Label value="✋" fontSize={Math.round(handD * 0.5)} color={{ r: 1, g: 1, b: 1, a: 0.5 }} textAlign="middle-center" uiTransform={{ width: handD, height: handD }} />
+        </UiEntity>
+      </UiEntity>
+      {/* Prompt + progress bar (bottom-center) */}
+      <UiEntity
+        uiTransform={{ positionType: 'absolute', position: { bottom: S(90), left: '50%' }, margin: { left: -S(190) }, width: S(380), flexDirection: 'column', alignItems: 'center', pointerFilter: 'none' }}
+      >
+        <OutlineLabel value="Swipe left & right to pet!" fontSize={S(20)} color={C.text} width={'100%'} height={S(30)} textAlign="middle-center" />
+        <UiEntity uiTransform={{ width: S(360), height: S(22), borderRadius: S(11), margin: { top: S(10) } }} uiBackground={{ color: C.trackBg }}>
+          <UiEntity uiTransform={{ width: `${pct}%`, height: '100%', borderRadius: S(11) }} uiBackground={{ color: C.happy }} />
+        </UiEntity>
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Fetch (Play) mode — a big centered "Fetch" button. Tapping it throws the ball
 // and disables the button (busy); it re-enables once the pet drops the ball back
 // at the player. BACK exits (only when not mid-throw).
@@ -909,7 +977,17 @@ function FetchOverlay() {
 // ---------------------------------------------------------------------------
 // Root
 // ---------------------------------------------------------------------------
-const Root = () => (
+const Root = () => {
+  // In petting mode the camera is locked on the pet — hide the whole HUD so
+  // nothing covers it, leaving only the petting overlay (BACK + swipe hint).
+  if (clientState.petting.active) {
+    return (
+      <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
+        <PettingOverlay />
+      </UiEntity>
+    )
+  }
+  return (
   <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
     <ServerStatus />
     <ProfileBar />
@@ -929,10 +1007,24 @@ const Root = () => (
     {uiState.panel === 'daily' && <DailyRewardPanel />}
     <DialogBox />
   </UiEntity>
-)
+  )
+}
+
+// Mobile uses a smaller virtual canvas so the HUD occupies more of the screen
+// (fixes tiny UIs on mobile / the Bevy client). virtualWidth/Height are locked
+// in at setUiRenderer time, so we re-apply this once mobile detection resolves.
+function applyUiRenderer(): void {
+  const compact = useCompactCanvas() // mobile OR the Bevy explorer
+  ReactEcsRenderer.setUiRenderer(Root, {
+    virtualWidth: compact ? 1600 : 1920,
+    virtualHeight: compact ? 720 : 1080
+  })
+}
 
 export function setupUi(): void {
-  resolveRuntimePlatform() // detect mobile early so S() scales the HUD up
+  // Re-apply the renderer once the async platform lookup settles, so mobile gets
+  // the smaller virtual canvas even though detection resolves after first render.
+  resolveRuntimePlatform(applyUiRenderer)
   startAnimSystem()
-  ReactEcsRenderer.setUiRenderer(Root, { virtualWidth: 1920, virtualHeight: 1080 })
+  applyUiRenderer()
 }
