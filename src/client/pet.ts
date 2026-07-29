@@ -18,6 +18,7 @@ import {
   InputAction,
   PlayerIdentityData,
   PrimaryPointerInfo,
+  UiCanvasInformation,
   VirtualCamera,
   MainCamera,
   InputModifier
@@ -253,7 +254,11 @@ function updatePetting(dt: number): void {
   const pressed = inputSystem.isPressed(InputAction.IA_POINTER)
   const info = PrimaryPointerInfo.getOrNull(engine.RootEntity)
   const dx = Math.abs(info?.screenDelta?.x ?? 0)
-  const swiping = pressed && dx > C.PET_SWIPE_EPS
+  // Scale the swipe threshold by the pixel ratio: on high-DPI screens screenDelta
+  // is reported in physical pixels, so a fixed px threshold would let jitter count
+  // as swiping. dpr-scaling keeps the "is the user actually swiping" test uniform.
+  const dpr = UiCanvasInformation.getOrNull(engine.RootEntity)?.devicePixelRatio || 1
+  const swiping = pressed && dx > C.PET_SWIPE_EPS * dpr
   const rate = dt / C.PET_GESTURE_SECONDS
   st.progress += swiping ? rate : -rate * C.PET_GESTURE_DECAY_FACTOR
   st.progress = Math.max(0, Math.min(1, st.progress))
