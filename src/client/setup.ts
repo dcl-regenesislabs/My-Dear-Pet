@@ -13,6 +13,7 @@ import { setupUi, ui } from './ui'
 import { openCaretakerIntro } from './ui/dialog'
 import { setupInput } from './input'
 import { setupPetSystems } from './pet'
+import { setupPlay } from './play'
 import { setupMeteor } from './meteor'
 import { setupSkybox } from './skybox'
 
@@ -100,6 +101,7 @@ export function setupClient(): void {
   setupUi()
   setupInput()
   setupPetSystems() // renders + simulates remote pets from server `presence`
+  setupPlay() // Play action: throw an animated meteorite forward
 
   // Try to load persisted state from the server (retry until it answers).
   let sinceReq = 99

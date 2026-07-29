@@ -265,8 +265,11 @@ function updateLocalPet(dt: number): void {
         mode = 'interact'
         interactTimer = 1.1
         if (onArrive) {
-          onArrive()
+          // Capture + clear BEFORE calling: the callback may chain another
+          // sendPetTo (setting a new onArrive) that we must not clobber.
+          const cb = onArrive
           onArrive = null
+          cb()
         }
       }
       break
