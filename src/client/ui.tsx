@@ -13,7 +13,7 @@ import { setFollow, startPetting, cancelPetting } from './pet'
 import { triggerCare, careActive, queueLength } from './input'
 import { buyItemLocal, buySlotLocal, claimStreak, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
 import { sway, startAnimSystem } from './ui/anim'
-import { C, Color, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, StatBar, TactileButton } from './ui/theme'
+import { C, Color, mobile, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, StatBar, TactileButton, useCompactCanvas } from './ui/theme'
 import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './ui/dialog'
 
 type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor'
@@ -953,8 +953,21 @@ const Root = () => {
   )
 }
 
+// Mobile uses a smaller virtual canvas so the HUD occupies more of the screen
+// (fixes tiny UIs on mobile / the Bevy client). virtualWidth/Height are locked
+// in at setUiRenderer time, so we re-apply this once mobile detection resolves.
+function applyUiRenderer(): void {
+  const compact = useCompactCanvas() // mobile OR the Bevy explorer
+  ReactEcsRenderer.setUiRenderer(Root, {
+    virtualWidth: compact ? 1600 : 1920,
+    virtualHeight: compact ? 720 : 1080
+  })
+}
+
 export function setupUi(): void {
-  resolveRuntimePlatform() // detect mobile early so S() scales the HUD up
+  // Re-apply the renderer once the async platform lookup settles, so mobile gets
+  // the smaller virtual canvas even though detection resolves after first render.
+  resolveRuntimePlatform(applyUiRenderer)
   startAnimSystem()
-  ReactEcsRenderer.setUiRenderer(Root, { virtualWidth: 1920, virtualHeight: 1080 })
+  applyUiRenderer()
 }
