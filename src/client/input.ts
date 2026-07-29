@@ -88,7 +88,9 @@ export function setupInput(): void {
   onClick(EntityNames.Bowl, 'Feed', () => triggerCare('feed'))
   onClick(EntityNames.Pond, 'Bath', () => triggerCare('clean'))
   onClick(EntityNames.Bed, 'Sleep', () => triggerCare('sleep'))
-  onClick(EntityNames.Ball, 'Play', () => triggerCare('play'))
+  // Old play action (pet walks to the ball) is suspended — Play now throws a
+  // meteorite forward (see play.ts, wired to the Play button in ui.tsx).
+  // onClick(EntityNames.Ball, 'Play', () => triggerCare('play'))
   onClick(EntityNames.Caretaker, 'Talk to Caretaker', () => ui.openCaretaker())
   // Shop is suspended for now — the object stays in the scene but isn't clickable.
   setupCareQueue()

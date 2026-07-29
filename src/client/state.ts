@@ -29,6 +29,10 @@ export const clientState: {
   // Whether the pet control panel (stats + care) is open. Closed by default so
   // it doesn't cover the screen; opens by clicking the pet, closes with the X.
   petPanelOpen: boolean
+  // Fetch (Play) mode: `active` shows the centered Fetch button and hides the
+  // panel; `busy` is true from the moment the ball is thrown until the pet drops
+  // it back (the Fetch button is disabled while busy).
+  fetch: { active: boolean; busy: boolean }
   // Optimistic adoption: render the new pet instantly while the server catches
   // up, so adoption never feels like "nothing happened" if a message is slow.
   pendingPet: PetData | null
@@ -51,6 +55,7 @@ export const clientState: {
   dialog: { open: false, npcName: '', pages: [], page: 0, finalLabel: 'Got it!', onDone: null },
   introShown: false,
   petPanelOpen: false,
+  fetch: { active: false, busy: false },
   pendingPet: null,
   pendingUntil: 0,
   streak: { count: 1, lastDay: 0, claimedDay: 0 },
