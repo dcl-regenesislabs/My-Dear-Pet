@@ -10,6 +10,7 @@ import * as Cfg from '../shared/config'
 import type { CareAction } from '../shared/types'
 import { actions, adoptPet, clientState, pushToast, serverConnected, switchActivePet } from './state'
 import { setFollow, startPetting, cancelPetting } from './pet'
+import { throwMeteor } from './play'
 import { triggerCare, careActive, queueLength } from './input'
 import { buyItemLocal, buySlotLocal, claimStreak, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
 import { sway, startAnimSystem } from './ui/anim'
@@ -249,7 +250,19 @@ function PetPanel() {
             } else care('sleep')
           }}
         />
-        <TactileButton id="care_play" label="Play" texture={PET_UI.play} width={chipW} height={chipH} margin={{ left: S(2), right: S(2) }} onClick={() => care('play')} />
+        <TactileButton
+          id="care_play"
+          label="Play"
+          texture={PET_UI.play}
+          width={chipW}
+          height={chipH}
+          margin={{ left: S(2), right: S(2) }}
+          onClick={() => {
+            // Enter Fetch mode: hide the panel and show the centered Fetch button.
+            clientState.fetch.active = true
+            clientState.petPanelOpen = false
+          }}
+        />
       </UiEntity>
       {/* Pet + Breed, side by side and equal size. Pet is the affection gesture
           (raises Happy); Breed is locked until Lv X and crosses with the first
@@ -308,7 +321,8 @@ function PetPanel() {
 function BottomNav() {
   const p = clientState.player
   // Hidden while a dialog is open — the dialog sits where these buttons are.
-  if (!p || clientState.dialog.open) return <UiEntity />
+  // Also hidden in Fetch mode, which owns the bottom-center of the screen.
+  if (!p || clientState.dialog.open || clientState.fetch.active) return <UiEntity />
   const bw = Sbtn(160)
   const bh = Sbtn(72)
   return (
@@ -352,7 +366,7 @@ function BottomNav() {
 // ---------------------------------------------------------------------------
 function SideButtons() {
   const p = clientState.player
-  if (!p) return <UiEntity />
+  if (!p || clientState.fetch.active) return <UiEntity />
   const hasPet = !!clientState.activePet
   const w = Sbtn(112)
   const h = Sbtn(58)
@@ -919,6 +933,48 @@ function PettingOverlay() {
 }
 
 // ---------------------------------------------------------------------------
+// Fetch (Play) mode — a big centered "Fetch" button. Tapping it throws the ball
+// and disables the button (busy); it re-enables once the pet drops the ball back
+// at the player. BACK exits (only when not mid-throw).
+// ---------------------------------------------------------------------------
+function FetchOverlay() {
+  if (!clientState.fetch.active) return <UiEntity />
+  const busy = clientState.fetch.busy
+  const bw = S(300)
+  const bh = S(92)
+  return (
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'none' }}>
+      {/* BACK (top-left) — disabled while a throw is in progress */}
+      <UiEntity
+        uiTransform={{ positionType: 'absolute', position: { top: S(20), left: S(20) }, width: S(150), height: S(56), alignItems: 'center', justifyContent: 'center', borderRadius: S(28), pointerFilter: 'block' }}
+        uiBackground={{ color: busy ? C.cardAlt : C.pink }}
+        onMouseDown={() => {
+          if (!clientState.fetch.busy) clientState.fetch.active = false
+        }}
+      >
+        <OutlineLabel value="BACK" fontSize={S(24)} color={busy ? C.dim : C.text} width={'100%'} height={S(30)} textAlign="middle-center" />
+      </UiEntity>
+      {/* Fetch button (bottom-center) */}
+      <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(80), left: '50%' }, margin: { left: -bw / 2 }, width: bw, height: bh, alignItems: 'center', justifyContent: 'center' }}>
+        <TactileButton
+          id="fetch_throw"
+          label={busy ? 'Fetching…' : 'Fetch'}
+          width={bw}
+          height={bh}
+          bg={busy ? C.cardAlt : C.green}
+          textColor={busy ? C.dim : C.outline}
+          fontSize={S(32)}
+          radius={S(26)}
+          disabled={busy}
+          pulse={!busy}
+          onClick={() => throwMeteor()}
+        />
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Root
 // ---------------------------------------------------------------------------
 const Root = () => {
@@ -940,6 +996,7 @@ const Root = () => {
     <SideButtons />
     <BottomNav />
     <Toasts />
+    <FetchOverlay />
     {uiState.panel === 'adopt' && <AdoptPanel />}
     {uiState.panel === 'shop' && <ShopPanel />}
     {uiState.panel === 'roster' && <RosterPanel />}
