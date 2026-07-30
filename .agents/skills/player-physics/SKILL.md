@@ -1,15 +1,11 @@
 ---
 name: player-physics
-description: Apply physics forces to the player in Decentraland scenes. Impulses (one-shot pushes), knockback (push away from a point with falloff), continuous forces (wind tunnels, anti-gravity, lift, levitation, hover), timed forces, and repulsion fields. Use when the user wants launch pads, knockback on hit, wind zones, gravity fields, jumps, lifting/floating the player, pushing the player up/sideways/back, hover effects, or any scene-applied force on the player. THIS is also the right skill when an agent's first instinct is to mutate `Transform` on `engine.PlayerEntity` to move/lift/push the player — that does NOT work (the player Transform is engine-controlled and read-only); use the Physics API instead. Do NOT use for player movement speed (see player-avatar AvatarLocomotionSettings) or platform movement (see animations-tweens).
+description: Apply physics forces to the player in Decentraland scenes. Impulses (one-shot pushes), knockback (push away from a point with falloff), continuous forces (wind tunnels, anti-gravity, lift, hover), timed forces, and repulsion fields. Use when the user wants launch pads, knockback on hit, wind zones, gravity fields, or lifting/floating/hovering the player. THIS is also the right skill when an agent's first instinct is to mutate `Transform` on `engine.PlayerEntity` to move/lift/push the player — that does NOT work (player Transform is engine-controlled and read-only); use the Physics API instead. Do NOT use for player movement speed (see player-avatar AvatarLocomotionSettings) or platform movement (see animations-tweens).
 ---
 
 # Player Physics in Decentraland
 
 Apply forces to the player's avatar using the `Physics` API from `@dcl/sdk/ecs`. All physics operations affect the **local player** only.
-
-## Authoring split
-
-Force calls are runtime — they live in `src/index.ts`. The **trigger entities** that cause forces (the launch pad, the wind tunnel volume, the repulsion field marker) are static placements and belong in `main-entities.ts` with a Transform (and optional `MeshRenderer` / `GltfContainer`). Wire pointer/proximity events or trigger systems in `src/index.ts` to call the `Physics.*` methods.
 
 ## Why this skill exists — the Transform mistake
 
@@ -20,15 +16,15 @@ The player's `Transform` (on `engine.PlayerEntity`) is **engine-controlled and r
 ```typescript
 // WRONG — has no effect in-world
 const t = Transform.getMutable(engine.PlayerEntity)
-t.position.y += 0.1   // ignored every frame
+t.position.y += 0.1  // ignored every frame
 
 // CORRECT — lift the player upward
 import { Physics } from '@dcl/sdk/ecs'
 import { Vector3 } from '@dcl/sdk/math'
-Physics.applyImpulseToPlayer(Vector3.create(0, 50, 0))         // one-shot upward launch
+Physics.applyImpulseToPlayer(Vector3.create(0, 50, 0))   // one-shot upward launch
 // or, sustained lift / hover:
-const lifter = engine.getEntityOrNullByName('hover_zone')      // named entity from main-entities.ts
-if (lifter) Physics.applyForceToPlayer(lifter, Vector3.create(0, 1, 0), 12)
+const lifter = engine.addEntity()
+Physics.applyForceToPlayer(lifter, Vector3.create(0, 1, 0), 12)  // continuous upward force
 // stop with: Physics.removeForceFromPlayer(lifter)
 ```
 
@@ -43,12 +39,12 @@ Push the player away from a source position with `Physics.applyKnockbackToPlayer
 ### KnockbackFalloff Options
 
 | Falloff | Behavior |
-|---|---|
+|---------|----------|
 | `KnockbackFalloff.CONSTANT` | Same magnitude at any distance within radius (default) |
 | `KnockbackFalloff.LINEAR` | Smooth linear decrease to 0 at the radius edge |
 | `KnockbackFalloff.INVERSE_SQUARE` | Sharp, physically-realistic drop-off |
 
-If the player is exactly at the source, they are pushed straight up. A **negative magnitude** pulls the player toward the point (gravity well). The same falloff values apply to `applyRepulsionForceToPlayer()`.
+If the player is exactly at the source, they are pushed straight up. A **negative magnitude** pulls the player toward the point. Same falloff values apply to `applyRepulsionForceToPlayer()`. Prefer `KnockbackFalloff.LINEAR` for most area effects — it feels natural and predictable.
 
 ## Continuous Force
 
@@ -57,7 +53,7 @@ Apply a persistent directional force identified by an **entity** (the force "own
 - Apply: `Physics.applyForceToPlayer(entity, direction, magnitude?)`
 - Remove: `Physics.removeForceFromPlayer(entity)`
 
-Use with trigger zones for wind tunnels, conveyor belts, and gravity fields. The owner entity is just an ID handle for later removal — typically the named main-entities.ts entity representing the trigger zone.
+Use with trigger zones for wind tunnels, conveyor belts, and gravity fields.
 
 ## Timed Force
 
@@ -74,7 +70,7 @@ Convert local direction to world space with `Transform.localToWorldDirection(ent
 ## Quick Reference
 
 | Method | Type | Description |
-|---|---|---|
+|--------|------|-------------|
 | `Physics.applyImpulseToPlayer(dir, mag?)` | One-shot | Instant directional push |
 | `Physics.applyKnockbackToPlayer(pos, mag, radius?, falloff?)` | One-shot | Push away from point |
 | `Physics.applyForceToPlayer(entity, dir, mag?)` | Continuous | Persistent push while active |
@@ -83,11 +79,26 @@ Convert local direction to world space with `Transform.localToWorldDirection(ent
 | `Physics.applyRepulsionForceToPlayer(entity, pos, mag, radius)` | Continuous | Distance-based push from point |
 | `Transform.localToWorldDirection(entity, dir)` | Utility | Convert local direction to world space |
 
-## Best Practices
+## Trigger-zone collider layers — which player fires the trigger
 
-- Use `applyImpulseToPlayer` for one-off events (jump pads, explosions, hits).
-- Use `applyForceToPlayer` + `removeForceFromPlayer` with trigger zones for areas (wind tunnels, conveyor belts).
-- Use `KnockbackFalloff.LINEAR` for most area effects — it feels natural and predictable.
-- Always check `result.trigger?.entity !== engine.PlayerEntity` in trigger callbacks to only affect the local player.
-- A negative knockback magnitude creates a pull/gravity well effect.
-- Multiple forces from different entities stack independently.
+`Physics.*` always affects the **local** player. When you drive forces from a `TriggerArea`, the collider mask decides which avatars fire the callback (verified in test scene `5,5-collider-layers`):
+
+| Mask | Fires for |
+|------|-----------|
+| `ColliderLayer.CL_MAIN_PLAYER` | the **local** player only |
+| `ColliderLayer.CL_PLAYER` | **remote** avatars only (NOT the local player) |
+| `CL_PLAYER \| CL_MAIN_PLAYER` | both local and remote |
+| `ColliderLayer.CL_PHYSICS` | never fires for any avatar (targets scene mesh/walls, not characters) |
+
+**Prefer `CL_MAIN_PLAYER` for player-physics trigger zones.** Because the callback then only fires for the local player, you do not need a remote-vs-local guard, and the force is applied to the one avatar it can affect. A launch pad using `CL_PLAYER` alone will NOT fire for the local player (only for remote avatars), so it never launches the person standing on it — a common bug.
+
+If you do use `CL_PLAYER | CL_MAIN_PLAYER`, guard with `result.trigger?.entity === engine.PlayerEntity` — `result.trigger?.entity` is the entity that entered. Note: `result.triggeredEntity` is the trigger area's OWN entity, not the entrant, so comparing it to `PlayerEntity` never distinguishes who entered.
+
+## Forces while gliding
+
+While the player is gliding (glider open), forces behave differently:
+- **Continuous forces** (`applyForceToPlayer`, `applyForceToPlayerForDuration`, `applyRepulsionForceToPlayer`) are **1.5× stronger** — the open glider catches the airflow, so wind zones/currents feel more responsive.
+- The **upward component** of a continuous force can **lift** a gliding player. `glidingFallingSpeed` (in `AvatarLocomotionSettings`) only caps *descent* speed; it does not cancel upward motion, so an angled or vertical current pushes the player along the full force direction. Enables thermal updrafts / wind corridors.
+- **One-shot impulses** (`applyImpulseToPlayer`, `applyKnockbackToPlayer`) are **NOT** affected by gliding — identical whether the glider is open or closed.
+
+For full code examples (launch pad, wind tunnel, repulsion field, coordinate conversion), see `{baseDir}/references/physics-patterns.md`.

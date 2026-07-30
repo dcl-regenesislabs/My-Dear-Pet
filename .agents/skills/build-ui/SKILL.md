@@ -1,6 +1,6 @@
 ---
 name: build-ui
-description: Build 2D screen-space UI for Decentraland scenes using React-ECS (JSX). Create HUDs, menus, health bars, scoreboards, dialogs, buttons, inputs, and dropdowns. Use when the user wants screen overlays, on-screen UI, HUD elements, menus, or form inputs. Do NOT use for 3D in-world text (see advanced-rendering) or clickable 3D objects (see add-interactivity).
+description: Build 2D screen-space UI for Decentraland scenes using React-ECS (JSX). Create HUDs, menus, health bars, dialogs, buttons, inputs, and dropdowns. Use when the user wants on-screen UI, menus, or form inputs. Do NOT use for 3D in-world text (see advanced-rendering) or clickable 3D objects (see add-interactivity).
 ---
 
 # Building UI with React-ECS
@@ -9,344 +9,142 @@ Decentraland SDK7 uses a React-like JSX system for 2D UI overlays.
 
 ## When to Use Which UI Approach
 
-| Need | Approach | Component |
-|------|----------|-----------|
+| Need                             | Approach               | Component                                          |
+| -------------------------------- | ---------------------- | -------------------------------------------------- |
 | Screen-space HUD, menus, buttons | React-ECS (this skill) | `UiEntity`, `Label`, `Button`, `Input`, `Dropdown` |
-| 3D text floating in the world | TextShape + Billboard | See **advanced-rendering** skill |
-| Open a web page | `openExternalUrl` | See **scene-runtime** skill |
-| Clickable objects in 3D space | Pointer events | See **add-interactivity** skill |
+| 3D text floating in the world    | TextShape + Billboard  | See **advanced-rendering** skill                   |
+| Open a web page                  | `openExternalUrl`      | See **scene-runtime** skill                        |
+| Clickable objects in 3D space    | Pointer events         | See **add-interactivity** skill                    |
 
 Use React-ECS for any 2D overlay: scoreboards, health bars, dialogs, inventories, settings menus. Use TextShape for labels above NPCs or objects in the 3D world.
 
 ## Setup
 
-### File: src/ui.tsx
-```tsx
-import ReactEcs, { ReactEcsRenderer, UiEntity, Label, Button } from '@dcl/sdk/react-ecs'
+Create `src/ui.tsx` with your UI component and call `ReactEcsRenderer.setUiRenderer(MyUI, { virtualWidth: 1920, virtualHeight: 1080 })` from `setupUi()`. Call `setupUi()` from `main()` in `src/index.ts`. The SDK template already includes the required JSX settings in tsconfig.json — do NOT modify it.
 
-const MyUI = () => (
-  <UiEntity
-    uiTransform={{
-      width: '100%',
-      height: '100%',
-      justifyContent: 'center',
-      alignItems: 'center'
-    }}
-  >
-    <Label value="Hello Decentraland!" fontSize={24} />
-  </UiEntity>
-)
+## DEFAULT RULE: Always Set Virtual Screen Size to 1920x1080
+
+**Whenever you generate UI code, you MUST pass `{ virtualWidth: 1920, virtualHeight: 1080 }` to `setUiRenderer` and `addUiRenderer` by default — without waiting for the user to ask.** Only deviate if the user explicitly requests a different reference resolution.
+
+Why: Without a virtual size, UI is laid out in raw screen pixels and renders inconsistently across different resolutions and aspect ratios — fonts, spacing, and absolute-positioned elements drift between displays. Setting a virtual screen size makes the engine scale the UI proportionally to a fixed reference frame, so layouts look the same on every screen. 1920x1080 is the safe default — it matches the most common displays and the assumption made by most community examples.
+
+The options argument is optional at the API level — `setUiRenderer(ui)` is valid, and several engine test scenes omit it. Passing it is still the default rule here; only omit it if the user explicitly wants raw-pixel layout.
+
+API (verified against `@dcl/react-ecs` 7.22.5, file `dist/system.d.ts`):
+
+```ts
+type UiRendererOptions = { virtualWidth: number; virtualHeight: number }
+setUiRenderer(ui: UiComponent, options?: UiRendererOptions): void
+addUiRenderer(entity: Entity, ui: UiComponent, options?: UiRendererOptions): void
+```
+
+Canonical snippet (use this verbatim unless the user specifies otherwise):
+
+```tsx
+import { ReactEcsRenderer } from '@dcl/sdk/react-ecs'
 
 export function setupUi() {
-  // ALWAYS pass virtualWidth + virtualHeight — the renderer scales the layout
-  // to fit the player's window using these as the reference. Without them,
-  // sizes are interpreted in raw pixels and won't behave consistently across
-  // resolutions and aspect ratios.
   ReactEcsRenderer.setUiRenderer(MyUI, { virtualWidth: 1920, virtualHeight: 1080 })
 }
 ```
 
-### File: src/index.ts
-```typescript
-import { setupUi } from './ui'
-
-export function main() {
-  setupUi()
-}
-```
-
-### tsconfig.json (already configured by /init)
-
-The SDK template already includes the required JSX settings — do NOT modify tsconfig.json:
-- `"jsx": "react-jsx"`
-- `"jsxImportSource": "@dcl/sdk/react-ecs-lib"`
-
 ## Core Components
 
-### UiEntity (Container)
-```tsx
-import { Color4 } from '@dcl/sdk/math'
+**UiEntity** — Container element. Key props: `uiTransform` (width, height, positionType, position, flexDirection, justifyContent, alignItems, alignContent, alignSelf, padding, margin, display, overflow, flexWrap, flexGrow, `opacity`, `zIndex`, `borderWidth`, `borderColor`, `borderRadius`), `uiBackground` (color, texture, textureMode, textureSlices, uvs, avatarTexture), `uiText` (value, fontSize, color, textAlign, font). Events: `onMouseDown`, `onMouseUp`, `onMouseEnter`, `onMouseLeave`.
 
-<UiEntity
-  uiTransform={{
-    width: 300,              // Pixels or '50%'
-    height: 200,
-    positionType: 'absolute', // 'absolute' or 'relative' (default)
-    position: { top: 10, right: 10 }, // Only with absolute
-    flexDirection: 'column',  // 'row' | 'column'
-    justifyContent: 'center', // 'flex-start' | 'center' | 'flex-end' | 'space-between'
-    alignItems: 'center',     // 'flex-start' | 'center' | 'flex-end' | 'stretch'
-    padding: { top: 10, bottom: 10, left: 10, right: 10 },
-    margin: { top: 5 },
-    display: 'flex'           // 'flex' | 'none' (hide)
-  }}
-  uiBackground={{
-    color: Color4.create(0, 0, 0, 0.8) // Semi-transparent black
-  }}
-/>
-```
+- `opacity` (number 0–1): fades the element. Set on the root to fade the whole UI; **cascades multiplicatively to children**.
+- `zIndex` (number, incl. negative): controls stacking order among sibling elements. Higher = on top. Does not cross parent boundaries.
+- `borderWidth` / `borderColor` (`Color4`) / `borderRadius`: also valid on `Button`, `Input`, `Dropdown` via their `uiTransform`.
+- `width`/`height` accept a number (px), `'50%'`, `'400px'`, or `'auto'`. `position`/`padding`/`margin` values accept the same string forms; `margin` also accepts a CSS shorthand string, e.g. `margin: '16px 0 8px 270px'`.
 
-### Label (Text)
-```tsx
-import { Color4 } from '@dcl/sdk/math'
+**Label** — Text display. Key props: `value`, `fontSize`, `color`, `textAlign` (e.g. `'middle-center'`), `font` (`'sans-serif'`|`'serif'`|`'monospace'`), `uiTransform`.
 
-<Label
-  value="Score: 100"
-  fontSize={18}
-  color={Color4.White()}
-  textAlign="middle-center"
-  font="sans-serif"
-  uiTransform={{ width: 200, height: 30 }}
-/>
-```
+**Button** — Clickable button. Key props: `value`, `variant` (`'primary'`|`'secondary'`), `fontSize`, `onMouseDown`, `uiTransform`.
 
-### Button
-```tsx
-<Button
-  value="Click Me"
-  variant="primary"  // 'primary' | 'secondary'
-  fontSize={16}
-  uiTransform={{ width: 150, height: 40 }}
-  onMouseDown={() => {
-    console.log('Button clicked!')
-  }}
-/>
-```
+**Input** — Text input field. Key props: `placeholder`, `fontSize`, `color`, `onChange`, `onSubmit`, `uiTransform`.
 
-### Input
-```tsx
-import { Input } from '@dcl/sdk/react-ecs'
-import { Color4 } from '@dcl/sdk/math'
+**Dropdown** — Selection dropdown. Key props: `options` (string[]), `selectedIndex`, `onChange`, `fontSize`, `uiTransform`, `disabled`.
 
-<Input
-  placeholder="Type here..."
-  fontSize={14}
-  color={Color4.White()}
-  uiTransform={{ width: 250, height: 35 }}
-  onChange={(value) => {
-    console.log('Value changing:', value)
-  }}
-  onSubmit={(value) => {
-    console.log('Submitted:', value)
-  }}
-/>
-```
+**ScreenInsetArea** — Wrapper that keeps children inside the device's hardware-reserved margins (notch, status bar, home indicator, rounded corners). On mobile, it positions itself absolutely using the insets the device reports. On desktop the insets are `(0,0,0,0)`, so it's a no-op — safe to leave in cross-platform UI. It owns its own `positionType` and `position`; any values you pass for those in `uiTransform` are ignored. All other `uiTransform` props (`padding`, `flexDirection`, `alignItems`, …) and components (`uiBackground`, `onMouseDown`, …) work as usual. Wrap any mobile-sensitive HUD in it; a child sized `width: '100%', height: '100%'` fills the safe area exactly. Distinct from the *Decentraland system HUD* reserved zones (joystick, chat, profile, interaction button) — those still need to be avoided manually; use both together. UI designed for desktop typically needs sizes scaled ~3× for mobile readability.
 
-### Dropdown
-```tsx
-import { Dropdown } from '@dcl/sdk/react-ecs'
+**InteractableArea** — Wrapper that keeps children inside the renderer-reported *interactable area* — the part of the screen NOT covered by the client's own UI (minimap, chat window, platform overlays). Reads `UiCanvasInformation.interactableArea` and constrains children via absolute positioning; on the Unity desktop client the left ~25% of the screen is reserved, so children fill the remaining ~75%. Like `ScreenInsetArea`, it owns `positionType`/`position` (values you pass are ignored) and falls back to zero insets (no-op) when unavailable. Import from `@dcl/sdk/react-ecs`; usage `<InteractableArea><MyHud /></InteractableArea>`. Distinct from `ScreenInsetArea` (which avoids *device* hardware margins, not client UI). See `{baseDir}/references/ui-components.md` → InteractableArea.
 
-<Dropdown
-  options={['Option A', 'Option B', 'Option C']}
-  selectedIndex={0}
-  onChange={(index) => {
-    console.log('Selected:', index)
-  }}
-  uiTransform={{ width: 200, height: 35 }}
-  fontSize={14}
-/>
-```
+## Adding Independent UI Renderers (addUiRenderer)
+
+Use `ReactEcsRenderer.addUiRenderer(ownerEntity, MyWidget, { virtualWidth: 1920, virtualHeight: 1080 })` to render a UI module independently without replacing the main UI. Useful for smart items or modular scene components. Remove with `ReactEcsRenderer.removeUiRenderer(owner)`. If the owner entity is destroyed, the UI is removed automatically.
 
 ## State Management
 
-Use module-level variables for UI state (React hooks are NOT available):
-
-```tsx
-import { Color4 } from '@dcl/sdk/math'
-
-let score = 0
-let showMenu = false
-
-const GameUI = () => (
-  <UiEntity uiTransform={{ width: '100%', height: '100%' }}>
-    {/* HUD - always visible */}
-    <Label
-      value={`Score: ${score}`}
-      fontSize={20}
-      uiTransform={{
-        positionType: 'absolute',
-        position: { top: 10, left: 10 }
-      }}
-    />
-
-    {/* Menu - conditionally shown */}
-    {showMenu && (
-      <UiEntity
-        uiTransform={{
-          width: 300,
-          height: 400,
-          positionType: 'absolute',
-          position: { top: '50%', left: '50%' }
-        }}
-        uiBackground={{ color: Color4.create(0.1, 0.1, 0.1, 0.9) }}
-      >
-        <Label value="Game Menu" fontSize={24} />
-        <Button
-          value="Resume"
-          variant="primary"
-          onMouseDown={() => { showMenu = false }}
-          uiTransform={{ width: 200, height: 40 }}
-        />
-      </UiEntity>
-    )}
-  </UiEntity>
-)
-
-// Update state from game logic
-export function addScore(points: number) {
-  score += points
-}
-
-export function toggleMenu() {
-  showMenu = !showMenu
-}
-```
+Use module-level variables for UI state — React hooks (`useState`, `useEffect`, etc.) are **NOT** available. The UI renderer re-renders every frame, so state changes are reflected immediately. Export functions to update state from game logic.
 
 ## Common UI Patterns
 
-### Health Bar
-```tsx
-import { Color4 } from '@dcl/sdk/math'
+- **Health bar** — Nested UiEntity with width as percentage
+- **Image background** — `uiBackground` with `texture` and `textureMode: 'stretch'`
+- **Screen dimensions** — Read via `UiCanvasInformation.getOrNull(engine.RootEntity)`
+- **Nine-slice textures** — `textureMode: 'nine-slices'` with `textureSlices` for scalable panels
+- **Texture UVs / Sprite sheets** — `uvs` array (8 numbers) to select texture regions
+- **Hover events** — `onMouseEnter`/`onMouseLeave` on UiEntity
+- **Flex wrap** — `flexWrap: 'wrap'` for grid layouts
+- **Scrollable containers** — `overflow: 'scroll'` on a fixed-size parent to scroll through overflowing content (drag or mouse wheel). Use `overflow: 'hidden'` to clip overflow without scrolling. Use `flexGrow: 1` on scrollable entities to fill remaining space
+- **Texture tint** — set `color` alongside `texture` in `uiBackground` to tint the image (works with `stretch` and `nine-slices`)
+- **Multiple stacked layers** — the renderer function may return an array of elements, e.g. `setUiRenderer(() => [PanelA(), PanelB()])`; later items in the array render on top of earlier ones
+- **Opacity / z-index** — `opacity` and `zIndex` on `uiTransform` (see Core Components); root `opacity` fades the whole HUD
 
-let health = 100
+## Gotchas (verified against engine test scenes)
 
-const HealthBar = () => (
-  <UiEntity
-    uiTransform={{
-      width: 200, height: 20,
-      positionType: 'absolute',
-      position: { bottom: 20, left: '50%' }
-    }}
-    uiBackground={{ color: Color4.create(0.3, 0.3, 0.3, 0.8) }}
-  >
-    <UiEntity
-      uiTransform={{ width: `${health}%`, height: '100%' }}
-      uiBackground={{ color: Color4.create(0.2, 0.8, 0.2, 1) }}
-    />
-  </UiEntity>
-)
-```
+- **`Input` and `Dropdown` are uncontrolled.** `onChange`/`onSubmit` fire with the current value, but the field does not read back from the `value`/`selectedIndex` prop you pass each frame the way React does. To programmatically clear an `Input`, briefly set `value` to a non-empty sentinel (e.g. `' '`) for one frame, then back to `''`. Do not expect setting `value` to force the displayed text every frame.
+- **`zIndex` is per-sibling-group.** It orders siblings within the same parent; it does not lift an element above elements in a different branch of the tree. Use array-return ordering or tree structure for cross-branch stacking.
+- **`opacity` multiplies down the tree.** A child at `opacity: 0.8` inside a root at `opacity: 0.5` renders at 0.4 effective. Don't stack opacities unintentionally.
+- **`textureMode: 'stretch'` deforms non-uniform art**; use `'nine-slices'` (with `textureSlices`) for panels/buttons that must scale without distorting borders, and `'center'` to draw the texture at native size centered in the element.
+- **Texture `src` paths are relative to the scene root** (e.g. `'images/panel.png'`), not to `src/`.
 
-### Image Background
-```tsx
-<UiEntity
-  uiTransform={{ width: 200, height: 200 }}
-  uiBackground={{
-    textureMode: 'stretch',
-    texture: { src: 'images/logo.png' }
-  }}
-/>
-```
+## Common Widgets — Build From Scratch
 
-### Screen Dimensions
+Build every widget from React-ECS primitives (`UiEntity`, `Label`, `Button`). There is no pre-built widget library to install.
 
-Read screen size via `UiCanvasInformation`:
-
-```typescript
-import { UiCanvasInformation } from '@dcl/sdk/ecs'
-
-engine.addSystem(() => {
-  const canvas = UiCanvasInformation.getOrNull(engine.RootEntity)
-  if (canvas) {
-    console.log('Screen:', canvas.width, 'x', canvas.height)
-  }
-})
-```
-
-### Nine-Slice Textures
-
-Use `textureSlices` for scalable UI backgrounds (buttons, panels) that don't stretch corners:
-
-```tsx
-<UiEntity
-  uiTransform={{ width: 200, height: 100 }}
-  uiBackground={{
-    textureMode: 'nine-slices',
-    texture: { src: 'images/panel.png' },
-    textureSlices: { top: 0.1, bottom: 0.1, left: 0.1, right: 0.1 }
-  }}
-/>
-```
-
-### Hover Events
-
-Respond to mouse enter/leave for hover effects:
-
-```tsx
-<UiEntity
-  uiTransform={{ width: 100, height: 40 }}
-  onMouseEnter={() => { isHovered = true }}
-  onMouseLeave={() => { isHovered = false }}
-  uiBackground={{ color: isHovered ? Color4.White() : Color4.Gray() }}
-/>
-```
-
-### Flex Wrap
-
-Allow UI children to wrap to the next line:
-
-```tsx
-<UiEntity uiTransform={{ flexWrap: 'wrap', width: 300 }}>
-  {items.map(item => (
-    <UiEntity key={item.id} uiTransform={{ width: 80, height: 80, margin: 4 }} />
-  ))}
-</UiEntity>
-```
-
-### Dropdown Extras
-
-The `Dropdown` component supports additional props:
-
-```tsx
-<Dropdown
-  options={['Option A', 'Option B', 'Option C']}
-  selectedIndex={selectedIdx}
-  onChange={(idx) => { selectedIdx = idx }}
-  fontSize={14}
-  color={Color4.White()}
-  disabled={false}
-/>
-```
-
-### Multiple UI Modules (`addUiRenderer` / `removeUiRenderer`)
-
-If you have several independent UI modules — e.g., a HUD, a dialog system, a debug overlay — combine them under a single root *or* use `addUiRenderer` to mount each module against an **owner entity**. When the owner entity is deleted, the UI renderer is removed automatically.
-
-```tsx
-import { engine, ReactEcsRenderer } from '@dcl/sdk/react-ecs'
-
-const hudOwner = engine.addEntity()
-ReactEcsRenderer.addUiRenderer(hudOwner, () => <HudOverlay />)
-
-// later, when the HUD should disappear:
-engine.removeEntity(hudOwner)  // also removes the UI renderer
-
-// or explicitly:
-ReactEcsRenderer.removeUiRenderer(hudOwner)
-```
-
-Each `addUiRenderer` mount renders independently. Useful for dynamic UIs that should appear/disappear based on game state without manually conditioning every sub-tree of one giant root component.
+- **Prompt / dialog / confirmation?** → full-screen overlay + centered panel + `Button`s. See the **Modal Dialog** pattern in `references/ui-components.md`.
+- **Health bar, progress bar, score?** → nested `UiEntity` with the inner one sized `width: `${pct}%``. See the **Health Bar** patterns in `references/ui-components.md` and `references/ui-patterns.md`; a score is a `Label` bound to a module-level variable.
+- **Flash announcement (timed, centered)?** → a centered `Label` gated on a module-level flag, cleared with `timers.setTimeout`. See **Timed Announcement** in `references/ui-patterns.md`.
+- **Custom panel, inventory, complex layout?** → React-ECS directly (see `references/ui-patterns.md`).
 
 ## Troubleshooting
 
-| Problem | Cause | Solution |
-|---------|-------|----------|
-| UI not appearing at all | Missing `ReactEcsRenderer.setUiRenderer()` call | Add `ReactEcsRenderer.setUiRenderer(MyUI)` in `main()` or `setupUi()` |
-| UI elements overlapping | Missing `flexDirection` or wrong layout | Set `flexDirection: 'column'` on the parent container |
-| Button clicks not registering | Missing `onMouseDown` handler | Add `onMouseDown={() => { ... }}` to the Button or UiEntity |
-| JSX errors at compile time | File extension is `.ts` instead of `.tsx` | Rename the file to `.tsx` |
-| Multiple UIs fighting | More than one `setUiRenderer` call | Use ONE `setUiRenderer` for the main UI; for independent modules use `addUiRenderer(ownerEntity, ...)` instead |
-| Text not visible | Text color matches background | Set contrasting `color` on Label or `uiText` |
+Work through the wiring causes in this table in order before speculating about layout-level causes (sizing, `display: 'none'`, off-screen positioning, color-on-color) — wiring problems are the cause by a wide margin.
 
-> **World interactions instead of screen UI?** See the **add-interactivity** skill for click handlers and pointer events on 3D objects.
+| Problem                                                        | Cause                                                                                                                | Solution                                                                                                                                     |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| UI not rendering / invisible / nothing on screen (most common) | `setupUi()` is not called from `main()` in `src/index.ts` — users sometimes remove or comment out this call | Add the `setupUi()` call inside `main()`. Always check this first.                                                                           |
+| UI not rendering even though `setupUi()` is called             | `ReactEcsRenderer.setUiRenderer(...)` missing from `setupUi()` itself                                                | Add `ReactEcsRenderer.setUiRenderer(MyUI, { virtualWidth: 1920, virtualHeight: 1080 })`                                                      |
+| UI blank on first frames, sometimes appears later              | Root component returns `null` (or falsy) on first render with no fallback                                            | Render a placeholder or hidden root instead of returning `null`                                                                              |
+| Multiple UIs fighting / UI missing                             | More than one `setUiRenderer` call — later calls replace earlier ones, so only the last one wins                     | Only call `setUiRenderer` once — combine all UI into a single root component, or use `addUiRenderer` with separate owner entities            |
+| Absolute-positioned children laid out unexpectedly             | Root `<UiEntity>` has no `width`/`height` — without a full-canvas root, some absolute-positioned children may not render | Add `uiTransform={{ width: '100%', height: '100%' }}` to the root — see "Convention" section below for empirical evidence.                   |
+| UI elements overlapping                                        | Missing `flexDirection` or wrong layout                                                                              | Set `flexDirection: 'column'` on the parent container                                                                                        |
+| Button clicks not registering                                  | Missing `onMouseDown` handler                                                                                        | Add `onMouseDown={() => { ... }}` to the Button or UiEntity                                                                                  |
+| JSX errors at compile time                                     | File extension is `.ts` instead of `.tsx`                                                                            | Rename the file to `.tsx`                                                                                                                    |
+| Text not visible                                               | Text color matches background                                                                                        | Set contrasting `color` on Label or `uiText`                                                                                                 |
 
-## Important Notes
+## Convention: root `<UiEntity>` must set `width: '100%', height: '100%'`
 
-- React hooks (`useState`, `useEffect`, etc.) are **NOT** available — use module-level variables
-- The UI renderer re-renders every frame, so state changes are reflected immediately
-- UI is rendered as a 2D overlay on top of the 3D scene
-- Use `display: 'none'` in `uiTransform` to hide elements without removing them
-- File extension must be `.tsx` for JSX support
-- Only one `ReactEcsRenderer.setUiRenderer()` call per scene — combine all UI into one root component
+Set `uiTransform={{ width: '100%', height: '100%' }}` on the root `<UiEntity>` returned to `setUiRenderer` / `addUiRenderer` whenever the UI uses absolute positioning. Do this by default.
 
-For full component props (UiEntity, Label, Button, Input, Dropdown), layout patterns, and responsive design, see `{baseDir}/references/ui-components.md`.
+Note: this is required specifically so absolute-positioned children get a full-screen positioning context. Some engine test scenes that lay everything out with flow/`margin` (no absolute children) use a smaller root (e.g. `90%` or `50%`) and render fine — but a full-canvas root is the safe default and never hurts.
+
+Rationale (**empirically verified** — tested in-engine June 2026):
+
+- Without a full-canvas root, absolute-positioned children using `position: { top, right }` may fail to render entirely. In testing, a root with no explicit `width`/`height` caused a `top-right` positioned child to disappear while a `bottom-left` child rendered correctly. Adding `width: '100%', height: '100%'` to the root fixed the issue.
+- A full-canvas root gives absolute-positioned children (`positionType: 'absolute'` with `position: { top, left, ... }`) a known, full-screen positioning context. This matches the implicit assumption most HUD code makes.
+- It avoids edge-case layout surprises with Yoga's default sizing for unspecified `width`/`height`.
+
+## Example scenes
+
+Engine-team test scenes exercised against the real renderer (ground truth for the APIs above):
+
+- https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/0,6-ui-zindex-and-opacity — `zIndex` (incl. negative) and `opacity` on `uiTransform`, including root-level opacity cascade; buttons cycle values.
+- https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/70,-9-sdk7-ui-backgrounds — every `uiBackground` texture mode (`stretch`, `nine-slices`, `center`), color tinting over textures, `avatarTexture`, and `textureSlices`.
+- https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/80,-3-ui — `Label`/`Input`/`Dropdown`/`Button` end to end, `uiText` on `UiEntity`, `margin` CSS-shorthand strings, `'auto'` sizing, `UiCanvasInformation`.
+- https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/81,-3-ui-2 — array-return of stacked panels, `disabled` toggling, border props (`borderWidth`/`borderColor`/`borderRadius`) on Input/Dropdown/Button, uncontrolled-input clear trick, textured `Button` (nine-slices) vs. clickable `UiEntity`.
+- https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/76,-10-UiCanvasInformation — reading `UiCanvasInformation` each frame into a module variable to size UI responsively.
+- https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/8,7-portable-experience-hide-ui — hiding a portable experience's UI via `featureToggles.portableExperiences: "hideUi"` in `scene.json` (scene-config, not React-ECS).
+
+For full code examples and implementation patterns, see `{baseDir}/references/ui-patterns.md`. For component prop details, see `{baseDir}/references/ui-components.md`.

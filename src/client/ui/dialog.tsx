@@ -1,19 +1,11 @@
-// Bottom-anchored NPC dialog box (cozy-farm style): portrait + name + paged
+// Bottom-anchored NPC dialog box (cozy-farm style): avatar + name + paged
 // body text + a primary button. Used for the Caretaker tutorial and tips.
+// Desktop: compact card. Mobile: near-fullwidth sheet with huge fonts/buttons.
 
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
 import { getPlayer } from '@dcl/sdk/players'
 import { advanceDialog, clientState, closeDialog, openDialog } from '../state'
-import { C, mobile, OutlineLabel, S, TactileButton } from './theme'
-
-// Tutorial dialog art (image aspect ratios noted for undistorted sizing).
-const DLG = {
-  modal: 'assets/images/tutorialUi/modal.png', // 960x680  (1.41:1)
-  character: 'assets/images/tutorialUi/ui-character-1024.png', // square
-  next: 'assets/images/tutorialUi/btn_next.png', // 639x378 (1.69:1)
-  adopt: 'assets/images/tutorialUi/btn_adopt.png', // 897x378 (2.37:1)
-  close: 'assets/images/tutorialUi/btn_close.png' // 256x256 (square)
-}
+import { C, CloseButton, mobile, OutlineLabel, RoundedBadge, S, TactileButton } from './theme'
 
 /** The local player's display name, or a themed fallback. */
 export function playerName(): string {
@@ -50,59 +42,44 @@ export function DialogBox() {
   if (!d.open) return <UiEntity />
   const isLast = d.page >= d.pages.length - 1
   const body = d.pages[d.page] ?? ''
-
-  // Modal art (960x680) is nine-sliced so it can be wide with crisp corners.
-  // Desktop keeps the approved layout; mobile-only overrides make it narrower
-  // and shrink the character (S()'s 1.6x boost over-inflates a big panel there).
   const isM = mobile()
-  const MW = isM ? S(860) : S(940) // bigger on mobile so buttons/text aren't cramped
-  const MH = isM ? Math.round(MW * 0.346) : S(325)
-  const padX = isM ? Math.round(MW * 0.1) : S(50) // more horizontal inset so the X and Next sit inside the frame
-  const padY = isM ? Math.round(MH * 0.15) : S(34)
-  const innerH = MH - padY * 2
-  const gap = isM ? Math.round(MW * 0.045) : S(18) // more space between the character and the text
-  const charH = isM ? Math.round(innerH * 0.6) : innerH // full-height on desktop, ~half on mobile
-  const charW = charH // character art is square
-  const textW = MW - padX * 2 - charW - gap
-  const btnH = isM ? Math.round(MH * 0.17) : S(50)
-  const nameH = isM ? Math.round(MH * 0.09) : S(28)
-  const nameFont = isM ? Math.round(MH * 0.075) : S(22)
-  const bodyFont = isM ? Math.round(MH * 0.056) : S(17)
-  const bodyH = isM ? innerH - nameH - btnH - Math.round(MH * 0.07) : charH - S(28) - btnH - S(16)
-  const nextW = Math.round((btnH * 639) / 378)
-  const adoptW = Math.round((btnH * 897) / 378)
-  const closeSize = isM ? Math.round(MW * 0.05) : S(42)
-  const closeInsetX = Math.round(MW * (isM ? 0.10 : 0.06)) // more inset on mobile so the X sits inside, toward center
-  const closeInsetY = Math.round(MH * (isM ? 0.12 : 0.08)) + (isM ? S(15) : 0) // nudge the X down on mobile
-  const textNudge = isM ? S(20) : 0 // nudge the text block down on mobile so it sits inside the frame
+
+  // Modal sizing — desktop keeps a compact card; mobile goes near-fullwidth
+  // with much bigger fonts/avatar/button so it reads at arm's length.
+  const MW = isM ? S(1040) : S(940)
+  const MH = isM ? S(420) : S(325)
+  const padX = isM ? S(36) : S(50)
+  const padY = isM ? S(28) : S(34)
+  const gap = isM ? S(28) : S(18)
+  const charD = isM ? S(180) : S(257)
+  const textW = MW - padX * 2 - charD - gap
+  const btnH = isM ? S(76) : S(50)
+  const nameH = isM ? S(40) : S(28)
+  const nameFont = isM ? S(30) : S(22)
+  const bodyFont = isM ? S(22) : S(17)
+  const bodyH = MH - padY * 2 - nameH - btnH - S(16)
+  const closeSize = isM ? S(52) : S(42)
 
   return (
     <UiEntity
       uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', pointerFilter: 'none' }}
     >
       <UiEntity
-        uiTransform={{ width: MW, height: MH, flexDirection: 'row', alignItems: 'center', padding: { left: padX, right: padX, top: padY, bottom: padY }, margin: { bottom: S(18) }, pointerFilter: 'block' }}
-        uiBackground={{
-          texture: { src: DLG.modal },
-          textureMode: 'nine-slices',
-          textureSlices: { top: 0.17, bottom: 0.17, left: 0.13, right: 0.13 }
-        }}
+        uiTransform={{ width: MW, height: MH, flexDirection: 'row', alignItems: 'center', padding: { left: padX, right: padX, top: padY, bottom: padY }, margin: { bottom: S(18) }, borderRadius: S(28), pointerFilter: 'block' }}
+        uiBackground={{ color: C.panelBg }}
       >
-        {/* Close (X) — inset so it sits inside the visible frame */}
-        <UiEntity
-          uiTransform={{ positionType: 'absolute', position: { top: closeInsetY, right: closeInsetX }, width: closeSize, height: closeSize, pointerFilter: 'block' }}
-          uiBackground={{ texture: { src: DLG.close }, textureMode: 'stretch' }}
-          onMouseDown={() => closeDialog()}
-        />
+        {/* Close */}
+        <UiEntity uiTransform={{ positionType: 'absolute', position: { top: S(14), right: S(14) } }}>
+          <CloseButton onClick={() => closeDialog()} size={closeSize} />
+        </UiEntity>
 
-        {/* Character */}
-        <UiEntity
-          uiTransform={{ width: charW, height: charH, margin: { right: gap } }}
-          uiBackground={{ texture: { src: DLG.character }, textureMode: 'stretch' }}
-        />
+        {/* Avatar — colored disc with the NPC's initial, replaces the character portrait PNG */}
+        <UiEntity uiTransform={{ width: charD, height: charD, margin: { right: gap }, alignItems: 'center', justifyContent: 'center' }}>
+          <RoundedBadge text={d.npcName.charAt(0).toUpperCase()} size={charD} bg={C.green} textColor={C.outline} fontSize={Math.round(charD * 0.5)} />
+        </UiEntity>
 
         {/* Name + body + controls */}
-        <UiEntity uiTransform={{ width: textW, height: '100%', flexDirection: 'column', justifyContent: 'center', margin: { top: textNudge } }}>
+        <UiEntity uiTransform={{ width: textW, height: '100%', flexDirection: 'column', justifyContent: 'center' }}>
           <OutlineLabel value={d.npcName} fontSize={nameFont} color={C.gold} width={textW} height={nameH} textAlign="middle-left" />
           <Label
             value={body}
@@ -111,23 +88,27 @@ export function DialogBox() {
             textAlign="top-left"
             uiTransform={{ width: textW, height: bodyH, margin: { top: S(4) } }}
           />
-          {/* page dots + advance button (pulled up on mobile to offset textNudge) */}
-          <UiEntity uiTransform={{ width: textW, height: btnH, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', margin: { top: isM ? -S(18) : S(6) } }}>
+          {/* page dots + advance button */}
+          <UiEntity uiTransform={{ width: textW, height: btnH, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', margin: { top: S(6) } }}>
             <UiEntity uiTransform={{ flexDirection: 'row', alignItems: 'center', height: btnH }}>
               {d.pages.map((_, i) => (
                 <UiEntity
                   key={`dot-${i}`}
-                  uiTransform={{ width: S(10), height: S(10), borderRadius: S(5), margin: { right: S(6) } }}
+                  uiTransform={{ width: isM ? S(14) : S(10), height: isM ? S(14) : S(10), borderRadius: S(7), margin: { right: S(6) } }}
                   uiBackground={{ color: i === d.page ? C.gold : C.cardAlt }}
                 />
               ))}
             </UiEntity>
             <TactileButton
               id="dialog_next"
-              label={isLast ? d.finalLabel : 'Next'}
-              texture={isLast ? DLG.adopt : DLG.next}
-              width={isLast ? adoptW : nextW}
+              label={isLast ? d.finalLabel : 'Next >'}
+              width={isM ? S(300) : S(190)}
               height={btnH}
+              bg={isLast ? C.green : C.cardAlt}
+              textColor={isLast ? C.outline : C.text}
+              fontSize={isM ? S(24) : S(18)}
+              radius={S(18)}
+              pulse={isLast}
               onClick={() => advanceDialog()}
             />
           </UiEntity>

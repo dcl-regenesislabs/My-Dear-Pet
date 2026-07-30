@@ -1,62 +1,9 @@
 ---
 name: camera-control
-description: Control camera behavior in Decentraland scenes. CameraMode detection, CameraModeArea (force first/third person in regions), VirtualCamera (cinematic scripted cameras), MainCamera (read position/rotation), and camera-triggered events. Use when the user wants camera control, cutscenes, cinematic views, forced camera modes, or camera tracking. Do NOT use for input restriction during cutscenes (see advanced-input for InputModifier).
+description: Control camera behavior in Decentraland scenes. Covers CameraMode, CameraModeArea, VirtualCamera, MainCamera, and camera vs collider interactions. Use when the user wants camera control, cutscenes, forced camera modes, or camera tracking. Do NOT use for input restriction during cutscenes (see advanced-input for InputModifier) or cursor lock detection (see advanced-input for PointerLock).
 ---
 
 # Camera Control in Decentraland
-
-## Authoring split
-
-`CameraModeArea` and `VirtualCamera` are supported in `main-entities.ts` — both static-by-nature components belong there. `MainCamera` is NOT supported because it lives on the reserved `engine.CameraEntity`; activate a virtual camera at runtime in `src/index.ts`.
-
-`VirtualCamera.lookAtEntity` accepts an entity **name** in `main-entities.ts` (resolved to an Entity ID at build time, same as `Transform.parent`).
-
-```typescript
-// main-entities.ts
-cinematic_cam: {
-  components: {
-    Transform: {
-      position: { x: 12, y: 4, z: 8 },
-      rotation: { x: 0, y: 0.7071, z: 0, w: 0.7071 }
-    },
-    VirtualCamera: {
-      defaultTransition: { transitionMode: { $case: 'time', time: 2 } },
-      lookAtEntity: 'shopkeeper'  // name of another entity in this file
-    }
-  }
-},
-first_person_zone: {
-  components: {
-    Transform: { position: { x: 8, y: 1, z: 8 } },
-    CameraModeArea: {
-      area: { x: 16, y: 2, z: 16 },
-      mode: 0  // CameraType.CT_FIRST_PERSON
-    }
-  }
-}
-```
-
-Activate the cinematic camera at runtime:
-
-```typescript
-// src/index.ts
-import { engine, MainCamera } from '@dcl/sdk/ecs'
-
-export function main() {
-  const cam = engine.getEntityOrNullByName('cinematic_cam')
-  if (cam) MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: cam })
-}
-```
-
-The reserved `engine.CameraEntity` and `engine.PlayerEntity` are engine-managed and have no representation in `main-entities.ts`.
-
-### CameraType values for `CameraModeArea.mode`
-
-| value | enum | meaning |
-|---|---|---|
-| 0 | CT_FIRST_PERSON | Force first-person inside the zone |
-| 1 | CT_THIRD_PERSON | Force third-person inside the zone |
-| 2 | CT_CINEMATIC    | Force cinematic camera inside the zone |
 
 ## Reading Camera State
 
@@ -66,15 +13,17 @@ Access the camera's current position and rotation via the reserved `engine.Camer
 import { engine, Transform } from '@dcl/sdk/ecs'
 
 function trackCamera() {
-  if (!Transform.has(engine.CameraEntity)) return
+	if (!Transform.has(engine.CameraEntity)) return
 
-  const cameraTransform = Transform.get(engine.CameraEntity)
-  console.log('Camera position:', cameraTransform.position)
-  console.log('Camera rotation:', cameraTransform.rotation)
+	const cameraTransform = Transform.get(engine.CameraEntity)
+	console.log('Camera position:', cameraTransform.position)
+	console.log('Camera rotation:', cameraTransform.rotation)
 }
 
 engine.addSystem(trackCamera)
 ```
+
+`engine.CameraEntity` is read-only — never write to its Transform. To move a camera under scene control, drive a VirtualCamera instead (see VirtualCamera below).
 
 ## Camera Mode Detection
 
@@ -84,14 +33,14 @@ Check whether the player is in first-person or third-person:
 import { engine, CameraMode, CameraType } from '@dcl/sdk/ecs'
 
 function checkCameraMode() {
-  if (!CameraMode.has(engine.CameraEntity)) return
+	if (!CameraMode.has(engine.CameraEntity)) return
 
-  const cameraMode = CameraMode.get(engine.CameraEntity)
-  if (cameraMode.mode === CameraType.CT_FIRST_PERSON) {
-    console.log('First person camera')
-  } else if (cameraMode.mode === CameraType.CT_THIRD_PERSON) {
-    console.log('Third person camera')
-  }
+	const cameraMode = CameraMode.get(engine.CameraEntity)
+	if (cameraMode.mode === CameraType.CT_FIRST_PERSON) {
+		console.log('First person camera')
+	} else if (cameraMode.mode === CameraType.CT_THIRD_PERSON) {
+		console.log('Third person camera')
+	}
 }
 
 engine.addSystem(checkCameraMode)
@@ -100,13 +49,27 @@ engine.addSystem(checkCameraMode)
 ### Camera Mode Values
 
 ```typescript
-CameraType.CT_FIRST_PERSON  // First-person view
-CameraType.CT_THIRD_PERSON  // Third-person view (default)
+CameraType.CT_FIRST_PERSON // First-person view
+CameraType.CT_THIRD_PERSON // Third-person view (default)
+```
+
+### React to Camera Mode Changes
+
+Use `CameraMode.onChange` to get notified only when the player toggles between first and third person — cheaper than polling every frame:
+
+```typescript
+import { CameraMode, engine } from '@dcl/sdk/ecs'
+
+CameraMode.onChange(engine.CameraEntity, (camera) => {
+	if (!camera) return
+	// camera.mode is 0 for first person, 1 for third person
+	console.log('Camera mode changed:', camera.mode)
+})
 ```
 
 ## CameraModeArea (Force Camera in a Region)
 
-Force a specific camera mode when the player enters an area:
+Force a specific camera mode when the player enters an area (e.g. force first-person in tight indoor spaces):
 
 ```typescript
 import { engine, Transform, CameraModeArea, CameraType } from '@dcl/sdk/ecs'
@@ -116,8 +79,8 @@ const fpArea = engine.addEntity()
 Transform.create(fpArea, { position: Vector3.create(8, 1.5, 8) })
 
 CameraModeArea.create(fpArea, {
-  area: Vector3.create(6, 4, 6),         // 6x4x6 meter box
-  mode: CameraType.CT_FIRST_PERSON       // Force first-person inside
+	area: Vector3.create(6, 4, 6), // 6x4x6 meter box
+	mode: CameraType.CT_FIRST_PERSON, // Force first-person inside
 })
 ```
 
@@ -133,29 +96,32 @@ import { Vector3, Quaternion } from '@dcl/sdk/math'
 
 const cinematicCam = engine.addEntity()
 Transform.create(cinematicCam, {
-  position: Vector3.create(8, 5, 2),
-  rotation: Quaternion.fromEulerDegrees(-20, 0, 0)
+	position: Vector3.create(8, 5, 2),
+	rotation: Quaternion.fromEulerDegrees(-20, 0, 0),
 })
 
 VirtualCamera.create(cinematicCam, {
-  defaultTransition: {
-    transitionMode: VirtualCamera.Transition.Speed(1.0)
-  }
+	defaultTransition: {
+		transitionMode: VirtualCamera.Transition.Speed(1.0),
+	},
 })
 
-// Activate the virtual camera
-MainCamera.getMutable(engine.CameraEntity).virtualCameraEntity = cinematicCam
+// Activate the virtual camera (createOrReplace on first activation:
+// getMutable throws if MainCamera doesn't exist yet)
+MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: cinematicCam })
 
-// Return to normal camera
+// Return to normal camera (component now exists, so getMutable is safe)
 MainCamera.getMutable(engine.CameraEntity).virtualCameraEntity = undefined
 ```
 
 ### Transition Modes
 
 ```typescript
-VirtualCamera.Transition.Speed(1.0)  // Speed-based smooth transition
-VirtualCamera.Transition.Time(2)     // Time-based transition (2 seconds)
+VirtualCamera.Transition.Speed(1.0) // Speed-based smooth transition
+VirtualCamera.Transition.Time(2) // Time-based transition (2 seconds)
 ```
+
+Keep transition speeds between 0.5 and 3.0 for comfortable camera movement.
 
 ### Look-At Target
 
@@ -166,116 +132,84 @@ const target = engine.addEntity()
 Transform.create(target, { position: Vector3.create(8, 1, 8) })
 
 VirtualCamera.create(cinematicCam, {
-  lookAtEntity: target,
-  defaultTransition: {
-    transitionMode: VirtualCamera.Transition.Speed(2.0)
-  }
+	lookAtEntity: target,
+	defaultTransition: {
+		transitionMode: VirtualCamera.Transition.Speed(2.0),
+	},
 })
 
 // Activate
-MainCamera.getMutable(engine.CameraEntity).virtualCameraEntity = cinematicCam
+MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: cinematicCam })
 ```
+
+`lookAtEntity` can be `engine.PlayerEntity` to keep the camera aimed at the moving player (verified: `2,22-virtual-cameras`). To bake a fixed look direction into the camera's own rotation instead, use `Quaternion.fromLookAt(cameraPosition, targetPosition)` in the camera's `Transform`.
+
+`VirtualCamera.create(entity)` with no config is valid (defaults) — useful for a camera whose Transform you drive manually (see the controllable-camera pattern below).
+
+**Switching between cameras / deactivating:** with `MainCamera` already present, mutate it via `MainCamera.getMutableOrNull(engine.CameraEntity)`; set `virtualCameraEntity` to another VirtualCamera entity to cut/transition to it, or to `undefined` to return to the player's normal camera (verified: `2,22-virtual-cameras`). Only one VirtualCamera is active at a time (`MainCamera.virtualCameraEntity` holds a single entity).
+
+You cannot move the player's real camera directly. To move a camera under scene control, drive the Transform of an active VirtualCamera entity each frame; while it is the `MainCamera.virtualCameraEntity`, the player sees through it (verified: `2,22-virtual-cameras` controllable camera). Pair with `InputModifier` (advanced-input) to disable avatar movement so WASD drives the camera instead.
 
 ## Tracking Camera Position
 
-Poll camera position each frame for camera-triggered events:
+Poll camera position each frame by reading `Transform.get(engine.CameraEntity).position` inside a system. For a full worked zone-tracking system (`cameraZoneSystem`), see `{baseDir}/references/camera-patterns.md` → "Tracking Camera Position (camera zone system)".
 
-```typescript
-import { engine, Transform } from '@dcl/sdk/ecs'
-import { Vector3 } from '@dcl/sdk/math'
+## Camera and Colliders
 
-let lastNotifiedZone = ''
+When a player's camera moves in 3rd person mode, the camera might be blocked by colliders or not, depending on the collision layers assigned to the entities. To avoid the camera from going through walls, you must assign both the ColliderLayer.CL_PHYSICS and the ColliderLayer.CL_POINTER layers to the entities that you want to block the camera.
 
-function cameraZoneSystem() {
-  if (!Transform.has(engine.CameraEntity)) return
+```ts
+// NO CAMERA GOING THROUGH THE WALL
+// default (both pointer and physics use the invisible geometry)
+GltfContainer.create(myEntity, {
+	src: '/models/myModel.gltf',
+})
 
-  const camPos = Transform.get(engine.CameraEntity).position
-  let currentZone = ''
+// NO CAMERA GOING THROUGH THE WALL
+// Both use the same invisible geometry
+GltfContainer.create(myEntity2, {
+	src: '/models/myModel.gltf',
+	invisibleMeshesCollisionMask:
+		ColliderLayer.CL_PHYSICS | ColliderLayer.CL_POINTER,
+})
 
-  if (camPos.y > 10) {
-    currentZone = 'sky'
-  } else if (camPos.x < 4) {
-    currentZone = 'west'
-  } else {
-    currentZone = 'center'
-  }
+// NO CAMERA GOING THROUGH THE WALL
+// Both use the same visible geometry
+GltfContainer.create(myEntity2, {
+	src: '/models/myModel.gltf',
+	visibleMeshesCollisionMask:
+		ColliderLayer.CL_PHYSICS | ColliderLayer.CL_POINTER,
+})
 
-  if (currentZone !== lastNotifiedZone) {
-    lastNotifiedZone = currentZone
-    console.log('Camera entered zone:', currentZone)
-  }
-}
+// YES CAMERA GOES THROUGH THE WALL
+// physics and pointer are on different layers
+GltfContainer.create(myEntity2, {
+	src: '/models/myModel.gltf',
+	invisibleMeshesCollisionMask: ColliderLayer.CL_PHYSICS,
+	visibleMeshesCollisionMask: ColliderLayer.CL_POINTER,
+})
 
-engine.addSystem(cameraZoneSystem)
+// YES CAMERA GOES THROUGH THE WALL
+// physics and pointer are on different layers
+GltfContainer.create(myEntity2, {
+	src: '/models/myModel.gltf',
+	invisibleMeshesCollisionMask: ColliderLayer.CL_POINTER,
+	visibleMeshesCollisionMask: ColliderLayer.CL_PHYSICS,
+})
 ```
 
 ## Common Patterns
 
-### Camera-Triggered Events
+For full worked patterns, see `{baseDir}/references/camera-patterns.md`:
 
-Use the camera position to trigger actions when the player looks at a specific area:
-
-```typescript
-function cameraLookTrigger() {
-  const camTransform = Transform.get(engine.CameraEntity)
-  const targetPos = Vector3.create(8, 2, 8)
-  const distance = Vector3.distance(camTransform.position, targetPos)
-
-  if (distance < 5) {
-    // Player is close — check if camera is pointing at target
-    // Use raycasting for precise look detection (see add-interactivity skill)
-  }
-}
-
-engine.addSystem(cameraLookTrigger)
-```
-
-### Following an NPC
-
-Move camera to track an NPC by updating a VirtualCamera's Transform:
-
-```typescript
-function followNpcCamera(dt: number) {
-  const npcPos = Transform.get(npcEntity).position
-  const camTransform = Transform.getMutable(cinematicCam)
-
-  // Position camera behind and above the NPC
-  camTransform.position = Vector3.create(
-    npcPos.x - 2,
-    npcPos.y + 3,
-    npcPos.z - 2
-  )
-}
-
-engine.addSystem(followNpcCamera)
-```
+- **Camera-Triggered Events** — use camera position/proximity to trigger actions when the player looks at an area.
+- **Following an NPC (camera-follows-NPC)** — track an NPC by driving a VirtualCamera's Transform each frame (guardrail on why this works lives in the VirtualCamera section above).
+- **Mouselook Camera (FPS-style)** — drive a VirtualCamera with `PrimaryPointerInfo.screenDelta` (pixel delta per frame, keeps working while cursor is locked). Accumulate into yaw/pitch, clamp pitch [-85,+85], combine with PointerLock + InputModifier `disableAll`. Desktop only (screenDelta always 0 on mobile). See `{baseDir}/references/camera-patterns.md` → "Mouselook Camera".
 
 > **Freezing player during cutscenes?** Combine VirtualCamera with `InputModifier` from the **advanced-input** skill to prevent player movement during cinematic sequences.
 
-## Camera vs Colliders (preventing camera-through-wall)
+## Example scenes
 
-In third-person mode the player's camera can slide through walls if the wall's collider mask doesn't include `CL_POINTER`. The camera uses the **pointer** collider mask for occlusion checks — not `CL_PHYSICS`. Set both masks on walls and architecture that the camera should bounce off:
-
-```typescript
-// main-entities.ts
-wall: {
-  components: {
-    Transform: { position: { x: 8, y: 1.5, z: 16 } },
-    GltfContainer: {
-      src: 'models/wall.glb',
-      visibleMeshesCollisionMask: 3   // CL_PHYSICS | CL_POINTER
-    }
-  }
-}
-```
-
-For GLBs that ship with invisible collider meshes (Creator Hub asset packs), set `invisibleMeshesCollisionMask: 3` instead. Default of `CL_PHYSICS` only would let the camera pass through.
-
-## Best Practices
-
-- Only one VirtualCamera should be active at a time.
-- Use `CameraModeArea` to force first-person in tight indoor spaces.
-- Keep transition speeds between 0.5 and 3.0 for comfortable camera movement.
-- Read camera state via `engine.CameraEntity` — never try to write to it directly.
-- For look-at detection, combine camera position with raycasting (see `add-interactivity` skill).
-- Camera control is read-only outside of VirtualCamera and CameraModeArea — you cannot directly move the player's camera.
+- https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/2,22-virtual-cameras — multiple VirtualCameras: static, `Speed`/`Time` transitions, `lookAtEntity: engine.PlayerEntity`, a Tween-driven moving camera, a WASD-controllable camera (driving the VirtualCamera Transform each frame), plus `CameraModeArea` and `AvatarModifierArea`.
+- https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/0,5-primary-cursor-info — activating/deactivating VirtualCameras with `MainCamera` toggled by key input, combined with InputModifier.
+- https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/32,20-virtual-camera-mouse-look — mouselook camera: `PrimaryPointerInfo.screenDelta` driving VirtualCamera yaw/pitch while pointer is locked, with `InputModifier` disableAll and PointerLock control. Reference implementation for the mouselook pattern.

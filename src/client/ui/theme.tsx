@@ -1,9 +1,13 @@
-// Shared mobile-first UI kit: warm "cute animal game" palette, responsive
-// scaling, outlined labels, tactile (animated) buttons, pills, stat bars, and a
-// panel shell that blocks the mobile joystick. Inspired by the cozy-farm UI.
+// Shared UI kit: warm "cute animal game" palette, fully color/shape based (no
+// PNGs anywhere), responsive scaling, outlined labels, tactile (animated)
+// buttons, pills, stat bars, and a panel shell. Desktop keeps a compact,
+// centered layout; mobile (isMobile()) switches to a completely different,
+// Roblox-style treatment: near-fullscreen panels, chunky rounded buttons and
+// oversized fonts sized for thumbs instead of a mouse cursor.
 
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
 import { engine, UiCanvasInformation } from '@dcl/sdk/ecs'
+import { isMobile as sdkIsMobile } from '@dcl/sdk/platform'
 import { getExplorerInformation } from '~system/Runtime'
 import { getPress, triggerPress, attentionPulse } from './anim'
 
@@ -28,7 +32,8 @@ export const C = {
   happy: { r: 0.98, g: 0.5, b: 0.68, a: 1 } as Color,
   trackBg: { r: 0.12, g: 0.1, b: 0.09, a: 0.9 } as Color,
   pink: { r: 0.85, g: 0.45, b: 0.62, a: 1 } as Color,
-  blue: { r: 0.4, g: 0.6, b: 0.9, a: 1 } as Color
+  blue: { r: 0.4, g: 0.6, b: 0.9, a: 1 } as Color,
+  red: { r: 0.9, g: 0.26, b: 0.2, a: 1 } as Color
 }
 
 export function dimColor(c?: Color): Color {
@@ -36,13 +41,13 @@ export function dimColor(c?: Color): Color {
   return { r: b.r * 0.45, g: b.g * 0.45, b: b.b * 0.45, a: b.a }
 }
 
-// ---- Responsive scaling (virtual 1920x1080) ------------------------------
-// Robust mobile detection. The SDK's isMobile() resolves the platform
-// asynchronously and has no fallback: on some mobile app builds it never reports
-// 'mobile', leaving the whole HUD at desktop scale (tiny). We resolve it
-// ourselves and add an agent-string fallback, then store the result so S() reads
-// it every render (React-ECS re-renders each frame, so the HUD resizes once the
-// lookup resolves).
+// ---- Responsive scaling (virtual 1920x1080 desktop / 1600x720 compact) ----
+// Mobile detection built on the SDK's isMobile() (@dcl/sdk/platform), which
+// reads Runtime.getExplorerInformation() under the hood and resolves
+// asynchronously with no fallback — on some mobile app builds it never flips
+// to true, leaving the whole HUD stuck at desktop scale. We back it with our
+// own direct getExplorerInformation() agent-string check so a slow/failed SDK
+// resolution doesn't strand the HUD.
 let isMobileRuntime = false
 // The Bevy explorer reports platform:"web" agent:"bevy" and renders the HUD
 // small at 1920x1080 — it needs the compact virtual canvas like mobile does.
@@ -81,12 +86,12 @@ export function resolveRuntimePlatform(onResolved?: () => void): void {
     .then((info) => {
       const platform = (info.platform ?? '').toLowerCase()
       const agent = (info.agent ?? '').toLowerCase()
-      isMobileRuntime = platform === 'mobile' || MOBILE_AGENT_RE.test(agent)
+      if (platform === 'mobile' || MOBILE_AGENT_RE.test(agent)) isMobileRuntime = true
       isBevyRuntime = agent.includes('bevy')
       console.log('[Platform]', `platform:${platform || '?'} agent:${agent || '?'}`)
     })
     .catch(() => {
-      // Couldn't read it — stay at desktop scale rather than guess wrong.
+      // Couldn't read it — fall back to the SDK's own isMobile() below.
     })
     .then(() => {
       if (onResolved) onResolved()
@@ -94,8 +99,9 @@ export function resolveRuntimePlatform(onResolved?: () => void): void {
 }
 
 export function mobile(): boolean {
-  return isMobileRuntime
+  return isMobileRuntime || sdkIsMobile()
 }
+
 // Global UI scale — larger touch targets on mobile, slightly larger on desktop
 // too (mobile-testing friendly). React-ECS re-renders every frame, so the HUD
 // resizes automatically once the platform lookup resolves.
@@ -151,6 +157,21 @@ export function OutlineLabel(props: {
   )
 }
 
+// ---- Rounded badge (colored circle/rounded-square with a short glyph) ----
+// Replaces every icon PNG in the old UI: a solid color disc/rounded square
+// with 1-2 letters. Basic, fully vector (color-only), always rounded.
+export function RoundedBadge(props: { key?: string; text: string; size: number; bg: Color; textColor?: Color; fontSize?: number; square?: boolean }) {
+  const d = props.size
+  return (
+    <UiEntity
+      uiTransform={{ width: d, height: d, borderRadius: props.square ? Math.round(d * 0.28) : d / 2, alignItems: 'center', justifyContent: 'center' }}
+      uiBackground={{ color: props.bg }}
+    >
+      <Label value={props.text} fontSize={props.fontSize ?? Math.round(d * 0.42)} color={props.textColor ?? C.outline} textAlign="middle-center" uiTransform={{ width: d, height: d }} />
+    </UiEntity>
+  )
+}
+
 // ---- Tactile button (press/bounce animation) -----------------------------
 export function TactileButton(props: {
   key?: string | number
@@ -166,49 +187,39 @@ export function TactileButton(props: {
   pulse?: boolean
   radius?: number
   margin?: Partial<{ top: number; right: number; bottom: number; left: number }>
-  /**
-   * Optional background image. When set it replaces the color fill and the label
-   * is skipped — these textures ship with their caption already baked in.
-   */
-  texture?: string
 }) {
   const scale = getPress(props.id) * (props.pulse && !props.disabled ? attentionPulse() : 1)
   const w = Math.round(props.width * scale)
   const h = Math.round(props.height * scale)
-  const textured = !!props.texture
   return (
     <UiEntity
       uiTransform={{ width: props.width, height: props.height, alignItems: 'center', justifyContent: 'center', margin: props.margin }}
     >
       <UiEntity
-        uiTransform={{ width: w, height: h, alignItems: 'center', justifyContent: 'center', borderRadius: textured ? 0 : props.radius ?? S(16) }}
-        uiBackground={
-          textured
-            ? { texture: { src: props.texture! }, textureMode: 'stretch' }
-            : { color: props.disabled ? dimColor(props.bg) : props.bg ?? C.card }
-        }
+        uiTransform={{ width: w, height: h, alignItems: 'center', justifyContent: 'center', borderRadius: props.radius ?? S(16) }}
+        uiBackground={{ color: props.disabled ? dimColor(props.bg) : props.bg ?? C.card }}
         onMouseDown={() => {
           if (props.disabled) return
           triggerPress(props.id)
           props.onClick()
         }}
       >
-        {!textured && (
-          <Label
-            value={props.label}
-            fontSize={props.fontSize ?? S(18)}
-            color={props.disabled ? C.dim : props.textColor ?? C.text}
-            textAlign="middle-center"
-            uiTransform={{ width: w, height: h }}
-          />
-        )}
+        <Label
+          value={props.label}
+          fontSize={props.fontSize ?? S(18)}
+          color={props.disabled ? C.dim : props.textColor ?? C.text}
+          textAlign="middle-center"
+          uiTransform={{ width: w, height: h }}
+        />
       </UiEntity>
     </UiEntity>
   )
 }
 
-// Big circular care button: colored disc with caption beneath.
+// Big circular care button: colored disc with a glyph + caption beneath.
+// This is the "Roblox-style" chunky action button used heavily on mobile.
 export function CareButton(props: {
+  key?: string | number
   id: string
   caption: string
   glyph: string
@@ -217,11 +228,12 @@ export function CareButton(props: {
   size: number
   disabled?: boolean
   pulse?: boolean
+  fontSize?: number
 }) {
   const scale = getPress(props.id) * (props.pulse && !props.disabled ? attentionPulse() : 1)
   const d = Math.round(props.size * scale)
   return (
-    <UiEntity uiTransform={{ width: props.size, height: props.size + S(22), flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', margin: { left: S(7), right: S(7) } }}>
+    <UiEntity uiTransform={{ width: props.size, height: props.size + S(26), flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', margin: { left: S(7), right: S(7) } }}>
       <UiEntity uiTransform={{ width: props.size, height: props.size, alignItems: 'center', justifyContent: 'center' }}>
         <UiEntity
           uiTransform={{ width: d, height: d, alignItems: 'center', justifyContent: 'center', borderRadius: Math.round(props.size) }}
@@ -232,10 +244,10 @@ export function CareButton(props: {
             props.onClick()
           }}
         >
-          <OutlineLabel value={props.glyph} fontSize={Math.round(props.size * 0.42)} color={C.text} width={d} height={d} />
+          <OutlineLabel value={props.glyph} fontSize={props.fontSize ?? Math.round(props.size * 0.42)} color={C.text} width={d} height={d} />
         </UiEntity>
       </UiEntity>
-      <Label value={props.caption} fontSize={S(14)} color={C.text} textAlign="middle-center" uiTransform={{ width: props.size + S(14), height: S(20) }} />
+      <Label value={props.caption} fontSize={S(14)} color={C.text} textAlign="middle-center" uiTransform={{ width: props.size + S(18), height: S(22) }} />
     </UiEntity>
   )
 }
@@ -258,51 +270,28 @@ export function Pill(props: { label: string; value: string; bg?: Color; accent?:
   )
 }
 
-// ---- Stat bar (rounded) --------------------------------------------------
-/** Track art aspect (bar_track.png is 600x30). Keeps the groove undistorted. */
-const TRACK_ASPECT = 20
-
-/**
- * A bar texture plus the normalized width of its rounded cap. We nine-slice on
- * that inset so the caps keep their radius no matter how far the bar is
- * stretched — the art ships at different lengths, and the fill's width tracks
- * the live stat value, so plain 'stretch' would distort every bar differently.
- */
-export type BarArt = { src: string; slice: number }
-
-function nineSlice(a: BarArt) {
-  return {
-    texture: { src: a.src },
-    textureMode: 'nine-slices' as const,
-    textureSlices: { top: 0, right: a.slice, bottom: 0, left: a.slice }
-  }
-}
-
+// ---- Stat bar (rounded, color-only) ---------------------------------------
 export function StatBar(props: {
   label: string
   value: number
   color: Color
   width: number
-  /** Optional art. `icon` replaces the text label; `track`/`fill` the flat bars. */
-  icon?: string
-  track?: BarArt
-  fill?: BarArt
+  /** Optional 1-2 letter badge instead of the text label (used in compact rows). */
+  badge?: string
+  /** Bar thickness; mobile callers pass a chunkier value. */
+  thickness?: number
 }) {
   const v = Math.max(0, Math.min(100, props.value))
-  const textured = !!(props.track && props.fill)
-  const iconW = S(24)
+  const badgeD = props.thickness ? props.thickness + S(10) : S(26)
   const gap = S(8)
-  const headW = props.icon ? iconW : S(58)
+  const headW = props.badge ? badgeD : S(58)
   const trackW = props.width - headW - gap
-  const trackH = textured ? Math.round(trackW / TRACK_ASPECT) : S(15)
-  const rowH = Math.max(S(26), props.icon ? iconW : S(22))
+  const trackH = props.thickness ?? S(15)
+  const rowH = Math.max(S(26), badgeD)
   return (
     <UiEntity uiTransform={{ width: props.width, height: rowH, flexDirection: 'row', alignItems: 'center', margin: { bottom: S(4) } }}>
-      {props.icon ? (
-        <UiEntity
-          uiTransform={{ width: iconW, height: iconW, margin: { right: gap } }}
-          uiBackground={{ texture: { src: props.icon }, textureMode: 'stretch' }}
-        />
+      {props.badge ? (
+        <RoundedBadge text={props.badge} size={badgeD} bg={props.color} fontSize={Math.round(badgeD * 0.42)} />
       ) : (
         <Label
           value={props.label}
@@ -312,23 +301,37 @@ export function StatBar(props: {
           uiTransform={{ width: headW, height: S(22), margin: { right: gap } }}
         />
       )}
-      <UiEntity
-        uiTransform={{ width: trackW, height: trackH, borderRadius: textured ? 0 : S(8) }}
-        uiBackground={textured ? nineSlice(props.track!) : { color: C.trackBg }}
-      >
-        <UiEntity
-          uiTransform={{ width: `${v}%`, height: '100%', borderRadius: textured ? 0 : S(8) }}
-          uiBackground={textured ? nineSlice(props.fill!) : { color: props.color }}
-        />
+      <UiEntity uiTransform={{ width: trackW, height: trackH, borderRadius: Math.round(trackH / 2) }} uiBackground={{ color: C.trackBg }}>
+        <UiEntity uiTransform={{ width: `${v}%`, height: '100%', borderRadius: Math.round(trackH / 2) }} uiBackground={{ color: props.color }} />
       </UiEntity>
     </UiEntity>
   )
 }
 
-// ---- Panel shell ---------------------------------------------------------
+// ---- Round close ("X") button --------------------------------------------
+export function CloseButton(props: { onClick: () => void; size: number; bg?: Color }) {
+  return (
+    <UiEntity
+      uiTransform={{ width: props.size, height: props.size, borderRadius: props.size / 2, alignItems: 'center', justifyContent: 'center' }}
+      uiBackground={{ color: props.bg ?? { r: 0.5, g: 0.2, b: 0.16, a: 1 } }}
+      onMouseDown={props.onClick}
+    >
+      <Label value="X" fontSize={Math.round(props.size * 0.5)} color={C.text} textAlign="middle-center" uiTransform={{ width: props.size, height: props.size }} />
+    </UiEntity>
+  )
+}
+
+// ---- Panel shell -----------------------------------------------------------
+// Desktop: compact centered card sized by the caller. Mobile: a completely
+// different, near-fullscreen sheet with much bigger title/close so it works
+// with thumbs instead of a cursor.
 export function PanelShell(props: { title: string; onClose: () => void; width?: number; height?: number; children?: any }) {
-  const w = props.width ?? S(620)
-  const h = props.height ?? S(640)
+  const isM = mobile()
+  const w = isM ? '94%' : props.width ?? S(620)
+  const h = isM ? '90%' : props.height ?? S(640)
+  const titleFont = isM ? S(34) : S(28)
+  const closeSize = isM ? S(56) : S(44)
+  const pad = isM ? S(22) : S(24)
   return (
     <UiEntity
       uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'none' }}
@@ -340,18 +343,14 @@ export function PanelShell(props: { title: string; onClose: () => void; width?: 
         onMouseDown={() => {}}
       />
       <UiEntity
-        uiTransform={{ width: w, height: h, flexDirection: 'column', padding: { top: S(18), bottom: S(22), left: S(24), right: S(24) }, borderRadius: S(24), pointerFilter: 'block' }}
+        uiTransform={{ width: w as any, height: h as any, flexDirection: 'column', padding: { top: S(18), bottom: S(22), left: pad, right: pad }, borderRadius: isM ? S(28) : S(24), pointerFilter: 'block' }}
         uiBackground={{ color: C.panelBg }}
       >
         {/* Header */}
-        <UiEntity uiTransform={{ width: '100%', height: S(50), alignItems: 'center', justifyContent: 'center', margin: { bottom: S(6) } }}>
-          <OutlineLabel value={props.title} fontSize={S(28)} color={C.gold} width={'100%'} height={S(40)} textAlign="middle-center" />
-          <UiEntity
-            uiTransform={{ positionType: 'absolute', position: { right: 0, top: 0 }, width: S(44), height: S(44), borderRadius: S(22), alignItems: 'center', justifyContent: 'center' }}
-            uiBackground={{ color: { r: 0.5, g: 0.2, b: 0.16, a: 1 } }}
-            onMouseDown={props.onClose}
-          >
-            <Label value="X" fontSize={S(22)} color={C.text} textAlign="middle-center" uiTransform={{ width: S(44), height: S(44) }} />
+        <UiEntity uiTransform={{ width: '100%', height: closeSize + S(6), alignItems: 'center', justifyContent: 'center', margin: { bottom: S(6) } }}>
+          <OutlineLabel value={props.title} fontSize={titleFont} color={C.gold} width={'100%'} height={titleFont + S(12)} textAlign="middle-center" />
+          <UiEntity uiTransform={{ positionType: 'absolute', position: { right: 0, top: 0 } }}>
+            <CloseButton onClick={props.onClose} size={closeSize} />
           </UiEntity>
         </UiEntity>
         <UiEntity uiTransform={{ width: '100%', height: S(3), margin: { bottom: S(12) }, borderRadius: S(2) }} uiBackground={{ color: C.cardAlt }} />

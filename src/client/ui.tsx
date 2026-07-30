@@ -14,7 +14,7 @@ import { throwMeteor } from './play'
 import { triggerCare, careActive, queueLength } from './input'
 import { buyItemLocal, buySlotLocal, claimStreak, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
 import { sway, startAnimSystem } from './ui/anim'
-import { C, Color, mobile, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, StatBar, TactileButton, useCompactCanvas } from './ui/theme'
+import { C, CareButton, CloseButton, Color, mobile, OutlineLabel, PanelShell, resolveRuntimePlatform, RoundedBadge, S, Sbtn, StatBar, TactileButton, useCompactCanvas } from './ui/theme'
 import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './ui/dialog'
 
 type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor'
@@ -72,11 +72,39 @@ export const ui = {
 function ProfileBar() {
   const p = clientState.player
   if (!p) return <UiEntity />
-  const W = S(360)
+  const isM = mobile()
   const lvl = p.caretakerLevel
   const base = Cfg.xpForLevel(lvl)
   const next = Cfg.xpForLevel(lvl + 1)
   const frac = next > base ? Math.max(0, Math.min(1, (p.caretakerXp - base) / (next - base))) : 1
+
+  // Mobile: a big top-left pill (Roblox-style corner HUD) — huge level badge
+  // and coin count, name/XP bar tucked underneath so it stays thumb-clear.
+  if (isM) {
+    const W = S(430)
+    const badgeD = S(64)
+    return (
+      <UiEntity
+        uiTransform={{ positionType: 'absolute', position: { top: S(16), left: S(16) }, width: W, height: S(96), flexDirection: 'row', alignItems: 'center', padding: { left: S(10), right: S(16) }, borderRadius: S(40), pointerFilter: 'block' }}
+        uiBackground={{ color: C.panelBg }}
+        onMouseDown={() => ui.openGoals()}
+      >
+        <RoundedBadge text={`${lvl}`} size={badgeD} bg={C.green} fontSize={S(30)} />
+        <UiEntity uiTransform={{ flex: 1, height: '100%', flexDirection: 'column', justifyContent: 'center', margin: { left: S(14) } }}>
+          <Label value={playerName()} fontSize={S(20)} color={C.text} textAlign="middle-left" textWrap="nowrap" uiTransform={{ width: '100%', height: S(26) }} />
+          <UiEntity uiTransform={{ width: '100%', height: S(16), borderRadius: S(8), margin: { top: S(4), bottom: S(4) } }} uiBackground={{ color: C.trackBg }}>
+            <UiEntity uiTransform={{ width: `${Math.round(frac * 100)}%`, height: '100%', borderRadius: S(8) }} uiBackground={{ color: C.gold }} />
+          </UiEntity>
+          <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', alignItems: 'center' }}>
+            <RoundedBadge text="C" size={S(24)} bg={C.gold} fontSize={S(13)} />
+            <Label value={`${Math.floor(p.currency)}`} fontSize={S(19)} color={C.gold} textAlign="middle-left" uiTransform={{ width: S(120), height: S(24), margin: { left: S(6) } }} />
+          </UiEntity>
+        </UiEntity>
+      </UiEntity>
+    )
+  }
+
+  const W = S(360)
   // Explicit middle width so the flex column never collapses (which would wrap
   // the label vertically and shove the coins around).
   const midW = W - S(8) - S(12) - S(48) - S(10) - S(86) - S(8)
@@ -88,11 +116,9 @@ function ProfileBar() {
       onMouseDown={() => ui.openGoals()}
     >
       {/* level badge */}
-      <UiEntity uiTransform={{ width: S(48), height: S(48), borderRadius: S(24), alignItems: 'center', justifyContent: 'center', margin: { right: S(10) } }} uiBackground={{ color: C.green }}>
-        <OutlineLabel value={`${lvl}`} fontSize={S(24)} color={C.text} outlineColor={C.outline} width={S(48)} height={S(48)} />
-      </UiEntity>
+      <RoundedBadge text={`${lvl}`} size={S(48)} bg={C.green} fontSize={S(24)} />
       {/* name + xp bar */}
-      <UiEntity uiTransform={{ width: midW, height: '100%', flexDirection: 'column', justifyContent: 'center' }}>
+      <UiEntity uiTransform={{ width: midW, height: '100%', flexDirection: 'column', justifyContent: 'center', margin: { left: S(10) } }}>
         <Label value={`${playerName()}  ·  Lv ${lvl}`} fontSize={S(15)} color={C.text} textAlign="middle-left" textWrap="nowrap" uiTransform={{ width: midW, height: S(18) }} />
         <UiEntity uiTransform={{ width: '100%', height: S(12), borderRadius: S(6), margin: { top: S(2) } }} uiBackground={{ color: C.trackBg }}>
           <UiEntity uiTransform={{ width: `${Math.round(frac * 100)}%`, height: '100%', borderRadius: S(6) }} uiBackground={{ color: C.gold }} />
@@ -100,10 +126,8 @@ function ProfileBar() {
       </UiEntity>
       {/* coins */}
       <UiEntity uiTransform={{ width: S(86), height: S(40), flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', margin: { left: S(8) } }}>
-        <UiEntity uiTransform={{ width: S(26), height: S(26), borderRadius: S(13), margin: { right: S(5) }, alignItems: 'center', justifyContent: 'center' }} uiBackground={{ color: C.gold }}>
-          <Label value="C" fontSize={S(14)} color={C.outline} textAlign="middle-center" uiTransform={{ width: S(26), height: S(26) }} />
-        </UiEntity>
-        <Label value={`${Math.floor(p.currency)}`} fontSize={S(17)} color={C.text} textAlign="middle-right" uiTransform={{ width: S(50), height: S(40) }} />
+        <RoundedBadge text="C" size={S(26)} bg={C.gold} fontSize={S(14)} />
+        <Label value={`${Math.floor(p.currency)}`} fontSize={S(17)} color={C.text} textAlign="middle-right" uiTransform={{ width: S(50), height: S(40), margin: { left: S(5) } }} />
       </UiEntity>
     </UiEntity>
   )
@@ -118,15 +142,18 @@ function ColonyBar() {
   const pop = clientState.colonyPopulation
   const goal = Cfg.COLONY_GOAL
   const frac = goal > 0 ? Math.max(0, Math.min(1, pop / goal)) : 0
-  const W = S(190)
+  const isM = mobile()
+  const W = isM ? S(300) : S(190)
+  const position = isM ? { top: S(16), right: S(16) } : { top: S(10), left: '50%' as any }
+  const margin = isM ? undefined : { left: S(360) / 2 + S(10) }
   return (
     <UiEntity
       uiTransform={{
         positionType: 'absolute',
-        position: { top: S(10), left: '50%' },
-        margin: { left: S(360) / 2 + S(10) },
+        position,
+        margin,
         width: W,
-        height: S(64),
+        height: isM ? S(80) : S(64),
         flexDirection: 'column',
         justifyContent: 'center',
         padding: { left: S(16), right: S(16) },
@@ -137,22 +164,22 @@ function ColonyBar() {
     >
       <Label
         value="Mars Colony"
-        fontSize={S(12)}
+        fontSize={isM ? S(15) : S(12)}
         color={C.dim}
         textAlign="middle-left"
         textWrap="nowrap"
-        uiTransform={{ width: '100%', height: S(16) }}
+        uiTransform={{ width: '100%', height: isM ? S(20) : S(16) }}
       />
       <Label
         value={`${pop} / ${goal} pets`}
-        fontSize={S(17)}
+        fontSize={isM ? S(21) : S(17)}
         color={C.text}
         textAlign="middle-left"
         textWrap="nowrap"
-        uiTransform={{ width: '100%', height: S(22) }}
+        uiTransform={{ width: '100%', height: isM ? S(26) : S(22) }}
       />
       <UiEntity
-        uiTransform={{ width: '100%', height: S(9), borderRadius: S(5), margin: { top: S(3) } }}
+        uiTransform={{ width: '100%', height: isM ? S(12) : S(9), borderRadius: S(6), margin: { top: S(3) } }}
         uiBackground={{ color: C.trackBg }}
       >
         <UiEntity
@@ -167,150 +194,121 @@ function ColonyBar() {
 // ---------------------------------------------------------------------------
 // Selected-pet panel (top): stats + care actions
 // ---------------------------------------------------------------------------
-// Art for the pet panel. Bar fills map to the stat colors: orange = Hunger,
-// celest = Hygiene, yellow = Energy, pink = Happy.
-// Every bar is drawn with the same 12px rounded cap, but the art ships at
-// different lengths — so each one's cap is a different fraction of its width.
-// Nine-slicing on that exact fraction keeps all four radii identical on screen.
-const CAP_PX = 12
-const bar = (file: string, srcWidth: number) => ({
-  src: `assets/images/petPanelUi/${file}`,
-  slice: CAP_PX / srcWidth
-})
-
-const PET_UI = {
-  bg: 'assets/images/petPanelUi/panel-bg.png',
-  track: bar('bar_track.png', 600),
-  fillHunger: bar('bar_fill_orange.png', 372),
-  fillHygiene: bar('bar_fill_celest.png', 510),
-  fillEnergy: bar('bar_fill_yllow.png', 288),
-  fillHappy: bar('bar_fill_pink.png', 432),
-  iconHunger: 'assets/images/petPanelUi/stat_hunger.png',
-  iconHygiene: 'assets/images/petPanelUi/stat_hygiene.png',
-  iconEnergy: 'assets/images/petPanelUi/stat_energy.png',
-  iconHappy: 'assets/images/petPanelUi/stat_happy.png',
-  feed: 'assets/images/petPanelUi/feed.png',
-  bath: 'assets/images/petPanelUi/bath.png',
-  sleep: 'assets/images/petPanelUi/sleep.png',
-  play: 'assets/images/petPanelUi/play.png'
-}
-
+// Stat bars use a 1-2 letter colored badge instead of an icon PNG.
+// Desktop: compact card above the HUD. Mobile: a wide, chunky bottom-anchored
+// sheet with big circular care buttons — thumb-reachable, Roblox-style.
 function PetPanel() {
   const pet = clientState.activePet
   if (!pet || !clientState.petPanelOpen) return <UiEntity />
   const care = (a: CareAction) => triggerCare(a)
-  // Content sizing — deliberately independent of the panel art below, so the
-  // background can grow to frame the content without scaling it too.
-  // Rows get an explicit width: '100%' inside a padded parent resolves to the
-  // parent's FULL width and would spill past the art on the right.
-  const rowW = S(430) - S(26) * 2
-  const chipW = Math.round((rowW - S(18)) / 4)
-  const chipH = Math.round((chipW * 100) / 178) // action art is 1.78:1
-  // Panel art — drawn larger than the content so it fully frames it.
-  const PW = S(520)
-  const PH = Math.round((PW * 524) / 944) // keep the art's aspect (1.80:1)
+  const isM = mobile()
+
+  const doSleep = () => {
+    // Waking is instant — no walk back to the bed first.
+    if (pet.sleeping) {
+      pet.sleeping = false
+      actions.care('sleep', true)
+    } else care('sleep')
+  }
+
+  // "Play" enters Fetch mode (throw-and-retrieve minigame in play.ts) instead
+  // of applying the care action directly — it hides the panel and shows the
+  // centered Fetch button (see FetchOverlay below).
+  const doPlay = () => {
+    clientState.fetch.active = true
+    clientState.petPanelOpen = false
+  }
+
+  const unlocked = pet.petLevel >= Cfg.BREEDING_UNLOCK_LEVEL
+  const partner = clientState.player?.pets.find((x) => x.id !== pet.id)
+  const doBreed = () => {
+    if (!unlocked) {
+      pushToast(`Breeding unlocks at level ${Cfg.BREEDING_UNLOCK_LEVEL}.`)
+      return
+    }
+    if (!partner) {
+      pushToast('You need a second pet to breed with.')
+      return
+    }
+    actions.breed(partner.id)
+  }
+
+  const PW = isM ? S(760) : S(480)
+  const careSize = isM ? Sbtn(96) : S(56)
+  const halfW = Math.round((PW - S(40) - S(8)) / 2)
 
   return (
     <UiEntity
-      uiTransform={{ positionType: 'absolute', position: { top: S(84), left: '50%' }, margin: { left: -PW / 2 }, width: PW, height: PH, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
-      uiBackground={{ texture: { src: PET_UI.bg }, textureMode: 'stretch' }}
+      uiTransform={{
+        positionType: 'absolute',
+        position: isM ? { bottom: S(150), left: '50%' } : { top: S(84), left: '50%' },
+        margin: { left: -PW / 2 },
+        width: PW,
+        flexDirection: 'column',
+        alignItems: 'center',
+        padding: { top: S(16), bottom: S(16), left: S(20), right: S(20) },
+        borderRadius: isM ? S(28) : S(24),
+        pointerFilter: 'block'
+      }}
+      uiBackground={{ color: C.panelBg }}
     >
-      {/* Close button (designer art, square) */}
-      <UiEntity
-        uiTransform={{ positionType: 'absolute', position: { top: S(14), right: S(18) }, width: S(36), height: S(36), pointerFilter: 'block' }}
-        uiBackground={{ texture: { src: 'assets/images/btn_close.png' }, textureMode: 'stretch' }}
-        onMouseDown={() => (clientState.petPanelOpen = false)}
-      />
-      <UiEntity uiTransform={{ width: rowW, height: S(24), flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-        <OutlineLabel value={`${pet.name}   Lv ${pet.petLevel}`} fontSize={S(17)} color={C.gold} width={S(220)} height={S(22)} textAlign="middle-center" />
-        {careActive() && <Label value={`busy${queueLength() > 0 ? ` +${queueLength()}` : ''}`} fontSize={S(13)} color={C.dim} textAlign="middle-left" uiTransform={{ width: S(70), height: S(22), margin: { left: S(8) } }} />}
+      {/* Close */}
+      <UiEntity uiTransform={{ positionType: 'absolute', position: { top: S(10), right: S(10) } }}>
+        <CloseButton onClick={() => (clientState.petPanelOpen = false)} size={isM ? S(48) : S(36)} />
       </UiEntity>
-      {/* Four full-width bars, stacked (matches the panel art). */}
-      <UiEntity uiTransform={{ width: rowW, flexDirection: 'column', margin: { top: S(6) } }}>
-        <StatBar label="Hunger" value={pet.hunger} color={C.hunger} width={rowW} icon={PET_UI.iconHunger} track={PET_UI.track} fill={PET_UI.fillHunger} />
-        <StatBar label="Hygiene" value={pet.hygiene} color={C.hygiene} width={rowW} icon={PET_UI.iconHygiene} track={PET_UI.track} fill={PET_UI.fillHygiene} />
-        <StatBar label="Energy" value={pet.energy} color={C.energy} width={rowW} icon={PET_UI.iconEnergy} track={PET_UI.track} fill={PET_UI.fillEnergy} />
-        <StatBar label="Happy" value={pet.happiness} color={C.happy} width={rowW} icon={PET_UI.iconHappy} track={PET_UI.track} fill={PET_UI.fillHappy} />
+
+      <UiEntity uiTransform={{ width: '100%', height: isM ? S(34) : S(24), flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+        <OutlineLabel value={`${pet.name}   Lv ${pet.petLevel}`} fontSize={isM ? S(24) : S(17)} color={C.gold} width={isM ? S(340) : S(220)} height={isM ? S(30) : S(22)} textAlign="middle-center" />
+        {careActive() && <Label value={`busy${queueLength() > 0 ? ` +${queueLength()}` : ''}`} fontSize={isM ? S(17) : S(13)} color={C.dim} textAlign="middle-left" uiTransform={{ width: S(90), height: S(26), margin: { left: S(8) } }} />}
       </UiEntity>
-      <UiEntity uiTransform={{ width: rowW, flexDirection: 'row', justifyContent: 'center', margin: { top: S(6) } }}>
-        <TactileButton id="care_feed" label="Feed" texture={PET_UI.feed} width={chipW} height={chipH} margin={{ left: S(2), right: S(2) }} onClick={() => care('feed')} />
-        <TactileButton id="care_bath" label="Bath" texture={PET_UI.bath} width={chipW} height={chipH} margin={{ left: S(2), right: S(2) }} onClick={() => care('clean')} />
-        <TactileButton
-          id="care_sleep"
-          label={pet.sleeping ? 'Wake' : 'Sleep'}
-          texture={PET_UI.sleep}
-          width={chipW}
-          height={chipH}
-          margin={{ left: S(2), right: S(2) }}
-          onClick={() => {
-            // Waking is instant — no walk back to the bed first.
-            if (pet.sleeping) {
-              pet.sleeping = false
-              actions.care('sleep', true)
-            } else care('sleep')
-          }}
-        />
-        <TactileButton
-          id="care_play"
-          label="Play"
-          texture={PET_UI.play}
-          width={chipW}
-          height={chipH}
-          margin={{ left: S(2), right: S(2) }}
-          onClick={() => {
-            // Enter Fetch mode: hide the panel and show the centered Fetch button.
-            clientState.fetch.active = true
-            clientState.petPanelOpen = false
-          }}
-        />
+
+      {/* Four full-width stat bars */}
+      <UiEntity uiTransform={{ width: '100%', flexDirection: 'column', margin: { top: S(8) } }}>
+        <StatBar label="Hunger" value={pet.hunger} color={C.hunger} width={PW - S(40)} badge="H" thickness={isM ? S(20) : S(15)} />
+        <StatBar label="Hygiene" value={pet.hygiene} color={C.hygiene} width={PW - S(40)} badge="Hy" thickness={isM ? S(20) : S(15)} />
+        <StatBar label="Energy" value={pet.energy} color={C.energy} width={PW - S(40)} badge="E" thickness={isM ? S(20) : S(15)} />
+        <StatBar label="Happy" value={pet.happiness} color={C.happy} width={PW - S(40)} badge="Ha" thickness={isM ? S(20) : S(15)} />
       </UiEntity>
+
+      {/* Care actions — big circular tap targets, always rounded */}
+      <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', justifyContent: 'center', margin: { top: S(10) } }}>
+        <CareButton id="care_feed" caption="Feed" glyph="F" bg={C.hunger} size={careSize} onClick={() => care('feed')} />
+        <CareButton id="care_bath" caption="Bath" glyph="B" bg={C.hygiene} size={careSize} onClick={() => care('clean')} />
+        <CareButton id="care_sleep" caption={pet.sleeping ? 'Wake' : 'Sleep'} glyph={pet.sleeping ? 'W' : 'S'} bg={C.energy} size={careSize} onClick={doSleep} />
+        <CareButton id="care_play" caption="Play" glyph="P" bg={C.happy} size={careSize} onClick={doPlay} />
+      </UiEntity>
+
       {/* Pet + Breed, side by side and equal size. Pet is the affection gesture
-          (raises Happy); Breed is locked until Lv X and crosses with the first
-          other owned pet (cross-player registry is the follow-up). */}
-      {(() => {
-        const unlocked = pet.petLevel >= Cfg.BREEDING_UNLOCK_LEVEL
-        const partner = clientState.player?.pets.find((x) => x.id !== pet.id)
-        const halfW = Math.round((rowW - S(8)) / 2)
-        return (
-          <UiEntity uiTransform={{ width: rowW, flexDirection: 'row', justifyContent: 'center', margin: { top: S(8) } }}>
-            <TactileButton
-              id="pet_gesture"
-              label="Pet  ·  +Happy"
-              width={halfW}
-              height={S(38)}
-              bg={C.happy}
-              textColor={C.outline}
-              fontSize={S(15)}
-              radius={S(14)}
-              margin={{ right: S(4) }}
-              onClick={() => startPetting()}
-            />
-            <TactileButton
-              id="breed_teaser"
-              label={unlocked ? 'Breed' : `Breed  ·  Lv ${Cfg.BREEDING_UNLOCK_LEVEL}`}
-              width={halfW}
-              height={S(38)}
-              bg={unlocked ? C.pink : C.cardAlt}
-              textColor={unlocked ? C.outline : C.dim}
-              fontSize={S(15)}
-              radius={S(14)}
-              margin={{ left: S(4) }}
-              pulse={unlocked}
-              onClick={() => {
-                if (!unlocked) {
-                  pushToast(`Breeding unlocks at level ${Cfg.BREEDING_UNLOCK_LEVEL}.`)
-                  return
-                }
-                if (!partner) {
-                  pushToast('You need a second pet to breed with.')
-                  return
-                }
-                actions.breed(partner.id)
-              }}
-            />
-          </UiEntity>
-        )
-      })()}
+          (raises Happy, via the swipe-to-pet overlay); Breed is locked until
+          Lv X and crosses with the first other owned pet (cross-player
+          registry is the follow-up). */}
+      <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', justifyContent: 'center', margin: { top: S(10) } }}>
+        <TactileButton
+          id="pet_gesture"
+          label="Pet  ·  +Happy"
+          width={halfW}
+          height={isM ? S(64) : S(38)}
+          bg={C.happy}
+          textColor={C.outline}
+          fontSize={isM ? S(19) : S(15)}
+          radius={S(20)}
+          margin={{ right: S(4) }}
+          onClick={() => startPetting()}
+        />
+        <TactileButton
+          id="breed_teaser"
+          label={unlocked ? 'Breed' : `Breed  ·  Lv ${Cfg.BREEDING_UNLOCK_LEVEL}`}
+          width={halfW}
+          height={isM ? S(64) : S(38)}
+          bg={unlocked ? C.pink : C.cardAlt}
+          textColor={unlocked ? C.outline : C.dim}
+          fontSize={isM ? S(19) : S(15)}
+          radius={S(20)}
+          margin={{ left: S(4) }}
+          pulse={unlocked}
+          onClick={doBreed}
+        />
+      </UiEntity>
     </UiEntity>
   )
 }
@@ -323,37 +321,49 @@ function BottomNav() {
   // Hidden while a dialog is open — the dialog sits where these buttons are.
   // Also hidden in Fetch mode, which owns the bottom-center of the screen.
   if (!p || clientState.dialog.open || clientState.fetch.active) return <UiEntity />
-  const bw = Sbtn(160)
-  const bh = Sbtn(72)
+  const isM = mobile()
+  // Mobile: 3 huge full-width rounded-square tiles, filling the bottom edge —
+  // a completely different, thumb-first layout vs. the compact desktop pills.
+  const bw = isM ? S(300) : Sbtn(160)
+  const bh = isM ? S(120) : Sbtn(72)
+  const font = isM ? S(24) : S(20)
+  const active = C.green
+  const inactive = C.card
   return (
-    <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(18), left: 0 }, width: '100%', height: bh, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', pointerFilter: 'none' }}>
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: isM ? S(10) : S(18), left: 0 }, width: '100%', height: bh, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', pointerFilter: 'none' }}>
       <TactileButton
         id="nav_pets"
         label="My Pets"
-        texture={uiState.panel === 'roster' ? 'assets/images/navButtonUi/mypets_selected.png' : 'assets/images/navButtonUi/mypets_unselected.png'}
+        bg={uiState.panel === 'roster' ? active : inactive}
+        textColor={uiState.panel === 'roster' ? C.outline : C.text}
         width={bw}
         height={bh}
-        fontSize={S(20)}
+        fontSize={font}
+        radius={isM ? S(28) : S(18)}
         margin={{ left: S(8), right: S(8) }}
         onClick={() => ui.openRoster()}
       />
       <TactileButton
         id="nav_inv"
         label="Inventory"
-        texture={uiState.panel === 'inventory' ? 'assets/images/navButtonUi/inventory_selected.png' : 'assets/images/navButtonUi/inventory_unselected.png'}
+        bg={uiState.panel === 'inventory' ? active : inactive}
+        textColor={uiState.panel === 'inventory' ? C.outline : C.text}
         width={bw}
         height={bh}
-        fontSize={S(20)}
+        fontSize={font}
+        radius={isM ? S(28) : S(18)}
         margin={{ left: S(8), right: S(8) }}
         onClick={() => ui.openInventory()}
       />
       <TactileButton
         id="nav_goals"
         label="Goals"
-        texture={uiState.panel === 'goals' ? 'assets/images/navButtonUi/goals_selected.png' : 'assets/images/navButtonUi/goals_unselected.png'}
+        bg={uiState.panel === 'goals' ? active : inactive}
+        textColor={uiState.panel === 'goals' ? C.outline : C.text}
         width={bw}
         height={bh}
-        fontSize={S(20)}
+        fontSize={font}
+        radius={isM ? S(28) : S(18)}
         margin={{ left: S(8), right: S(8) }}
         onClick={() => ui.openGoals()}
       />
@@ -367,10 +377,28 @@ function BottomNav() {
 function SideButtons() {
   const p = clientState.player
   if (!p || clientState.fetch.active) return <UiEntity />
+  const isM = mobile()
   const hasPet = !!clientState.activePet
+  const spins = p.spinTickets > 0
+  // Mobile: big round floating-action buttons anchored in the corners
+  // (classic mobile-game placement) instead of the desktop's thin side rail.
+  if (isM) {
+    const fab = Sbtn(120)
+    return (
+      <UiEntity uiTransform={{ width: '100%', height: '100%', positionType: 'absolute', position: { top: 0, left: 0 }, pointerFilter: 'none' }}>
+        <UiEntity uiTransform={{ positionType: 'absolute', position: { right: S(24), bottom: S(300) }, pointerFilter: 'none' }}>
+          <CareButton id="side_spin" caption="Spin" glyph="S" bg={spins ? C.pink : C.cardAlt} size={fab} pulse={spins} onClick={() => ui.openSpin()} />
+        </UiEntity>
+        {hasPet && (
+          <UiEntity uiTransform={{ positionType: 'absolute', position: { left: S(24), bottom: S(300) }, pointerFilter: 'none' }}>
+            <CareButton id="side_whistle" caption={clientState.followEnabled ? 'Stay' : 'Whistle'} glyph={clientState.followEnabled ? 'X' : 'W'} bg={C.cardAlt} size={fab} onClick={() => setFollow(!clientState.followEnabled)} />
+          </UiEntity>
+        )}
+      </UiEntity>
+    )
+  }
   const w = Sbtn(112)
   const h = Sbtn(58)
-  const spins = p.spinTickets > 0
   return (
     <UiEntity uiTransform={{ width: '100%', height: '100%', positionType: 'absolute', position: { top: 0, left: 0 }, pointerFilter: 'none' }}>
       {/* right side */}
@@ -888,9 +916,12 @@ function Toasts() {
 function PettingOverlay() {
   const st = clientState.petting
   if (!st.active) return <UiEntity />
+  const isM = mobile()
   const pct = Math.round(st.progress * 100)
-  const handD = S(96)
+  const handD = isM ? S(140) : S(96)
   const swayX = Math.round(sway() * S(150)) // left/right travel around center
+  const backW = isM ? S(200) : S(150)
+  const backH = isM ? S(76) : S(56)
   return (
     // Full-screen blocker (transparent) so touches drive the swipe and never
     // reach the avatar. The pet shows through from the fixed camera.
@@ -901,11 +932,11 @@ function PettingOverlay() {
     >
       {/* BACK button (top, horizontally centered) */}
       <UiEntity
-        uiTransform={{ positionType: 'absolute', position: { top: S(20), left: '50%' }, margin: { left: -S(75) }, width: S(150), height: S(56), alignItems: 'center', justifyContent: 'center', borderRadius: S(28), pointerFilter: 'block' }}
+        uiTransform={{ positionType: 'absolute', position: { top: S(20), left: '50%' }, margin: { left: -backW / 2 }, width: backW, height: backH, alignItems: 'center', justifyContent: 'center', borderRadius: backH / 2, pointerFilter: 'block' }}
         uiBackground={{ color: C.pink }}
         onMouseDown={() => cancelPetting()}
       >
-        <OutlineLabel value="BACK" fontSize={S(24)} color={C.text} width={'100%'} height={S(30)} textAlign="middle-center" />
+        <OutlineLabel value="BACK" fontSize={isM ? S(28) : S(24)} color={C.text} width={'100%'} height={S(30)} textAlign="middle-center" />
       </UiEntity>
       {/* Swipe hint: a hand that drifts side to side across the middle (over the
           centered pet). Placeholder disc + emoji until the hand art arrives. */}
@@ -921,11 +952,11 @@ function PettingOverlay() {
       </UiEntity>
       {/* Prompt + progress bar (bottom-center) */}
       <UiEntity
-        uiTransform={{ positionType: 'absolute', position: { bottom: S(90), left: '50%' }, margin: { left: -S(190) }, width: S(380), flexDirection: 'column', alignItems: 'center', pointerFilter: 'none' }}
+        uiTransform={{ positionType: 'absolute', position: { bottom: isM ? S(120) : S(90), left: '50%' }, margin: { left: -S(190) }, width: S(380), flexDirection: 'column', alignItems: 'center', pointerFilter: 'none' }}
       >
-        <OutlineLabel value="Swipe left & right to pet!" fontSize={S(20)} color={C.text} width={'100%'} height={S(30)} textAlign="middle-center" />
-        <UiEntity uiTransform={{ width: S(360), height: S(22), borderRadius: S(11), margin: { top: S(10) } }} uiBackground={{ color: C.trackBg }}>
-          <UiEntity uiTransform={{ width: `${pct}%`, height: '100%', borderRadius: S(11) }} uiBackground={{ color: C.happy }} />
+        <OutlineLabel value="Swipe left & right to pet!" fontSize={isM ? S(24) : S(20)} color={C.text} width={'100%'} height={S(30)} textAlign="middle-center" />
+        <UiEntity uiTransform={{ width: S(360), height: isM ? S(28) : S(22), borderRadius: S(14), margin: { top: S(10) } }} uiBackground={{ color: C.trackBg }}>
+          <UiEntity uiTransform={{ width: `${pct}%`, height: '100%', borderRadius: S(14) }} uiBackground={{ color: C.happy }} />
         </UiEntity>
       </UiEntity>
     </UiEntity>
@@ -939,23 +970,26 @@ function PettingOverlay() {
 // ---------------------------------------------------------------------------
 function FetchOverlay() {
   if (!clientState.fetch.active) return <UiEntity />
+  const isM = mobile()
   const busy = clientState.fetch.busy
-  const bw = S(300)
-  const bh = S(92)
+  const bw = isM ? S(380) : S(300)
+  const bh = isM ? S(120) : S(92)
+  const backW = isM ? S(200) : S(150)
+  const backH = isM ? S(76) : S(56)
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'none' }}>
       {/* BACK (top-left) — disabled while a throw is in progress */}
       <UiEntity
-        uiTransform={{ positionType: 'absolute', position: { top: S(20), left: S(20) }, width: S(150), height: S(56), alignItems: 'center', justifyContent: 'center', borderRadius: S(28), pointerFilter: 'block' }}
+        uiTransform={{ positionType: 'absolute', position: { top: S(20), left: S(20) }, width: backW, height: backH, alignItems: 'center', justifyContent: 'center', borderRadius: backH / 2, pointerFilter: 'block' }}
         uiBackground={{ color: busy ? C.cardAlt : C.pink }}
         onMouseDown={() => {
           if (!clientState.fetch.busy) clientState.fetch.active = false
         }}
       >
-        <OutlineLabel value="BACK" fontSize={S(24)} color={busy ? C.dim : C.text} width={'100%'} height={S(30)} textAlign="middle-center" />
+        <OutlineLabel value="BACK" fontSize={isM ? S(28) : S(24)} color={busy ? C.dim : C.text} width={'100%'} height={S(30)} textAlign="middle-center" />
       </UiEntity>
       {/* Fetch button (bottom-center) */}
-      <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(80), left: '50%' }, margin: { left: -bw / 2 }, width: bw, height: bh, alignItems: 'center', justifyContent: 'center' }}>
+      <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: isM ? S(110) : S(80), left: '50%' }, margin: { left: -bw / 2 }, width: bw, height: bh, alignItems: 'center', justifyContent: 'center' }}>
         <TactileButton
           id="fetch_throw"
           label={busy ? 'Fetching…' : 'Fetch'}
@@ -963,8 +997,8 @@ function FetchOverlay() {
           height={bh}
           bg={busy ? C.cardAlt : C.green}
           textColor={busy ? C.dim : C.outline}
-          fontSize={S(32)}
-          radius={S(26)}
+          fontSize={isM ? S(36) : S(32)}
+          radius={bh / 2}
           disabled={busy}
           pulse={!busy}
           onClick={() => throwMeteor()}
@@ -988,25 +1022,25 @@ const Root = () => {
     )
   }
   return (
-  <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
-    <ServerStatus />
-    <ProfileBar />
-    <ColonyBar />
-    <PetPanel />
-    <SideButtons />
-    <BottomNav />
-    <Toasts />
-    <FetchOverlay />
-    {uiState.panel === 'adopt' && <AdoptPanel />}
-    {uiState.panel === 'shop' && <ShopPanel />}
-    {uiState.panel === 'roster' && <RosterPanel />}
-    {uiState.panel === 'inventory' && <InventoryPanel />}
-    {uiState.panel === 'spin' && <SpinPanel />}
-    {uiState.panel === 'meteor' && <MeteorRewardPanel />}
-    {uiState.panel === 'goals' && <GoalsPanel />}
-    {uiState.panel === 'daily' && <DailyRewardPanel />}
-    <DialogBox />
-  </UiEntity>
+    <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
+      <ServerStatus />
+      <ProfileBar />
+      <ColonyBar />
+      <PetPanel />
+      <SideButtons />
+      <BottomNav />
+      <Toasts />
+      <FetchOverlay />
+      {uiState.panel === 'adopt' && <AdoptPanel />}
+      {uiState.panel === 'shop' && <ShopPanel />}
+      {uiState.panel === 'roster' && <RosterPanel />}
+      {uiState.panel === 'inventory' && <InventoryPanel />}
+      {uiState.panel === 'spin' && <SpinPanel />}
+      {uiState.panel === 'meteor' && <MeteorRewardPanel />}
+      {uiState.panel === 'goals' && <GoalsPanel />}
+      {uiState.panel === 'daily' && <DailyRewardPanel />}
+      <DialogBox />
+    </UiEntity>
   )
 }
 

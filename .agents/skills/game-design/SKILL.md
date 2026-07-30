@@ -1,6 +1,6 @@
 ---
 name: game-design
-description: Plan and design Decentraland games and interactive experiences. Scene limit formulas, performance budgets, texture requirements, asset preloading, state management patterns (module-level, component-based, state machines), object pooling, UX/UI guidelines, input design, and MVP planning. Use when the user wants game design advice, scene architecture, performance planning, or help structuring a game. Do NOT use for specific implementation (see add-interactivity, build-ui, multiplayer-sync).
+description: Plan and design Decentraland games and interactive experiences. Use when the user wants game design advice, scene architecture, performance planning, or help structuring a game. Do NOT use for specific implementation (see add-interactivity, build-ui, multiplayer-sync).
 ---
 
 # Decentraland Game Design & Scene Optimization
@@ -11,25 +11,15 @@ Decentraland is a **continuous, shared 3D world**. Design around these constrain
 
 - **No startup screen**: The scene is always live. Players walk in from adjacent parcels — there is no splash screen, no "press start." Your scene must be meaningful the instant a player arrives.
 - **No forced endings**: You cannot force a "game over" state. Players can leave at any time by walking away or teleporting. Design loops that accommodate drop-in / drop-out naturally.
-- **Cannot remove players**: There is no API to eject a player from a scene. You can teleport a player, but only with their consent (they must accept the prompt). Design around misbehaving players with game mechanics, not eviction.
+- **Cannot remove players**: There is no API to eject a player from a scene. You can teleport a player, but only within the existing scene. If you're teleporting outside the scene, you can only do it with their consent (they must accept the prompt). Design around misbehaving players with game mechanics, not eviction. If the scene has admin players, admins are able to ban other players from the scene manually.
 - **Boundary awareness**: Players standing outside your parcel can see into it. Your scene is always on display. Neighboring scenes are visible too — consider visual harmony.
 - **Shared space**: Multiple players are always potentially present. Even a "single-player" puzzle is witnessed by others. Embrace or account for this.
 
 ## 2. Scene Limitation Formulas
 
-All limits scale with parcel count `n`. **Except for hard MB file-size limits on deploy, all other limits CAN be exceeded** — scenes won't crash, but performance degrades and the scene may be unusable on low-end devices. Treat the table as guidelines, not enforcement.
+Most limits scale with parcel count `n` (triangles, entities, bodies linear; materials, textures, height logarithmic). Key rule of thumb: **10,000 triangles and 200 entities per parcel**.
 
-| Resource | Formula | 1 parcel | 2 parcels | 4 parcels | 9 parcels | 16 parcels |
-|---|---|---|---|---|---|---|
-| **Triangles** | n x 10,000 | 10,000 | 20,000 | 40,000 | 90,000 | 160,000 |
-| **Entities** | n x 200 | 200 | 400 | 800 | 1,800 | 3,200 |
-| **Physics bodies** | n x 300 | 300 | 600 | 1,200 | 2,700 | 4,800 |
-| **Materials** | log2(n+1) x 20 | 20 | 31 | 46 | 66 | 81 |
-| **Textures** | log2(n+1) x 10 | 10 | 15 | 23 | 33 | 40 |
-| **Height limit** | log2(n+1) x 20m | 20m | 31m | 46m | 66m | 81m |
-| **Draw calls** | n x 300 (target) | 300 | 600 | 1,200 | 2,700 | 4,800 |
-
-**File limits:** 15 MB per parcel, 300 MB max total, 200 files per parcel, 50 MB max per individual file.
+For the full limits table across all parcel counts, see the **optimize-scene** skill.
 
 ## 3. Texture Requirements
 
@@ -39,31 +29,11 @@ All limits scale with parcel count `n`. **Except for hard MB file-size limits on
 - Prefer compressed formats (WebP) over raw PNG where possible
 - Share texture references across materials — do not duplicate texture files
 
-## 4. Asset Preloading (AssetLoad Component)
+## 4. Asset Preloading
 
-For large assets that would cause visible pop-in, use `AssetLoad` to pre-download before rendering:
+Use the `AssetLoad` component to pre-load assets that aren't needed at scene startup so they display instantly when needed (e.g. things that appear later or on player interaction); don't use it for startup assets.
 
-```typescript
-import { engine, AssetLoad, LoadingState, GltfContainer, Transform } from '@dcl/sdk/ecs'
-import { Vector3 } from '@dcl/sdk/math'
-
-const preloadEntity = engine.addEntity()
-AssetLoad.create(preloadEntity, { src: 'models/large-model.glb' })
-
-function assetLoadingSystem(dt: number) {
-  for (const [entity] of engine.getEntitiesWith(AssetLoad)) {
-    const state = AssetLoad.get(entity)
-    if (state.loadingState === LoadingState.FINISHED) {
-      GltfContainer.create(entity, { src: 'models/large-model.glb' })
-      Transform.create(entity, { position: Vector3.create(8, 0, 8) })
-      AssetLoad.deleteFrom(entity)
-    }
-  }
-}
-engine.addSystem(assetLoadingSystem)
-```
-
-Use this pattern for any model over ~1 MB or for assets that should be ready before a game phase begins.
+For the implementation pattern, see the **optimize-scene** skill.
 
 ## 5. Performance Patterns
 
@@ -121,6 +91,9 @@ engine.addSystem(lodSystem)
 
 ### Disable Unused Colliders
 Remove collision meshes from decorative objects that players never interact with. This reduces physics body count significantly.
+
+### Disable Landscape Terrain (Worlds)
+For single-scene Worlds, set `landscapeTerrain: false` in `scene.json` to remove the auto-generated grassland/trees/sea around the scene. Two payoffs: it frees rendering budget, and it lets you commit to a self-contained aesthetic (open water, space, void). Ignored in Genesis City. See the `create-scene` skill.
 
 ## 6. Input System Design
 
@@ -209,20 +182,118 @@ Ask: **What does the player DO?** The answer should be a single sentence:
 - Replay value matters more than content volume in DCL (players return to scenes they enjoy)
 
 ### MVP Checklist
-- Core loop is playable in under 60 seconds
-- Works with 1 player and with 5+ players simultaneously
-- Fits within scene limits for target parcel count
-- Has clear visual/audio feedback for all interactions
-- Player understands the goal without external instructions
+- [ ] **Core loop defined**: One sentence describing what the player does.
+- [ ] **First action obvious**: A new player knows what to do within 30 seconds.
+- [ ] **Feedback present**: Every interaction produces visible and/or audible feedback.
+- [ ] **Win/progress condition clear**: The player understands when they are succeeding.
+- [ ] **Lose/fail condition fair**: If there is failure, the player understands why and can retry quickly.
+- [ ] **Replay value exists**: There is a reason to play again (score improvement, new content, social competition).
+- [ ] **Multiplayer compatible**: Works correctly with 1 player and with 5+ simultaneous players.
+- [ ] **Within scene limits**: Triangle count, entity count, texture count, and file size all within budget for the target parcel count.
+- [ ] **Performance acceptable**: Maintains 30+ FPS during gameplay with target entity/triangle counts.
+- [ ] **Mobile compatible**: Core interactions work without a keyboard (pointer-only inputs available).
 
 > **Starting from scratch?** See the **create-scene** skill first to scaffold the project before designing the game.
 
-## 10. Cross-References
+## 10. Game Loop Archetypes
+
+### Exploration
+- **Core loop**: Discover locations, find hidden items, unlock areas.
+- **DCL fit**: Excellent. The 3D world and spatial navigation are strengths.
+- **Design tips**: Use landmarks for wayfinding. Reward curiosity with hidden content. Use lighting and sound to guide attention.
+
+### Collection
+- **Core loop**: Gather items, complete sets, earn rewards.
+- **DCL fit**: Strong. Combines well with exploration and daily engagement.
+- **Design tips**: Use entity pooling for collectibles. Scatter items spatially. Tie collections to visual progress (display cases, counters).
+
+### Puzzle
+- **Core loop**: Solve spatial or logic challenges to progress.
+- **DCL fit**: Good. Spatial puzzles (move objects, find paths, activate sequences) work well.
+- **Design tips**: Provide clear feedback on progress. Avoid puzzles that require typing (input is limited). Use 3D interactions (click, proximity triggers) as puzzle inputs.
+
+### Social
+- **Core loop**: Interact with other players, attend events, roleplay.
+- **DCL fit**: Excellent. This is the platform's native strength.
+- **Design tips**: Create gathering spaces (seating, stages, open areas). Provide conversation starters (interactive objects, games). Design for groups of 5-20.
+
+### Competitive
+- **Core loop**: Race, fight, or outscore other players.
+- **DCL fit**: Moderate. Latency and input limitations constrain fast-paced action.
+- **Design tips**: Prefer turn-based or timing-based competition over twitch reflexes. Use server-authoritative state to prevent cheating. Keep rounds short (2-5 minutes).
+- **Anti-cheat architecture**: whenever scores or prizes are at stake, make the scene server-authoritative (see [[authoritative-server]]). Clients send **intent** messages only (e.g. `claimPoint`) — never a score; the server validates (proximity to the objective, permissions) and is the only writer of game state. The official leaderboard test scene is a complete end-to-end template of this design: https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/90,-9-authoritative-server-leaderboard
+
+## 11. Spatial Design
+
+### Landmarks
+- Place a tall, visible landmark at the center or entrance of your scene. Players use it to orient themselves.
+- Every distinct area should have a unique visual identity (color, shape, lighting).
+
+### Pathfinding
+- Guide players with visible paths (floor patterns, lighting, railings).
+- Avoid dead ends that require backtracking — use loops.
+- Place interactive elements along paths to maintain engagement during traversal.
+
+### Sightlines
+- Use open sightlines to draw players toward objectives.
+- Block sightlines strategically to create mystery and discovery.
+- Ensure the scene looks inviting from the parcel boundary (this is your "shop window").
+
+### Parcel Transitions
+- If your scene spans multiple parcels, ensure smooth visual transitions.
+- Do not place critical interactive elements right at parcel boundaries (loading edge cases).
+
+### Vertical Traversal with Gliding
+- While a player glides, continuous scene forces are 1.5× stronger and their **upward** component can lift the glider (the falling-speed cap only limits descent). This enables traversal mechanics like thermal updrafts, wind corridors, and floating-island hops. One-shot impulses (launch pads, knockback) are unaffected by gliding. See the `player-physics` skill ("Forces while gliding").
+- Use open space at parcel edges as buffer zones.
+
+## 12. Engagement and Monetization
+
+### Engagement Patterns
+- **Daily rewards**: Offer small rewards for daily visits. Track visits via external server — DCL has no built-in daily tracking. Display streak counters in-scene.
+- **Progression systems**: Levels or unlockable content tied to cumulative play. Store progress on a server or use NFT-based progression. Show progression visually (leaderboards, badges, evolving scene elements). For persistent leaderboards and per-player progress, the built-in Multiplayer Server's `Storage` persists across redeploys and server sleep, with a server-owned synced component all clients render — see [[authoritative-server]] for the full pattern and reference scene.
+- **Achievements**: Define clear milestones (first win, 100 collectibles, visited all rooms). Announce with sound and visual effects. Display achievement history in-scene (trophy room, wall of fame).
+
+### Monetization Approaches
+- **In-scene purchases**: Sell virtual items or abilities via MANA transactions. Use `signedFetch` for secure server-verified purchases. Always provide free gameplay alongside paid upgrades.
+- **Wearable sales**: Create and sell wearables that complement your scene's theme. Display wearables on mannequins in-scene as advertisements.
+- **Entry fees/token gating**: Charge MANA to enter a premium area, or require ownership of a specific NFT. Always have a free area that showcases what the paid area offers.
+
+### Social Mechanics
+- **Cooperative tasks**: Design objectives requiring multiple players (two switches pressed simultaneously, etc.). Reward cooperation with shared benefits.
+- **Shared spaces**: Create common areas where players naturally congregate. Add ambient interactive objects that encourage casual interaction.
+- **Events**: Design scenes that can host scheduled events (concerts, competitions). Include a stage area with good sightlines. Provide event host controls (start/stop game, reset scene, broadcast messages). Gate host/admin actions server-side with an admin allow-list checked against the server-verified sender ([[authoritative-server]] Pattern 4) — never trust a client-reported role.
+
+## 13. Tutorial and Onboarding
+
+### In-World Signs
+- Place `TextShape` entities with short instructions at key locations.
+- Use arrows, glowing outlines, or animated indicators to point to interactive objects.
+- Keep text under 10 words per sign.
+
+### NPC Guides
+- Use an animated NPC at the scene entrance to greet and instruct.
+- Deliver instructions through a dialog system (one message at a time, player advances).
+- NPC dialog should be skippable for returning players.
+
+### Progressive Complexity
+- Introduce one mechanic at a time. The first interaction should be obvious (a big, glowing button).
+- After the player succeeds at the simple task, introduce the next layer.
+- Gate advanced mechanics behind early accomplishments.
+
+### Zero-Explanation Test
+- If a new player cannot figure out the first action within 30 seconds without any text or instructions, the design needs work.
+- Watch real players attempt your scene cold. Their confusion is your design feedback.
+
+## 14. Cross-References
 
 | Topic | Skill | When to Use |
 |---|---|---|
 | Interactivity, input handling, raycasting | **add-interactivity** | Implementing click handlers, triggers, input |
 | Multiplayer sync, server communication | **multiplayer-sync** | Networked game state, real-time sync |
+| Server-authoritative games, leaderboards, anti-cheat | **authoritative-server** | Competitive scoring, persistent progress, admin-gated host controls. The Gem Rush reference scene (`92,-9`) is a complete competitive game architecture with server-side proximity anti-cheat and checkpoint-only storage. |
+| FPS-style / mouselook camera controls | **camera-control** | Mouselook pattern: `PrimaryPointerInfo.screenDelta` + VirtualCamera + PointerLock + InputModifier. Desktop only. |
+| Audio-reactive visuals (music visualizers, beat detection) | **audio-analysis** | `AudioAnalysis` component on `AudioSource` or `VideoPlayer` (progressive only, not HLS). Drive geometry/lights/colors from `amplitude` and 8 frequency `bands`. |
 | Screen UI, React-ECS, HUD elements | **build-ui** | Building menus, scoreboards, dialogs |
 | Performance optimization, entity/triangle budgets | **optimize-scene** | Detailed optimization techniques |
 
