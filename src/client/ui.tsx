@@ -6,6 +6,7 @@
 // Reads the client mirror of authoritative server state.
 
 import ReactEcs, { ReactEcsRenderer, Label, UiEntity, Input } from '@dcl/sdk/react-ecs'
+import { movePlayerTo } from '~system/RestrictedActions'
 import * as Cfg from '../shared/config'
 import type { CareAction } from '../shared/types'
 import { actions, adoptPet, clientState, pushToast, serverConnected, switchActivePet } from './state'
@@ -24,7 +25,10 @@ const uiState = {
   shopTab: 'food' as 'food' | 'slots',
   adoptStep: 'pick' as 'pick' | 'name',
   adoptSpecies: Cfg.SPECIES[0],
-  adoptName: ''
+  adoptName: '',
+  // "Choose Location!" modal — opened on entry for RETURNING players only
+  // (first-timers get the tutorial instead). Wired from setup.ts.
+  locationOpen: false
 }
 
 export const ui = {
@@ -63,6 +67,9 @@ export const ui = {
   },
   close(): void {
     uiState.panel = 'none'
+  },
+  openLocation(): void {
+    uiState.locationOpen = true
   }
 }
 
@@ -909,6 +916,93 @@ function FetchOverlay() {
 // ---------------------------------------------------------------------------
 // Root
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// "Choose Location!" modal — shown on scene entry (Adopt-Me style). Two options:
+// Adoption Center (adopt a pet) and House (care for your pet). Centered, rounded,
+// mobile-first. Uses its own bright palette to match the reference look.
+// ---------------------------------------------------------------------------
+const LOC = {
+  card: { r: 0.97, g: 0.97, b: 0.98, a: 1 } as Color,
+  title: { r: 0.29, g: 0.56, b: 0.95, a: 1 } as Color,
+  titleOutline: { r: 1, g: 1, b: 1, a: 1 } as Color,
+  tile: { r: 1, g: 1, b: 1, a: 1 } as Color,
+  tileBorder: { r: 0.9, g: 0.91, b: 0.94, a: 1 } as Color,
+  orange: { r: 0.95, g: 0.55, b: 0.16, a: 1 } as Color,
+  blue: { r: 0.25, g: 0.66, b: 0.95, a: 1 } as Color,
+  red: { r: 0.9, g: 0.24, b: 0.2, a: 1 } as Color,
+  white: { r: 1, g: 1, b: 1, a: 1 } as Color
+}
+
+function LocationTile(props: { icon: string; label: string; color: Color; onClick: () => void }) {
+  const tileW = S(300)
+  const iconH = S(210)
+  return (
+    <UiEntity
+      uiTransform={{ width: tileW, flexDirection: 'column', alignItems: 'center', margin: { left: S(12), right: S(12) }, pointerFilter: 'block' }}
+      onMouseDown={props.onClick}
+    >
+      {/* Icon area (white rounded card) */}
+      <UiEntity
+        uiTransform={{ width: tileW, height: iconH, alignItems: 'center', justifyContent: 'center', borderRadius: S(22) }}
+        uiBackground={{ color: LOC.tile }}
+      >
+        <Label value={props.icon} fontSize={S(120)} color={props.color} textAlign="middle-center" uiTransform={{ width: tileW, height: iconH }} />
+      </UiEntity>
+      {/* Colored label banner */}
+      <UiEntity
+        uiTransform={{ width: tileW - S(30), height: S(64), alignItems: 'center', justifyContent: 'center', margin: { top: -S(14) }, borderRadius: S(16) }}
+        uiBackground={{ color: props.color }}
+      >
+        <OutlineLabel value={props.label} fontSize={S(24)} color={LOC.white} outlineColor={{ r: 0, g: 0, b: 0, a: 0.35 }} width={'100%'} height={S(34)} textAlign="middle-center" />
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+function LocationPanel() {
+  if (!uiState.locationOpen) return <UiEntity />
+  const MW = S(760)
+  const MH = S(560)
+  const close = () => (uiState.locationOpen = false)
+  return (
+    <UiEntity
+      uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
+      uiBackground={{ color: { r: 0, g: 0, b: 0, a: 0.5 } }}
+      onMouseDown={() => {}}
+    >
+      <UiEntity
+        uiTransform={{ width: MW, height: MH, flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', padding: { top: S(28), bottom: S(28), left: S(24), right: S(24) }, borderRadius: S(28), pointerFilter: 'block' }}
+        uiBackground={{ color: LOC.card }}
+      >
+        {/* Red X (top-right) */}
+        <UiEntity
+          uiTransform={{ positionType: 'absolute', position: { top: S(18), right: S(18) }, width: S(56), height: S(56), alignItems: 'center', justifyContent: 'center', borderRadius: S(14), pointerFilter: 'block' }}
+          uiBackground={{ color: LOC.red }}
+          onMouseDown={close}
+        >
+          <OutlineLabel value="X" fontSize={S(30)} color={LOC.white} outlineColor={{ r: 0, g: 0, b: 0, a: 0.3 }} width={S(56)} height={S(40)} textAlign="middle-center" />
+        </UiEntity>
+        {/* Title */}
+        <OutlineLabel value="Choose Location!" fontSize={S(52)} color={LOC.title} outlineColor={LOC.titleOutline} width={'100%'} height={S(70)} textAlign="middle-center" />
+        {/* Two options */}
+        <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', margin: { top: S(20) } }}>
+          <LocationTile
+            icon="🏥"
+            label="ADOPTION CENTER"
+            color={LOC.orange}
+            onClick={() => {
+              close()
+              void movePlayerTo({ newRelativePosition: { x: 174.272, y: 0.5, z: 249.377 } })
+            }}
+          />
+          {/* House: stay put, just close the modal. */}
+          <LocationTile icon="🏠" label="HOUSE" color={LOC.blue} onClick={close} />
+        </UiEntity>
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
 const Root = () => (
   <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
     <ServerStatus />
@@ -928,6 +1022,7 @@ const Root = () => (
     {uiState.panel === 'goals' && <GoalsPanel />}
     {uiState.panel === 'daily' && <DailyRewardPanel />}
     <DialogBox />
+    <LocationPanel />
   </UiEntity>
 )
 
