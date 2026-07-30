@@ -81,6 +81,16 @@ export function serverConnected(): boolean {
   return Date.now() - clientState.lastServerMsgAt < SERVER_TIMEOUT_MS
 }
 
+/**
+ * True once the server has answered at least once (the initial `stateSnapshot`).
+ * Unlike serverConnected(), this never flips back to false on a later timeout —
+ * it's the one-time gate for the loading screen, not a live connection health
+ * check (a brief mid-session drop shouldn't yank the whole HUD away).
+ */
+export function everConnected(): boolean {
+  return clientState.lastServerMsgAt > 0
+}
+
 /** Open a multi-page NPC dialog. Advancing past the last page closes it. */
 export function openDialog(npcName: string, pages: string[], finalLabel = 'Got it!', onDone?: () => void): void {
   clientState.dialog = { open: true, npcName, pages, page: 0, finalLabel, onDone: onDone ?? null }

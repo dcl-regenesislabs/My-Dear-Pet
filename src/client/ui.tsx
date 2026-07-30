@@ -8,7 +8,7 @@
 import ReactEcs, { ReactEcsRenderer, Label, UiEntity, Input } from '@dcl/sdk/react-ecs'
 import * as Cfg from '../shared/config'
 import type { CareAction } from '../shared/types'
-import { actions, adoptPet, clientState, pushToast, serverConnected, switchActivePet } from './state'
+import { actions, adoptPet, clientState, everConnected, pushToast, serverConnected, switchActivePet } from './state'
 import { setFollow, startPetting, cancelPetting } from './pet'
 import { throwMeteor } from './play'
 import { triggerCare, careActive, queueLength } from './input'
@@ -85,7 +85,7 @@ function ProfileBar() {
     const badgeD = S(64)
     return (
       <UiEntity
-        uiTransform={{ positionType: 'absolute', position: { top: S(16), left: S(16) }, width: W, height: S(96), flexDirection: 'row', alignItems: 'center', padding: { left: S(10), right: S(16) }, borderRadius: S(40), pointerFilter: 'block' }}
+        uiTransform={{ positionType: 'absolute', position: { top: S(130), left: S(32) }, width: W, height: S(96), flexDirection: 'row', alignItems: 'center', padding: { left: S(10), right: S(16) }, borderRadius: S(40), pointerFilter: 'block' }}
         uiBackground={{ color: C.panelBg }}
         onMouseDown={() => ui.openGoals()}
       >
@@ -144,7 +144,7 @@ function ColonyBar() {
   const frac = goal > 0 ? Math.max(0, Math.min(1, pop / goal)) : 0
   const isM = mobile()
   const W = isM ? S(300) : S(190)
-  const position = isM ? { top: S(16), right: S(16) } : { top: S(10), left: '50%' as any }
+  const position = isM ? { top: S(130), right: S(32) } : { top: S(10), left: '50%' as any }
   const margin = isM ? undefined : { left: S(360) / 2 + S(10) }
   return (
     <UiEntity
@@ -233,8 +233,12 @@ function PetPanel() {
     actions.breed(partner.id)
   }
 
-  const PW = isM ? S(760) : S(480)
-  const careSize = isM ? Sbtn(96) : S(56)
+  // Background 40% smaller on mobile (it overflowed the safe area) — care
+  // button circles are scaled down to match so the row still fits without
+  // overlapping the edges; every fontSize below is independent of these
+  // dimensions, so none of the text/glyphs shrink.
+  const PW = isM ? S(456) : S(480)
+  const careSize = isM ? Sbtn(58) : S(56)
   const halfW = Math.round((PW - S(40) - S(8)) / 2)
 
   return (
@@ -322,15 +326,17 @@ function BottomNav() {
   // Also hidden in Fetch mode, which owns the bottom-center of the screen.
   if (!p || clientState.dialog.open || clientState.fetch.active) return <UiEntity />
   const isM = mobile()
-  // Mobile: 3 huge full-width rounded-square tiles, filling the bottom edge —
-  // a completely different, thumb-first layout vs. the compact desktop pills.
-  const bw = isM ? S(300) : Sbtn(160)
-  const bh = isM ? S(120) : Sbtn(72)
+  // Mobile: rounded-square tiles filling the bottom edge — a completely
+  // different, thumb-first layout vs. the compact desktop pills. Sized down
+  // from the original big tiles (they overflowed the safe area); the font
+  // size stays the same so the labels don't shrink along with the buttons.
+  const bw = isM ? S(210) : Sbtn(160)
+  const bh = isM ? S(84) : Sbtn(72)
   const font = isM ? S(24) : S(20)
   const active = C.green
   const inactive = C.card
   return (
-    <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: isM ? S(10) : S(18), left: 0 }, width: '100%', height: bh, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', pointerFilter: 'none' }}>
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: isM ? S(28) : S(18), left: 0 }, width: '100%', height: bh, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', pointerFilter: 'none' }}>
       <TactileButton
         id="nav_pets"
         label="My Pets"
@@ -475,7 +481,7 @@ function AdoptPanel() {
     return (
       <PanelShell title="Choose a Pet" width={S(720)} height={S(740)} onClose={() => ui.close()}>
         <Label value="Tap a friend to choose, then Next." fontSize={S(16)} color={C.dim} uiTransform={{ width: '100%', height: S(26), margin: { bottom: S(6) } }} />
-        <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignContent: 'flex-start', overflow: 'hidden' }}>
+        <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignContent: 'flex-start', overflow: 'scroll' }}>
           {Cfg.SPECIES.map((s) => (
             <SpeciesCard key={s} species={s} />
           ))}
@@ -670,7 +676,7 @@ function RosterPanel() {
   return (
     <PanelShell title="My Pets" width={S(680)} onClose={() => ui.close()}>
       <Label value={`Select your active pet — slots ${pets.length}/${p?.petSlots ?? 1}`} fontSize={S(15)} color={C.dim} uiTransform={{ width: '100%', height: S(26) }} />
-      <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+      <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'column', overflow: 'scroll' }}>
         {pets.map((pet) => {
           const isActive = pet.id === p?.activePetId
           return (
@@ -748,11 +754,14 @@ const WARN_RED: Color = { r: 0.9, g: 0.26, b: 0.2, a: 1 }
 
 function ServerStatus() {
   const ok = serverConnected()
+  const isM = mobile()
   return (
     <UiEntity
       uiTransform={{
         positionType: 'absolute',
-        position: { bottom: S(10), right: S(12) },
+        // Pulled in further from the edge on mobile — it was rendering
+        // partially off-screen at the old right: S(12) inset.
+        position: isM ? { bottom: S(10), right: S(70) } : { bottom: S(10), right: S(12) },
         height: S(30),
         flexDirection: 'row',
         alignItems: 'center',
@@ -805,7 +814,7 @@ function GoalsPanel() {
   const p = clientState.player
   return (
     <PanelShell title="Goals & Achievements" width={S(680)} onClose={() => ui.close()}>
-      <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+      <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'column', overflow: 'scroll' }}>
         {Cfg.ACHIEVEMENTS.map((a) => {
           const done = (p?.achievements.indexOf(a.id) ?? -1) !== -1
           const prog = Math.min(p?.counters[a.counter] ?? 0, a.goal)
@@ -1009,9 +1018,38 @@ function FetchOverlay() {
 }
 
 // ---------------------------------------------------------------------------
+// Connecting screen — shown instead of the whole HUD until the authoritative
+// server answers for the first time (the initial stateSnapshot), so nothing
+// (profile bar, panels, nav) flashes on screen before there's real data to show.
+// ---------------------------------------------------------------------------
+function ConnectingScreen() {
+  const isM = mobile()
+  const w = isM ? S(420) : S(320)
+  return (
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}>
+      <UiEntity
+        uiTransform={{ width: w, height: isM ? S(90) : S(64), alignItems: 'center', justifyContent: 'center', borderRadius: isM ? S(45) : S(32) }}
+        uiBackground={{ color: C.panelBg }}
+      >
+        <Label value="Connecting to server..." fontSize={isM ? S(22) : S(17)} color={C.text} textAlign="middle-center" uiTransform={{ width: '100%', height: '100%' }} />
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Root
 // ---------------------------------------------------------------------------
 const Root = () => {
+  // Nothing renders — no HUD, no panels, no dialog — until the server has
+  // answered at least once. Avoids flashing default/empty state on screen.
+  if (!everConnected()) {
+    return (
+      <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
+        <ConnectingScreen />
+      </UiEntity>
+    )
+  }
   // In petting mode the camera is locked on the pet — hide the whole HUD so
   // nothing covers it, leaving only the petting overlay (BACK + swipe hint).
   if (clientState.petting.active) {

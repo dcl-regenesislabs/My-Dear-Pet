@@ -327,8 +327,10 @@ export function CloseButton(props: { onClick: () => void; size: number; bg?: Col
 // with thumbs instead of a cursor.
 export function PanelShell(props: { title: string; onClose: () => void; width?: number; height?: number; children?: any }) {
   const isM = mobile()
-  const w = isM ? '94%' : props.width ?? S(620)
-  const h = isM ? '90%' : props.height ?? S(640)
+  // 40% smaller than the original near-fullscreen sheet (94%/90% overflowed
+  // the safe area) — titleFont/closeSize below are unaffected by this.
+  const w = isM ? '56%' : props.width ?? S(620)
+  const h = isM ? '54%' : props.height ?? S(640)
   const titleFont = isM ? S(34) : S(28)
   const closeSize = isM ? S(56) : S(44)
   const pad = isM ? S(22) : S(24)
@@ -354,7 +356,7 @@ export function PanelShell(props: { title: string; onClose: () => void; width?: 
           </UiEntity>
         </UiEntity>
         <UiEntity uiTransform={{ width: '100%', height: S(3), margin: { bottom: S(12) }, borderRadius: S(2) }} uiBackground={{ color: C.cardAlt }} />
-        <UiEntity uiTransform={{ flex: 1, width: '100%', flexDirection: 'column', overflow: 'hidden' }}>{props.children}</UiEntity>
+        <UiEntity uiTransform={{ flex: 1, width: '100%', flexDirection: 'column', overflow: 'scroll' }}>{props.children}</UiEntity>
       </UiEntity>
     </UiEntity>
   )

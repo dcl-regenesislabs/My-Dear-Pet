@@ -45,27 +45,30 @@ export function DialogBox() {
   const isM = mobile()
 
   // Modal sizing — desktop keeps a compact card; mobile goes near-fullwidth
-  // with much bigger fonts/avatar/button so it reads at arm's length.
-  const MW = isM ? S(1040) : S(940)
-  const MH = isM ? S(420) : S(325)
-  const padX = isM ? S(36) : S(50)
-  const padY = isM ? S(28) : S(34)
-  const gap = isM ? S(28) : S(18)
-  const charD = isM ? S(180) : S(257)
+  // with much bigger fonts/avatar/button so it reads at arm's length. The
+  // mobile background is scaled down 20% (it was oversized) — nameFont/
+  // bodyFont/button fontSize below are untouched so the text stays readable.
+  const MSCALE = 0.8
+  const MW = isM ? Math.round(S(1040) * MSCALE) : S(940)
+  const MH = isM ? Math.round(S(420) * MSCALE) : S(325)
+  const padX = isM ? Math.round(S(36) * MSCALE) : S(50)
+  const padY = isM ? Math.round(S(28) * MSCALE) : S(34)
+  const gap = isM ? Math.round(S(28) * MSCALE) : S(18)
+  const charD = isM ? Math.round(S(180) * MSCALE) : S(257)
   const textW = MW - padX * 2 - charD - gap
-  const btnH = isM ? S(76) : S(50)
-  const nameH = isM ? S(40) : S(28)
+  const btnH = isM ? Math.round(S(76) * MSCALE) : S(50)
+  const nameH = isM ? Math.round(S(40) * MSCALE) : S(28)
   const nameFont = isM ? S(30) : S(22)
   const bodyFont = isM ? S(22) : S(17)
   const bodyH = MH - padY * 2 - nameH - btnH - S(16)
-  const closeSize = isM ? S(52) : S(42)
+  const closeSize = isM ? Math.round(S(52) * MSCALE) : S(42)
 
   return (
     <UiEntity
       uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', pointerFilter: 'none' }}
     >
       <UiEntity
-        uiTransform={{ width: MW, height: MH, flexDirection: 'row', alignItems: 'center', padding: { left: padX, right: padX, top: padY, bottom: padY }, margin: { bottom: S(18) }, borderRadius: S(28), pointerFilter: 'block' }}
+        uiTransform={{ width: MW, height: MH, flexDirection: 'row', alignItems: 'center', padding: { left: padX, right: padX, top: padY, bottom: padY }, margin: { bottom: S(18), left: isM ? -S(70) : 0 }, borderRadius: S(28), pointerFilter: 'block' }}
         uiBackground={{ color: C.panelBg }}
       >
         {/* Close */}
@@ -81,20 +84,23 @@ export function DialogBox() {
         {/* Name + body + controls */}
         <UiEntity uiTransform={{ width: textW, height: '100%', flexDirection: 'column', justifyContent: 'center' }}>
           <OutlineLabel value={d.npcName} fontSize={nameFont} color={C.gold} width={textW} height={nameH} textAlign="middle-left" />
-          <Label
-            value={body}
-            fontSize={bodyFont}
-            color={C.text}
-            textAlign="top-left"
-            uiTransform={{ width: textW, height: bodyH, margin: { top: S(4) } }}
-          />
+          {/* Scrollable so long pages never get clipped by the smaller mobile card. */}
+          <UiEntity uiTransform={{ width: textW, height: bodyH, overflow: 'scroll', margin: { top: S(4) } }}>
+            <Label
+              value={body}
+              fontSize={bodyFont}
+              color={C.text}
+              textAlign="top-left"
+              uiTransform={{ width: textW, height: 'auto' }}
+            />
+          </UiEntity>
           {/* page dots + advance button */}
           <UiEntity uiTransform={{ width: textW, height: btnH, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', margin: { top: S(6) } }}>
             <UiEntity uiTransform={{ flexDirection: 'row', alignItems: 'center', height: btnH }}>
               {d.pages.map((_, i) => (
                 <UiEntity
                   key={`dot-${i}`}
-                  uiTransform={{ width: isM ? S(14) : S(10), height: isM ? S(14) : S(10), borderRadius: S(7), margin: { right: S(6) } }}
+                  uiTransform={{ width: isM ? Math.round(S(14) * MSCALE) : S(10), height: isM ? Math.round(S(14) * MSCALE) : S(10), borderRadius: S(7), margin: { right: S(6) } }}
                   uiBackground={{ color: i === d.page ? C.gold : C.cardAlt }}
                 />
               ))}
@@ -102,7 +108,7 @@ export function DialogBox() {
             <TactileButton
               id="dialog_next"
               label={isLast ? d.finalLabel : 'Next >'}
-              width={isM ? S(300) : S(190)}
+              width={isM ? Math.round(S(300) * MSCALE) : S(190)}
               height={btnH}
               bg={isLast ? C.green : C.cardAlt}
               textColor={isLast ? C.outline : C.text}
