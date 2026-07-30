@@ -29,6 +29,9 @@ export const clientState: {
   // Whether the pet control panel (stats + care) is open. Closed by default so
   // it doesn't cover the screen; opens by clicking the pet, closes with the X.
   petPanelOpen: boolean
+  // Hold-to-pet gesture: active while the overlay is up; progress 0..1 fills
+  // while the pointer is held and ebbs back when released.
+  petting: { active: boolean; progress: number }
   // Fetch (Play) mode: `active` shows the centered Fetch button and hides the
   // panel; `busy` is true from the moment the ball is thrown until the pet drops
   // it back (the Fetch button is disabled while busy).
@@ -55,6 +58,7 @@ export const clientState: {
   dialog: { open: false, npcName: '', pages: [], page: 0, finalLabel: 'Got it!', onDone: null },
   introShown: false,
   petPanelOpen: false,
+  petting: { active: false, progress: 0 },
   fetch: { active: false, busy: false },
   pendingPet: null,
   pendingUntil: 0,
