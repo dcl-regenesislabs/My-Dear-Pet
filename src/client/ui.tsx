@@ -9,8 +9,8 @@ import ReactEcs, { ReactEcsRenderer, Label, UiEntity, Input } from '@dcl/sdk/rea
 import { movePlayerTo } from '~system/RestrictedActions'
 import * as Cfg from '../shared/config'
 import type { CareAction } from '../shared/types'
-import { actions, adoptPet, clientState, pushToast, serverConnected, switchActivePet } from './state'
-import { setFollow, startPetting, cancelPetting } from './pet'
+import { actions, clientState, pushToast, serverConnected, switchActivePet } from './state'
+import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry } from './pet'
 import { throwMeteor } from './play'
 import { triggerCare, careActive, queueLength } from './input'
 import { buyItemLocal, buySlotLocal, claimStreak, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
@@ -62,7 +62,11 @@ export const ui = {
     if (uiState.panel === 'none' && !clientState.dialog.open) uiState.panel = 'daily'
   },
   openCaretaker(): void {
-    if (!clientState.activePet) openCaretakerIntro(() => ui.openAdopt())
+    if (!clientState.activePet)
+      openCaretakerIntro(() => {
+        ui.goCareCenter()
+        ui.openAdopt()
+      })
     else openCaretakerTips()
   },
   close(): void {
@@ -70,8 +74,16 @@ export const ui = {
   },
   openLocation(): void {
     uiState.locationOpen = true
+  },
+  /** Teleport the player to the Care Center (where adoption happens). */
+  goCareCenter(): void {
+    void movePlayerTo({ newRelativePosition: CARE_CENTER })
   }
 }
+
+// Care Center spawn — the adoption area. Shared by the "Choose Location!" modal
+// and the tutorial's Adopt step.
+const CARE_CENTER = { x: 174.272, y: 0.5, z: 249.377 }
 
 // ---------------------------------------------------------------------------
 // Top profile bar (Caretaker level + XP + coins) -> tap opens Goals
@@ -328,42 +340,34 @@ function PetPanel() {
 function BottomNav() {
   const p = clientState.player
   // Hidden while a dialog is open — the dialog sits where these buttons are.
-  // Also hidden in Fetch mode, which owns the bottom-center of the screen.
-  if (!p || clientState.dialog.open || clientState.fetch.active) return <UiEntity />
+  // Also hidden in Fetch mode / while carrying an egg home (they own the screen).
+  if (!p || clientState.dialog.open || clientState.fetch.active || clientState.carryEgg.active) return <UiEntity />
   const bw = Sbtn(160)
   const bh = Sbtn(72)
+  // Flat button style (same look as the modals): blue when its panel is open,
+  // white otherwise. Replaces the old navButtonUi PNGs.
+  const nav = (id: string, label: string, panel: Panel, onClick: () => void) => {
+    const sel = uiState.panel === panel
+    return (
+      <TactileButton
+        id={id}
+        label={label}
+        width={bw}
+        height={bh}
+        bg={sel ? LOC.blue : LOC.tile}
+        textColor={sel ? LOC.white : LOC.body}
+        fontSize={S(20)}
+        radius={S(20)}
+        margin={{ left: S(8), right: S(8) }}
+        onClick={onClick}
+      />
+    )
+  }
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(18), left: 0 }, width: '100%', height: bh, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', pointerFilter: 'none' }}>
-      <TactileButton
-        id="nav_pets"
-        label="My Pets"
-        texture={uiState.panel === 'roster' ? 'assets/images/navButtonUi/mypets_selected.png' : 'assets/images/navButtonUi/mypets_unselected.png'}
-        width={bw}
-        height={bh}
-        fontSize={S(20)}
-        margin={{ left: S(8), right: S(8) }}
-        onClick={() => ui.openRoster()}
-      />
-      <TactileButton
-        id="nav_inv"
-        label="Inventory"
-        texture={uiState.panel === 'inventory' ? 'assets/images/navButtonUi/inventory_selected.png' : 'assets/images/navButtonUi/inventory_unselected.png'}
-        width={bw}
-        height={bh}
-        fontSize={S(20)}
-        margin={{ left: S(8), right: S(8) }}
-        onClick={() => ui.openInventory()}
-      />
-      <TactileButton
-        id="nav_goals"
-        label="Goals"
-        texture={uiState.panel === 'goals' ? 'assets/images/navButtonUi/goals_selected.png' : 'assets/images/navButtonUi/goals_unselected.png'}
-        width={bw}
-        height={bh}
-        fontSize={S(20)}
-        margin={{ left: S(8), right: S(8) }}
-        onClick={() => ui.openGoals()}
-      />
+      {nav('nav_pets', 'My Pets', 'roster', () => ui.openRoster())}
+      {nav('nav_inv', 'Inventory', 'inventory', () => ui.openInventory())}
+      {nav('nav_goals', 'Goals', 'goals', () => ui.openGoals())}
     </UiEntity>
   )
 }
@@ -373,7 +377,7 @@ function BottomNav() {
 // ---------------------------------------------------------------------------
 function SideButtons() {
   const p = clientState.player
-  if (!p || clientState.fetch.active) return <UiEntity />
+  if (!p || clientState.fetch.active || clientState.carryEgg.active) return <UiEntity />
   const hasPet = !!clientState.activePet
   const w = Sbtn(112)
   const h = Sbtn(58)
@@ -434,13 +438,13 @@ function SpeciesCard(props: { key?: string; species: string }) {
   return (
     <UiEntity
       uiTransform={{ width: S(150), height: S(136), flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: S(6), borderRadius: S(16), padding: S(4) }}
-      uiBackground={{ color: selected ? C.green : C.card }}
+      uiBackground={{ color: selected ? LOC.blue : LOC.tile }}
       onMouseDown={() => {
         uiState.adoptSpecies = props.species
       }}
     >
       <UiEntity uiTransform={{ width: disc, height: disc, borderRadius: disc / 2, margin: { bottom: S(8) } }} uiBackground={{ color: speciesColor(props.species) }} />
-      <Label value={props.species.replace('Pet', '')} fontSize={S(16)} color={selected ? C.outline : C.text} textAlign="middle-center" uiTransform={{ width: '100%', height: S(22) }} />
+      <Label value={Cfg.speciesLabel(props.species)} fontSize={S(16)} color={selected ? LOC.white : LOC.body} textAlign="middle-center" uiTransform={{ width: '100%', height: S(22) }} />
     </UiEntity>
   )
 }
@@ -452,63 +456,65 @@ function AdoptPanel() {
 
   if (uiState.adoptStep === 'pick') {
     return (
-      <PanelShell title="Choose a Pet" width={S(720)} height={S(740)} onClose={() => ui.close()}>
-        <Label value="Tap a friend to choose, then Next." fontSize={S(16)} color={C.dim} uiTransform={{ width: '100%', height: S(26), margin: { bottom: S(6) } }} />
+      <LightModal title="Choose a Pet" width={S(760)} height={S(760)} onClose={() => ui.close()}>
+        <Label value="Tap a friend to choose, then Next." fontSize={S(18)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(28), margin: { bottom: S(8) } }} />
         <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignContent: 'flex-start', overflow: 'hidden' }}>
           {Cfg.SPECIES.map((s) => (
             <SpeciesCard key={s} species={s} />
           ))}
         </UiEntity>
-        <UiEntity uiTransform={{ width: '100%', justifyContent: 'center', margin: { top: S(8) } }}>
-          <TactileButton id="adopt_next" label={`Next: ${sp.replace('Pet', '')}  >`} width={S(320)} height={S(62)} bg={C.green} textColor={C.outline} fontSize={S(22)} pulse onClick={() => (uiState.adoptStep = 'name')} />
+        <UiEntity uiTransform={{ width: '100%', justifyContent: 'center', margin: { top: S(10) } }}>
+          <TactileButton id="adopt_next" label={`Next: ${Cfg.speciesLabel(sp)}  >`} width={S(340)} height={S(70)} bg={LOC.blue} textColor={LOC.white} fontSize={S(24)} radius={S(18)} pulse onClick={() => (uiState.adoptStep = 'name')} />
         </UiEntity>
-      </PanelShell>
+      </LightModal>
     )
   }
 
   // Name + confirm step
   const disc = S(120)
   return (
-    <PanelShell title="Name your Pet" width={S(620)} height={S(620)} onClose={() => ui.close()}>
+    <LightModal title="Name your Pet" width={S(680)} height={S(660)} onClose={() => ui.close()}>
       <UiEntity uiTransform={{ width: '100%', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
-        <UiEntity uiTransform={{ width: disc, height: disc, borderRadius: disc / 2, margin: { top: S(10), bottom: S(8) } }} uiBackground={{ color: speciesColor(sp) }} />
-        <Label value={sp.replace('Pet', '')} fontSize={S(22)} color={C.gold} textAlign="middle-center" uiTransform={{ width: '100%', height: S(30) }} />
+        <UiEntity uiTransform={{ width: disc, height: disc, borderRadius: disc / 2, margin: { top: S(12), bottom: S(10) } }} uiBackground={{ color: speciesColor(sp) }} />
+        <OutlineLabel value={Cfg.speciesLabel(sp)} fontSize={S(26)} color={LOC.title} outlineColor={LOC.titleOutline} width={'100%'} height={S(36)} textAlign="middle-center" />
         <Input
           placeholder="Type a name..."
-          fontSize={S(18)}
-          color={C.text}
-          placeholderColor={C.dim}
-          uiTransform={{ width: S(420), height: S(54), margin: { top: S(14), bottom: S(10) } }}
-          uiBackground={{ color: C.card }}
+          fontSize={S(20)}
+          color={LOC.body}
+          placeholderColor={LOC.dim}
+          uiTransform={{ width: S(440), height: S(60), margin: { top: S(16), bottom: S(12) } }}
+          uiBackground={{ color: LOC.tile }}
           onChange={(v) => {
             uiState.adoptName = v
           }}
         />
-        {!slotsFree && <Label value="No free pet slots — buy one first." fontSize={S(15)} color={C.hunger} uiTransform={{ width: '100%', height: S(24) }} />}
+        {!slotsFree && <Label value="No free pet slots — buy one first." fontSize={S(16)} color={LOC.red} uiTransform={{ width: '100%', height: S(26) }} />}
       </UiEntity>
       <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', justifyContent: 'center', margin: { top: S(6) } }}>
-        <TactileButton id="adopt_back" label="< Back" width={S(150)} height={S(60)} bg={C.cardAlt} fontSize={S(18)} margin={{ right: S(12) }} onClick={() => (uiState.adoptStep = 'pick')} />
+        <TactileButton id="adopt_back" label="< Back" width={S(160)} height={S(66)} bg={LOC.neutral} textColor={LOC.body} fontSize={S(20)} radius={S(18)} margin={{ right: S(12) }} onClick={() => (uiState.adoptStep = 'pick')} />
         {slotsFree ? (
           <TactileButton
             id="adopt_confirm"
             label="Adopt!"
-            width={S(240)}
-            height={S(60)}
-            bg={C.green}
-            textColor={C.outline}
-            fontSize={S(24)}
+            width={S(260)}
+            height={S(66)}
+            bg={LOC.green}
+            textColor={LOC.white}
+            fontSize={S(26)}
+            radius={S(18)}
             pulse
             onClick={() => {
-              adoptPet(sp, uiState.adoptName)
+              // Adoption gives an egg to carry home; you hatch it there (rub/tap).
+              startCarryEgg(sp, uiState.adoptName)
               uiState.adoptName = ''
               ui.close()
             }}
           />
         ) : (
-          <TactileButton id="adopt_buyslot" label={`Buy Slot ${Cfg.SLOT_PRICE}`} width={S(240)} height={S(60)} bg={C.gold} textColor={C.outline} fontSize={S(20)} onClick={() => actions.buySlot()} />
+          <TactileButton id="adopt_buyslot" label={`Buy Slot ${Cfg.SLOT_PRICE}`} width={S(260)} height={S(66)} bg={LOC.orange} textColor={LOC.white} fontSize={S(22)} radius={S(18)} onClick={() => actions.buySlot()} />
         )}
       </UiEntity>
-    </PanelShell>
+    </LightModal>
   )
 }
 
@@ -656,7 +662,7 @@ function RosterPanel() {
             <Row key={pet.id} h={S(64)}>
               <UiEntity uiTransform={{ flexDirection: 'row', alignItems: 'center' }}>
                 <UiEntity uiTransform={{ width: S(44), height: S(44), borderRadius: S(22), margin: { right: S(12) } }} uiBackground={{ color: isActive ? C.green : C.cardAlt }} />
-                <Label value={`${pet.name}  ·  ${pet.species.replace('Pet', '')}  ·  Lv ${pet.petLevel}`} fontSize={S(16)} color={isActive ? C.green : C.text} textAlign="middle-left" uiTransform={{ width: S(300), height: S(40) }} />
+                <Label value={`${pet.name}  ·  ${Cfg.speciesLabel(pet.species)}  ·  Lv ${pet.petLevel}`} fontSize={S(16)} color={isActive ? C.green : C.text} textAlign="middle-left" uiTransform={{ width: S(300), height: S(40) }} />
               </UiEntity>
               <TactileButton id={`switch_${pet.id}`} label={isActive ? 'Active' : 'Select'} width={S(120)} height={S(46)} bg={isActive ? C.greenDark : C.cardAlt} fontSize={S(15)} disabled={isActive} onClick={() => switchActivePet(pet.id)} />
             </Row>
@@ -766,14 +772,16 @@ function MeteorRewardPanel() {
   const r = last.reward
   const accent = r.rarity === 'jackpot' ? C.happy : r.rarity === 'rare' ? C.energy : C.gold
   return (
-    <PanelShell title="Meteor Cracked Open!" width={S(520)} onClose={() => ui.close()}>
-      <Label value="A meteor struck the colony — inside you found:" fontSize={S(17)} color={C.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(28) }} />
-      <Label value={r.rarity.toUpperCase()} fontSize={S(15)} color={accent} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24), margin: { top: S(10) } }} />
-      <OutlineLabel value={r.label} fontSize={S(30)} color={accent} width={'100%'} height={S(46)} textAlign="middle-center" />
-      <UiEntity uiTransform={{ width: '100%', justifyContent: 'center', margin: { top: S(16) } }}>
-        <TactileButton id="meteor_collect" label="Collect" width={S(260)} height={S(60)} bg={C.green} textColor={C.outline} fontSize={S(22)} onClick={() => ui.close()} />
+    <LightModal title="Meteor Cracked Open!" width={S(560)} height={S(460)} onClose={() => ui.close()}>
+      <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <Label value="A meteor struck the colony — inside you found:" fontSize={S(18)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(30) }} />
+        <Label value={r.rarity.toUpperCase()} fontSize={S(16)} color={accent} textAlign="middle-center" uiTransform={{ width: '100%', height: S(26), margin: { top: S(14) } }} />
+        <OutlineLabel value={r.label} fontSize={S(34)} color={accent} outlineColor={LOC.titleOutline} width={'100%'} height={S(50)} textAlign="middle-center" />
       </UiEntity>
-    </PanelShell>
+      <UiEntity uiTransform={{ width: '100%', justifyContent: 'center' }}>
+        <TactileButton id="meteor_collect" label="Collect" width={S(280)} height={S(70)} bg={LOC.green} textColor={LOC.white} fontSize={S(26)} radius={S(18)} pulse onClick={() => ui.close()} />
+      </UiEntity>
+    </LightModal>
   )
 }
 
@@ -897,14 +905,22 @@ function PettingOverlay() {
   if (!st.active) return <UiEntity />
   const pct = Math.round(st.progress * 100)
   const handD = S(96)
-  const swayX = Math.round(sway() * S(150)) // left/right travel around center
+  const isM = mobile()
+  // Desktop/Bevy: a hand drifting side-to-side (swipe hint). Mobile: a centered
+  // finger you tap (the app has no cursor-drag yet, so tapping fills the bar).
+  const swayX = isM ? 0 : Math.round(sway() * S(150))
+  const handIcon = isM ? '👆' : '✋'
+  const hint = isM ? 'Tap your pet!' : 'Swipe left & right to pet!'
   return (
-    // Full-screen blocker (transparent) so touches drive the swipe and never
-    // reach the avatar. The pet shows through from the fixed camera.
+    // Full-screen blocker (transparent) so touches drive the gesture and never
+    // reach the avatar. The pet shows through from the fixed camera. On mobile,
+    // each tap here fills the bar (petTap); on desktop the swipe is polled.
     <UiEntity
       uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'block' }}
       uiBackground={{ color: { r: 0, g: 0, b: 0, a: 0 } }}
-      onMouseDown={() => {}}
+      onMouseDown={() => {
+        if (isM) petTap()
+      }}
     >
       {/* BACK button (top, horizontally centered) */}
       <UiEntity
@@ -923,16 +939,64 @@ function PettingOverlay() {
           uiTransform={{ width: handD, height: handD, borderRadius: Math.round(handD), alignItems: 'center', justifyContent: 'center' }}
           uiBackground={{ color: { r: 0.8, g: 0.8, b: 0.8, a: 0.28 } }}
         >
-          <Label value="✋" fontSize={Math.round(handD * 0.5)} color={{ r: 1, g: 1, b: 1, a: 0.5 }} textAlign="middle-center" uiTransform={{ width: handD, height: handD }} />
+          <Label value={handIcon} fontSize={Math.round(handD * 0.5)} color={{ r: 1, g: 1, b: 1, a: 0.5 }} textAlign="middle-center" uiTransform={{ width: handD, height: handD }} />
         </UiEntity>
       </UiEntity>
       {/* Prompt + progress bar (bottom-center) */}
       <UiEntity
         uiTransform={{ positionType: 'absolute', position: { bottom: S(90), left: '50%' }, margin: { left: -S(190) }, width: S(380), flexDirection: 'column', alignItems: 'center', pointerFilter: 'none' }}
       >
-        <OutlineLabel value="Swipe left & right to pet!" fontSize={S(20)} color={C.text} width={'100%'} height={S(30)} textAlign="middle-center" />
+        <OutlineLabel value={hint} fontSize={S(20)} color={C.text} width={'100%'} height={S(30)} textAlign="middle-center" />
         <UiEntity uiTransform={{ width: S(360), height: S(22), borderRadius: S(11), margin: { top: S(10) } }} uiBackground={{ color: C.trackBg }}>
           <UiEntity uiTransform={{ width: `${pct}%`, height: '100%', borderRadius: S(11) }} uiBackground={{ color: C.happy }} />
+        </UiEntity>
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Hatch overlay — the egg is framed by a fixed camera; rub (desktop) / tap
+// (mobile) to fill the bar and hatch the pet. Same gesture as petting.
+// ---------------------------------------------------------------------------
+function HatchOverlay() {
+  const st = clientState.hatch
+  if (!st.active) return <UiEntity />
+  const pct = Math.round(st.progress * 100)
+  const handD = S(96)
+  const isM = mobile()
+  const hatching = st.progress >= 1 // bar full: the egg is now playing its Hatch clip
+  const swayX = isM ? 0 : Math.round(sway() * S(150))
+  const handIcon = isM ? '👆' : '✋'
+  const hint = hatching ? 'Hatching!' : isM ? 'Tap the egg to hatch!' : 'Rub the egg to hatch!'
+  return (
+    <UiEntity
+      uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'block' }}
+      uiBackground={{ color: { r: 0, g: 0, b: 0, a: 0 } }}
+      onMouseDown={() => {
+        if (isM) hatchTap()
+      }}
+    >
+      {/* Hand/finger hint over the centered egg (hidden once it's hatching) */}
+      {!hatching && (
+        <UiEntity
+          uiTransform={{ positionType: 'absolute', position: { top: '34%', left: '50%' }, width: handD, height: handD, margin: { left: -handD / 2 + swayX }, alignItems: 'center', justifyContent: 'center', pointerFilter: 'none' }}
+        >
+          <UiEntity
+            uiTransform={{ width: handD, height: handD, borderRadius: Math.round(handD), alignItems: 'center', justifyContent: 'center' }}
+            uiBackground={{ color: { r: 0.8, g: 0.8, b: 0.8, a: 0.28 } }}
+          >
+            <Label value={handIcon} fontSize={Math.round(handD * 0.5)} color={{ r: 1, g: 1, b: 1, a: 0.5 }} textAlign="middle-center" uiTransform={{ width: handD, height: handD }} />
+          </UiEntity>
+        </UiEntity>
+      )}
+      {/* Prompt + progress bar */}
+      <UiEntity
+        uiTransform={{ positionType: 'absolute', position: { bottom: S(90), left: '50%' }, margin: { left: -S(190) }, width: S(380), flexDirection: 'column', alignItems: 'center', pointerFilter: 'none' }}
+      >
+        <OutlineLabel value={hint} fontSize={S(20)} color={C.text} width={'100%'} height={S(30)} textAlign="middle-center" />
+        <UiEntity uiTransform={{ width: S(360), height: S(22), borderRadius: S(11), margin: { top: S(10) } }} uiBackground={{ color: C.trackBg }}>
+          <UiEntity uiTransform={{ width: `${pct}%`, height: '100%', borderRadius: S(11) }} uiBackground={{ color: C.gold }} />
         </UiEntity>
       </UiEntity>
     </UiEntity>
@@ -949,11 +1013,16 @@ function FetchOverlay() {
   const busy = clientState.fetch.busy
   const bw = S(300)
   const bh = S(92)
+  const isM = mobile()
+  // Mobile clips/overlaps the very corner (native app UI sits there), so inset
+  // the BACK button further in; desktop/Bevy keep the tighter corner offset.
+  const backTop = isM ? S(80) : S(56)
+  const backLeft = isM ? S(150) : S(64)
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'none' }}>
-      {/* BACK (top-left) — disabled while a throw is in progress */}
+      {/* BACK (top-left, inset from the corner so it isn't lost in the vertex) */}
       <UiEntity
-        uiTransform={{ positionType: 'absolute', position: { top: S(20), left: S(20) }, width: S(150), height: S(56), alignItems: 'center', justifyContent: 'center', borderRadius: S(28), pointerFilter: 'block' }}
+        uiTransform={{ positionType: 'absolute', position: { top: backTop, left: backLeft }, width: S(150), height: S(56), alignItems: 'center', justifyContent: 'center', borderRadius: S(28), pointerFilter: 'block' }}
         uiBackground={{ color: busy ? C.cardAlt : C.pink }}
         onMouseDown={() => {
           if (!clientState.fetch.busy) clientState.fetch.active = false
@@ -987,15 +1056,47 @@ function FetchOverlay() {
 // mobile-first. Uses its own bright palette to match the reference look.
 // ---------------------------------------------------------------------------
 const LOC = {
-  card: { r: 0.97, g: 0.97, b: 0.98, a: 1 } as Color,
+  card: { r: 1, g: 0.93, b: 0.95, a: 0.9 } as Color, // very light pink, slightly translucent
   title: { r: 0.29, g: 0.56, b: 0.95, a: 1 } as Color,
   titleOutline: { r: 1, g: 1, b: 1, a: 1 } as Color,
   tile: { r: 1, g: 1, b: 1, a: 1 } as Color,
   tileBorder: { r: 0.9, g: 0.91, b: 0.94, a: 1 } as Color,
   orange: { r: 0.95, g: 0.55, b: 0.16, a: 1 } as Color,
   blue: { r: 0.25, g: 0.66, b: 0.95, a: 1 } as Color,
+  green: { r: 0.35, g: 0.75, b: 0.45, a: 1 } as Color,
   red: { r: 0.9, g: 0.24, b: 0.2, a: 1 } as Color,
-  white: { r: 1, g: 1, b: 1, a: 1 } as Color
+  white: { r: 1, g: 1, b: 1, a: 1 } as Color,
+  body: { r: 0.2, g: 0.22, b: 0.28, a: 1 } as Color, // dark text on the light card
+  dim: { r: 0.5, g: 0.47, b: 0.53, a: 1 } as Color,
+  neutral: { r: 0.85, g: 0.85, b: 0.88, a: 1 } as Color // back/secondary button
+}
+
+// Shared light modal shell (pink card + blue title + designer close button) —
+// the "Choose Location!"/tutorial look. Used by the adoption flow.
+const LOC_CLOSE = 'assets/images/tutorialUi/btn_close.png'
+function LightModal(props: { title: string; width: number; height: number; onClose: () => void; children?: any }) {
+  return (
+    <UiEntity
+      uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
+      uiBackground={{ color: { r: 0, g: 0, b: 0, a: 0.5 } }}
+      onMouseDown={() => {}}
+    >
+      <UiEntity
+        uiTransform={{ width: props.width, height: props.height, flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', padding: { top: S(28), bottom: S(30), left: S(30), right: S(30) }, borderRadius: S(28), pointerFilter: 'block' }}
+        uiBackground={{ color: LOC.card }}
+      >
+        <UiEntity
+          uiTransform={{ positionType: 'absolute', position: { top: S(16), right: S(16) }, width: S(52), height: S(52), pointerFilter: 'block' }}
+          uiBackground={{ texture: { src: LOC_CLOSE }, textureMode: 'stretch' }}
+          onMouseDown={props.onClose}
+        />
+        <OutlineLabel value={props.title} fontSize={S(42)} color={LOC.title} outlineColor={LOC.titleOutline} width={'100%'} height={S(58)} textAlign="middle-center" />
+        <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'column', alignItems: 'center', margin: { top: S(10) }, overflow: 'hidden' }}>
+          {props.children}
+        </UiEntity>
+      </UiEntity>
+    </UiEntity>
+  )
 }
 
 function LocationTile(props: { icon: string; label: string; color: Color; onClick: () => void }) {
@@ -1057,13 +1158,40 @@ function LocationPanel() {
             color={LOC.orange}
             onClick={() => {
               close()
-              void movePlayerTo({ newRelativePosition: { x: 174.272, y: 0.5, z: 249.377 } })
+              ui.goCareCenter()
             }}
           />
           {/* House: stay put, just close the modal. */}
           <LocationTile icon="🏠" label="HOUSE" color={LOC.blue} onClick={close} />
         </UiEntity>
       </UiEntity>
+    </UiEntity>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Carry-egg-home flow — while carrying an egg, a hint says "take it home"; once
+// the player is home a big centered "Hatch" button starts the rub-to-hatch flow.
+// ---------------------------------------------------------------------------
+function CarryHatchButton() {
+  const st = clientState.carryEgg
+  if (!st.active) return <UiEntity />
+  if (!st.atHome) {
+    // Walking home — reminder banner (top-center).
+    return (
+      <UiEntity
+        uiTransform={{ positionType: 'absolute', position: { top: S(90), left: '50%' }, margin: { left: -S(230) }, width: S(460), height: S(58), alignItems: 'center', justifyContent: 'center', borderRadius: S(29), pointerFilter: 'none' }}
+        uiBackground={{ color: C.panelBg }}
+      >
+        <Label value="Take your egg home to hatch it!" fontSize={S(20)} color={C.text} textAlign="middle-center" textWrap="nowrap" uiTransform={{ width: '100%', height: S(30) }} />
+      </UiEntity>
+    )
+  }
+  const bw = S(300)
+  const bh = S(92)
+  return (
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(80), left: '50%' }, margin: { left: -bw / 2 }, width: bw, height: bh, alignItems: 'center', justifyContent: 'center', pointerFilter: 'none' }}>
+      <TactileButton id="carry_hatch" label="Hatch" width={bw} height={bh} bg={C.green} textColor={C.outline} fontSize={S(34)} radius={S(26)} pulse onClick={() => beginHatchFromCarry()} />
     </UiEntity>
   )
 }
@@ -1081,6 +1209,14 @@ const Root = () => {
       </UiEntity>
     )
   }
+  // Hatching also owns the whole screen (egg framed by a fixed camera).
+  if (clientState.hatch.active) {
+    return (
+      <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
+        <HatchOverlay />
+      </UiEntity>
+    )
+  }
   return (
   <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
     <ServerStatus />
@@ -1091,6 +1227,7 @@ const Root = () => {
     <BottomNav />
     <Toasts />
     <FetchOverlay />
+    <CarryHatchButton />
     {uiState.panel === 'adopt' && <AdoptPanel />}
     {uiState.panel === 'shop' && <ShopPanel />}
     {uiState.panel === 'roster' && <RosterPanel />}

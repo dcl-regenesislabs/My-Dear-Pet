@@ -1,18 +1,27 @@
-// Bottom-anchored NPC dialog box (cozy-farm style): portrait + name + paged
-// body text + a primary button. Used for the Caretaker tutorial and tips.
+// Centered NPC dialog modal (matches the "Choose Location!" style): light square
+// card, blue title, red X, paged body text + a primary button. Mobile-first.
+// Used for the Caretaker tutorial and tips.
 
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
 import { getPlayer } from '@dcl/sdk/players'
 import { advanceDialog, clientState, closeDialog, openDialog } from '../state'
-import { C, mobile, OutlineLabel, S, TactileButton } from './theme'
+import { OutlineLabel, S, TactileButton } from './theme'
 
-// Tutorial dialog art (image aspect ratios noted for undistorted sizing).
+// Kept designer art: primary button textures (Next / Adopt) + the close button.
 const DLG = {
-  modal: 'assets/images/tutorialUi/modal.png', // 960x680  (1.41:1)
-  character: 'assets/images/tutorialUi/ui-character-1024.png', // square
   next: 'assets/images/tutorialUi/btn_next.png', // 639x378 (1.69:1)
   adopt: 'assets/images/tutorialUi/btn_adopt.png', // 897x378 (2.37:1)
   close: 'assets/images/tutorialUi/btn_close.png' // 256x256 (square)
+}
+
+// Bright modal palette — same look as the "Choose Location!" card.
+const LGT = {
+  card: { r: 1, g: 0.93, b: 0.95, a: 0.9 }, // very light pink, slightly translucent
+  title: { r: 0.29, g: 0.56, b: 0.95, a: 1 },
+  titleOutline: { r: 1, g: 1, b: 1, a: 1 },
+  body: { r: 0.2, g: 0.22, b: 0.28, a: 1 },
+  dotOn: { r: 0.29, g: 0.56, b: 0.95, a: 1 },
+  dotOff: { r: 0.8, g: 0.82, b: 0.86, a: 1 }
 }
 
 /** The local player's display name, or a themed fallback. */
@@ -51,87 +60,59 @@ export function DialogBox() {
   const isLast = d.page >= d.pages.length - 1
   const body = d.pages[d.page] ?? ''
 
-  // Modal art (960x680) is nine-sliced so it can be wide with crisp corners.
-  // Desktop keeps the approved layout; mobile-only overrides make it narrower
-  // and shrink the character (S()'s 1.6x boost over-inflates a big panel there).
-  const isM = mobile()
-  const MW = isM ? S(860) : S(940) // bigger on mobile so buttons/text aren't cramped
-  const MH = isM ? Math.round(MW * 0.346) : S(325)
-  const padX = isM ? Math.round(MW * 0.1) : S(50) // more horizontal inset so the X and Next sit inside the frame
-  const padY = isM ? Math.round(MH * 0.15) : S(34)
-  const innerH = MH - padY * 2
-  const gap = isM ? Math.round(MW * 0.045) : S(18) // more space between the character and the text
-  const charH = isM ? Math.round(innerH * 0.6) : innerH // full-height on desktop, ~half on mobile
-  const charW = charH // character art is square
-  const textW = MW - padX * 2 - charW - gap
-  const btnH = isM ? Math.round(MH * 0.17) : S(50)
-  const nameH = isM ? Math.round(MH * 0.09) : S(28)
-  const nameFont = isM ? Math.round(MH * 0.075) : S(22)
-  const bodyFont = isM ? Math.round(MH * 0.056) : S(17)
-  const bodyH = isM ? innerH - nameH - btnH - Math.round(MH * 0.07) : charH - S(28) - btnH - S(16)
-  const nextW = Math.round((btnH * 639) / 378)
-  const adoptW = Math.round((btnH * 897) / 378)
-  const closeSize = isM ? Math.round(MW * 0.05) : S(42)
-  const closeInsetX = Math.round(MW * (isM ? 0.10 : 0.06)) // more inset on mobile so the X sits inside, toward center
-  const closeInsetY = Math.round(MH * (isM ? 0.12 : 0.08)) + (isM ? S(15) : 0) // nudge the X down on mobile
-  const textNudge = isM ? S(20) : 0 // nudge the text block down on mobile so it sits inside the frame
+  // Centered square card (same look/size as the "Choose Location!" modal).
+  const MW = S(720)
+  const MH = S(620)
+  const contentW = MW - S(44) * 2
+  const btnH = S(88)
+  const nextW = Math.round((btnH * 639) / 378) // keep the Next art aspect
+  const adoptW = Math.round((btnH * 897) / 378) // keep the Adopt art aspect
 
   return (
     <UiEntity
-      uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', pointerFilter: 'none' }}
+      uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
+      uiBackground={{ color: { r: 0, g: 0, b: 0, a: 0.5 } }}
+      onMouseDown={() => {}}
     >
       <UiEntity
-        uiTransform={{ width: MW, height: MH, flexDirection: 'row', alignItems: 'center', padding: { left: padX, right: padX, top: padY, bottom: padY }, margin: { bottom: S(18) }, pointerFilter: 'block' }}
-        uiBackground={{
-          texture: { src: DLG.modal },
-          textureMode: 'nine-slices',
-          textureSlices: { top: 0.17, bottom: 0.17, left: 0.13, right: 0.13 }
-        }}
+        uiTransform={{ width: MW, height: MH, flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', padding: { top: S(30), bottom: S(40), left: S(44), right: S(44) }, borderRadius: S(28), pointerFilter: 'block' }}
+        uiBackground={{ color: LGT.card }}
       >
-        {/* Close (X) — inset so it sits inside the visible frame */}
+        {/* Close button (designer art, top-right) */}
         <UiEntity
-          uiTransform={{ positionType: 'absolute', position: { top: closeInsetY, right: closeInsetX }, width: closeSize, height: closeSize, pointerFilter: 'block' }}
+          uiTransform={{ positionType: 'absolute', position: { top: S(16), right: S(16) }, width: S(56), height: S(56), pointerFilter: 'block' }}
           uiBackground={{ texture: { src: DLG.close }, textureMode: 'stretch' }}
           onMouseDown={() => closeDialog()}
         />
 
-        {/* Character */}
-        <UiEntity
-          uiTransform={{ width: charW, height: charH, margin: { right: gap } }}
-          uiBackground={{ texture: { src: DLG.character }, textureMode: 'stretch' }}
-        />
+        {/* Title */}
+        <OutlineLabel value={d.npcName} fontSize={S(46)} color={LGT.title} outlineColor={LGT.titleOutline} width={'100%'} height={S(64)} textAlign="middle-center" />
 
-        {/* Name + body + controls */}
-        <UiEntity uiTransform={{ width: textW, height: '100%', flexDirection: 'column', justifyContent: 'center', margin: { top: textNudge } }}>
-          <OutlineLabel value={d.npcName} fontSize={nameFont} color={C.gold} width={textW} height={nameH} textAlign="middle-left" />
-          <Label
-            value={body}
-            fontSize={bodyFont}
-            color={C.text}
-            textAlign="top-left"
-            uiTransform={{ width: textW, height: bodyH, margin: { top: S(4) } }}
-          />
-          {/* page dots + advance button (pulled up on mobile to offset textNudge) */}
-          <UiEntity uiTransform={{ width: textW, height: btnH, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', margin: { top: isM ? -S(18) : S(6) } }}>
-            <UiEntity uiTransform={{ flexDirection: 'row', alignItems: 'center', height: btnH }}>
-              {d.pages.map((_, i) => (
-                <UiEntity
-                  key={`dot-${i}`}
-                  uiTransform={{ width: S(10), height: S(10), borderRadius: S(5), margin: { right: S(6) } }}
-                  uiBackground={{ color: i === d.page ? C.gold : C.cardAlt }}
-                />
-              ))}
-            </UiEntity>
-            <TactileButton
-              id="dialog_next"
-              label={isLast ? d.finalLabel : 'Next'}
-              texture={isLast ? DLG.adopt : DLG.next}
-              width={isLast ? adoptW : nextW}
-              height={btnH}
-              onClick={() => advanceDialog()}
-            />
-          </UiEntity>
+        {/* Body (vertically centered in the remaining space) */}
+        <UiEntity uiTransform={{ width: contentW, flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <Label value={body} fontSize={S(32)} color={LGT.body} textAlign="middle-center" uiTransform={{ width: contentW, height: '100%' }} />
         </UiEntity>
+
+        {/* Page dots */}
+        <UiEntity uiTransform={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: S(22), margin: { bottom: S(24) } }}>
+          {d.pages.map((_, i) => (
+            <UiEntity
+              key={`dot-${i}`}
+              uiTransform={{ width: S(14), height: S(14), borderRadius: S(7), margin: { left: S(5), right: S(5) } }}
+              uiBackground={{ color: i === d.page ? LGT.dotOn : LGT.dotOff }}
+            />
+          ))}
+        </UiEntity>
+
+        {/* Next / final button (designer art, bigger) */}
+        <TactileButton
+          id="dialog_next"
+          label={isLast ? d.finalLabel : 'Next'}
+          texture={isLast ? DLG.adopt : DLG.next}
+          width={isLast ? adoptW : nextW}
+          height={btnH}
+          onClick={() => advanceDialog()}
+        />
       </UiEntity>
     </UiEntity>
   )

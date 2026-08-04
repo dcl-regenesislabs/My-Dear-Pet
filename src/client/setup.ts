@@ -16,17 +16,23 @@ import { setupPetSystems } from './pet'
 import { setupPlay } from './play'
 import { setupMeteor } from './meteor'
 import { setupSkybox } from './skybox'
+import { setupPlane } from './plane'
+import { setupCaretakerFloat } from './caretaker'
 
 let introTriggered = false
-let locationShown = false // "Choose Location!" modal is shown once per session
+let firstSnapshotSeen = false // decide the "Choose Location!" modal on the FIRST snapshot only
 
 function showIntro(): void {
   if (introTriggered) return
   introTriggered = true
   clientState.introShown = true
-  // First run with no pet: the Caretaker speaks first, then invites adoption.
+  // First run with no pet: the Caretaker speaks first, then sends the player to
+  // the Care Center to adopt.
   if (!clientState.activePet) {
-    openCaretakerIntro(() => ui.openAdopt())
+    openCaretakerIntro(() => {
+      ui.goCareCenter()
+      ui.openAdopt()
+    })
   }
 }
 
@@ -36,15 +42,16 @@ function registerHandlers(): void {
     try {
       const snap = JSON.parse(data.json) as PlayerSnapshot
       applySnapshot(snap)
-      // Returning player already has a pet -> skip the tutorial and instead show
-      // the "Choose Location!" modal once (first-timers get the tutorial below).
-      if (snap.activePet) {
-        introTriggered = true
-        if (!locationShown) {
-          locationShown = true
-          ui.openLocation()
-        }
+      // Decide the "Choose Location!" modal on the FIRST snapshot only: a player
+      // who ALREADY had a pet on entry is "returning" -> show it. A first-timer
+      // (no pet at load) gets the tutorial instead, and must NOT get the modal
+      // later when they adopt this session.
+      if (!firstSnapshotSeen) {
+        firstSnapshotSeen = true
+        if (snap.activePet) ui.openLocation()
       }
+      // Returning player already has a pet -> skip the tutorial.
+      if (snap.activePet) introTriggered = true
     } catch (e) {
       console.log('[Client] bad snapshot', e)
     }
@@ -103,6 +110,8 @@ export function setupClient(): void {
   resolveMyAddress()
   seedLocalPlayer() // HUD renders immediately, no waiting on the network
   setupSkybox() // Mars ground, sky sphere + nebula clouds, boundary colliders
+  setupPlane() // placeholder plane in the middle of the scene (reposition later)
+  setupCaretakerFloat() // Caretaker robot gently hovers up/down
   setupMeteor() // meteor reward drop (falls, settles, clickable)
   evaluateStreak() // advance / reset the 7-day login streak
   registerHandlers()
