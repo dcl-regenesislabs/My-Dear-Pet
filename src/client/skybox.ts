@@ -12,6 +12,8 @@ import {
   engine,
   Transform,
   MeshCollider,
+  MeshRenderer,
+  Material,
   GltfContainer,
   ColliderLayer,
   Entity,
@@ -19,14 +21,20 @@ import {
   InputAction,
   PointerEventType
 } from '@dcl/sdk/ecs'
-import { Vector3, Quaternion } from '@dcl/sdk/math'
+import { Vector3, Quaternion, Color4 } from '@dcl/sdk/math'
 import { movePlayerTo } from '~system/RestrictedActions'
 
 // --- Configuration (positions copied verbatim from skybox-test's main.composite —
 // My Dear Pet now uses the same 30x30 parcel layout, so no translation is needed). ---
 
-const GROUND_POSITION = Vector3.create(220.5, 14, 235.75)
-const GROUND_SCALE = Vector3.create(1.3, 1.3, 1.3)
+// Flat Mars floor — a thin, wide box centered on the play area. A box (not a GLB
+// terrain) keeps the ground perfectly flat and level with the gameplay, so pets
+// and objects (all at y≈0.5) sit right on top and nothing gets buried.
+// The box is 2m tall and sunk 0.5m so its TOP surface lands exactly at y=0.5.
+const FLOOR_POSITION = Vector3.create(204.5, -0.5, 238.5)
+const FLOOR_SCALE = Vector3.create(100, 2, 100)
+const FLOOR_TOP_Y = 0.5 // = FLOOR_POSITION.y + FLOOR_SCALE.y / 2
+const FLOOR_COLOR = Color4.create(0.62, 0.35, 0.25, 1) // dusty Mars red
 const SKYBOX_POSITION = Vector3.create(200.5, -3.5, 232.25)
 
 // The empty "here" anchor entity — the center of the relocated gameplay area.
@@ -75,13 +83,13 @@ function heightTeleportSystem() {
 }
 
 function createGroundAndSkybox() {
+  // Flat floor: a box you can walk on, colored like Mars. Its top sits at
+  // FLOOR_TOP_Y so gameplay objects rest on it instead of hovering / sinking.
   const ground = engine.addEntity()
-  Transform.create(ground, { position: GROUND_POSITION, scale: GROUND_SCALE })
-  GltfContainer.create(ground, {
-    src: 'assets/scene/Models/mars_ground/mars_ground.glb',
-    visibleMeshesCollisionMask: ColliderLayer.CL_PHYSICS,
-    invisibleMeshesCollisionMask: ColliderLayer.CL_PHYSICS
-  })
+  Transform.create(ground, { position: FLOOR_POSITION, scale: FLOOR_SCALE })
+  MeshRenderer.setBox(ground)
+  MeshCollider.setBox(ground, ColliderLayer.CL_PHYSICS)
+  Material.setPbrMaterial(ground, { albedoColor: FLOOR_COLOR, roughness: 1, metallic: 0 })
 
   const sky = engine.addEntity()
   Transform.create(sky, { position: SKYBOX_POSITION })

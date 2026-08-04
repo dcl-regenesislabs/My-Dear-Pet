@@ -18,6 +18,7 @@ import { setupMeteor } from './meteor'
 import { setupSkybox } from './skybox'
 
 let introTriggered = false
+let locationShown = false // "Choose Location!" modal is shown once per session
 
 function showIntro(): void {
   if (introTriggered) return
@@ -35,8 +36,15 @@ function registerHandlers(): void {
     try {
       const snap = JSON.parse(data.json) as PlayerSnapshot
       applySnapshot(snap)
-      // Returning player already has a pet -> never auto-open the intro.
-      if (snap.activePet) introTriggered = true
+      // Returning player already has a pet -> skip the tutorial and instead show
+      // the "Choose Location!" modal once (first-timers get the tutorial below).
+      if (snap.activePet) {
+        introTriggered = true
+        if (!locationShown) {
+          locationShown = true
+          ui.openLocation()
+        }
+      }
     } catch (e) {
       console.log('[Client] bad snapshot', e)
     }
