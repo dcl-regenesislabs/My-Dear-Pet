@@ -35,11 +35,39 @@ export const SPECIES: string[] = [
   'PetMonkey',
   'PetParrot',
   'PetKoala',
-  'PetHog'
+  'alienPet-v1'
 ]
 
+// Per-species model overrides (outside the assets/scene/Models convention).
+const MODEL_OVERRIDES: Record<string, string> = {
+  'alienPet-v1': 'models/AlienPet_dcl.glb' // alien model (idle + walk)
+}
+
 export function modelForSpecies(species: string): string {
-  return `assets/scene/Models/${species}/${species}.glb`
+  return MODEL_OVERRIDES[species] ?? `assets/scene/Models/${species}/${species}.glb`
+}
+
+/** Display name for a species — strips a LEADING "Pet" (PetPanda -> Panda) but
+ *  leaves custom ids intact (alienPet-v1 stays alienPet-v1). */
+export function speciesLabel(species: string): string {
+  return species.startsWith('Pet') ? species.slice(3) : species
+}
+
+// Per-species scale multiplier (× the pet's grown size). Default 1.
+const SPECIES_SCALE: Record<string, number> = {}
+
+export function scaleForSpecies(species: string): number {
+  return SPECIES_SCALE[species] ?? 1
+}
+
+// Per-species yaw offset (degrees) — corrects models whose "forward" axis differs
+// from the walk direction (e.g. the alien faces sideways). Default 0.
+const SPECIES_YAW_OFFSET: Record<string, number> = {
+  'alienPet-v1': -15 // alien model faces sideways; rotate it to face its heading
+}
+
+export function yawOffsetForSpecies(species: string): number {
+  return SPECIES_YAW_OFFSET[species] ?? 0
 }
 
 // ---------------------------------------------------------------------------
@@ -56,6 +84,10 @@ export const OBJECTS = {
   Caretaker: Vector3.create(202.7, 0.5, 234.6),
   Shop: Vector3.create(195.2, 0.5, 235.8)
 }
+
+// Home — where the player hatches a carried egg. Matches the scene spawn point.
+export const HOME_POSITION = Vector3.create(195.7, 0.5, 229.3)
+export const HOME_RADIUS = 6 // metres from home within which the Hatch button shows
 
 /** Which object a care action navigates to. */
 export const ACTION_OBJECT: Record<CareAction, Vector3> = {
@@ -123,6 +155,9 @@ export const PET_SELF_COOLDOWN_MS = 1500
 export const PET_GESTURE_SECONDS = 3 // swipe time to fill from empty to full
 export const PET_GESTURE_DECAY_FACTOR = 0.5 // ebb rate (× fill rate) while idle
 export const PET_SWIPE_EPS = 2 // min |screenDelta.x| (px) counted as swiping
+// Mobile fallback: the app has no cursor-drag yet, so the bar fills by TAPPING
+// the pet instead of swiping. Each tap adds this much (≈ 1/PET_TAP_FILL taps).
+export const PET_TAP_FILL = 0.16
 
 // Treating / petting other players' pets.
 export const PET_OTHER_HAPPINESS = 5

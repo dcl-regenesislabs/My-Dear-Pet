@@ -21,12 +21,15 @@ import {
   UiCanvasInformation,
   VirtualCamera,
   MainCamera,
-  InputModifier
+  InputModifier,
+  AvatarAttach,
+  AvatarAnchorPointType
 } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion } from '@dcl/sdk/math'
 import * as C from '../shared/config'
-import { modelForSpecies } from '../shared/config'
-import { clientState, actions, pushToast, switchActivePet } from './state'
+import { modelForSpecies, scaleForSpecies, speciesLabel, yawOffsetForSpecies } from '../shared/config'
+import { clientState, actions, adoptPet, openDialog, pushToast, switchActivePet } from './state'
+import { mobile } from './ui/theme'
 
 type Mode = 'follow' | 'goto' | 'interact' | 'wander'
 
@@ -110,19 +113,25 @@ function setClip(e: Entity, clip: string): void {
 function flat(v: Vector3): Vector3 {
   return Vector3.create(v.x, C.PET_BASE_Y, v.z)
 }
+
+/** World scale for a pet = grown size × its species multiplier. */
+function petScale(species: string, size: number): Vector3 {
+  return Vector3.scale(Vector3.One(), size * scaleForSpecies(species))
+}
 function distFlat(a: Vector3, b: Vector3): number {
   return Vector3.distance(flat(a), flat(b))
 }
-function yawToward(from: Vector3, to: Vector3): Quaternion {
+function yawToward(from: Vector3, to: Vector3, offsetDeg = 0): Quaternion {
   const dx = to.x - from.x
   const dz = to.z - from.z
   if (Math.abs(dx) < 0.001 && Math.abs(dz) < 0.001) return Quaternion.Identity()
   const yaw = (Math.atan2(dx, dz) * 180) / Math.PI
-  return Quaternion.fromEulerDegrees(0, yaw, 0)
+  return Quaternion.fromEulerDegrees(0, yaw + offsetDeg, 0)
 }
 
-/** Move entity toward dest; returns the distance actually moved this frame. */
-function stepToward(entity: Entity, dest: Vector3, dt: number): number {
+/** Move entity toward dest; returns the distance actually moved this frame.
+ *  `yawOffset` corrects models whose forward axis isn't the walk direction. */
+function stepToward(entity: Entity, dest: Vector3, dt: number, yawOffset = 0): number {
   const t = Transform.getMutable(entity)
   const cur = t.position
   const d = distFlat(cur, dest)
@@ -130,7 +139,7 @@ function stepToward(entity: Entity, dest: Vector3, dt: number): number {
   const dir = Vector3.normalize(Vector3.subtract(flat(dest), flat(cur)))
   const step = Math.min(d, C.PET_MOVE_SPEED * dt)
   t.position = Vector3.add(flat(cur), Vector3.scale(dir, step))
-  t.rotation = yawToward(cur, dest)
+  t.rotation = yawToward(cur, dest, yawOffset)
   return step
 }
 
@@ -164,7 +173,7 @@ function ensureLocalPet(): void {
   }
   if (!localPet) {
     localPet = engine.addEntity()
-    Transform.create(localPet, { position: Vector3.create(197.2, C.PET_BASE_Y, 229.8), scale: Vector3.scale(Vector3.One(), pet.size) })
+    Transform.create(localPet, { position: Vector3.create(197.2, C.PET_BASE_Y, 229.8), scale: petScale(pet.species, pet.size) })
     pointerEventsSystem.onPointerDown(
       { entity: localPet, opts: { button: InputAction.IA_POINTER, hoverText: 'Open', maxDistance: 8 } },
       () => {
@@ -182,7 +191,7 @@ function ensureLocalPet(): void {
   }
   // Keep visual scale synced to growth.
   const t = Transform.getMutable(localPet)
-  const s = Vector3.scale(Vector3.One(), pet.size)
+  const s = petScale(pet.species, pet.size)
   if (t.scale.x !== s.x) t.scale = s
 }
 
@@ -226,7 +235,7 @@ export function startPetting(): void {
   MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: petCam })
 
   // Turn the pet to face the camera so we see its front, and freeze it there.
-  Transform.getMutable(localPet).rotation = yawToward(petPos, camPos)
+  Transform.getMutable(localPet).rotation = yawToward(petPos, camPos, yawOffsetForSpecies(clientState.activePet.species))
   InputModifier.createOrReplace(engine.PlayerEntity, { mode: InputModifier.Mode.Standard({ disableAll: true }) })
 }
 
@@ -243,7 +252,51 @@ export function cancelPetting(): void {
   releasePettingView()
 }
 
-/** Advance progress while actively swiping; complete rewards happiness. */
+/** Finish petting: reward happiness, restore the view, exit petting mode. */
+function completePetting(): void {
+  const st = clientState.petting
+  st.active = false
+  st.progress = 0
+  releasePettingView()
+  const pet = clientState.activePet
+  if (pet) pet.happiness = Math.min(100, pet.happiness + C.PET_SELF_HAPPINESS)
+  actions.petSelf() // server is authoritative; this is the "happiness" action
+  petReact()
+  pushToast('Your pet loved that!  +Happy')
+}
+
+/**
+ * Register a tap on the pet (mobile fill). Called from the overlay's onMouseDown
+ * because quick taps don't reliably register via isPressed polling.
+ */
+export function petTap(): void {
+  const st = clientState.petting
+  if (!st.active) return
+  st.progress += C.PET_TAP_FILL
+  if (st.progress >= 1) completePetting()
+}
+
+/**
+ * Shared gesture fill (petting + hatching). Desktop/Bevy fills by swiping
+ * (screenDelta); mobile only ebbs here — taps are added by the UI (petTap /
+ * hatchTap) because quick taps don't register via isPressed polling.
+ */
+function gestureFill(progress: number, dt: number): number {
+  const rate = dt / C.PET_GESTURE_SECONDS
+  if (mobile()) {
+    progress -= rate * C.PET_GESTURE_DECAY_FACTOR
+  } else {
+    const pressed = inputSystem.isPressed(InputAction.IA_POINTER)
+    const info = PrimaryPointerInfo.getOrNull(engine.RootEntity)
+    const dx = Math.abs(info?.screenDelta?.x ?? 0)
+    const dpr = UiCanvasInformation.getOrNull(engine.RootEntity)?.devicePixelRatio || 1
+    const swiping = pressed && dx > C.PET_SWIPE_EPS * dpr
+    progress += swiping ? rate : -rate * C.PET_GESTURE_DECAY_FACTOR
+  }
+  return Math.max(0, Math.min(1, progress))
+}
+
+/** Per-frame petting update. Completing rewards happiness. */
 function updatePetting(dt: number): void {
   const st = clientState.petting
   if (!st.active) return
@@ -251,28 +304,168 @@ function updatePetting(dt: number): void {
     cancelPetting()
     return
   }
-  const pressed = inputSystem.isPressed(InputAction.IA_POINTER)
-  const info = PrimaryPointerInfo.getOrNull(engine.RootEntity)
-  const dx = Math.abs(info?.screenDelta?.x ?? 0)
-  // Scale the swipe threshold by the pixel ratio: on high-DPI screens screenDelta
-  // is reported in physical pixels, so a fixed px threshold would let jitter count
-  // as swiping. dpr-scaling keeps the "is the user actually swiping" test uniform.
-  const dpr = UiCanvasInformation.getOrNull(engine.RootEntity)?.devicePixelRatio || 1
-  const swiping = pressed && dx > C.PET_SWIPE_EPS * dpr
-  const rate = dt / C.PET_GESTURE_SECONDS
-  st.progress += swiping ? rate : -rate * C.PET_GESTURE_DECAY_FACTOR
-  st.progress = Math.max(0, Math.min(1, st.progress))
+  st.progress = gestureFill(st.progress, dt)
+  if (st.progress >= 1) completePetting()
+}
 
-  if (st.progress >= 1) {
-    st.active = false
-    st.progress = 0
-    releasePettingView()
-    const pet = clientState.activePet
-    if (pet) pet.happiness = Math.min(100, pet.happiness + C.PET_SELF_HAPPINESS)
-    actions.petSelf() // server is authoritative; this is the "happiness" action
-    petReact()
-    pushToast('Your pet loved that!  +Happy')
+// ---------------------------------------------------------------------------
+// Hatching — on adoption an egg appears; rubbing/tapping it (same gesture as
+// petting) hatches the pet. The server isn't told until the egg hatches, so a
+// snapshot can't reveal the pet early.
+// ---------------------------------------------------------------------------
+const EGG_MODEL = 'models/stylized_dino_egg.glb'
+// Timings synced to the egg's `Hatch` clip (2.0s one-shot): the shell opens and
+// reveals the interior at ~1.4s, and is fully gone at 2.0s.
+const HATCH_ANIM_SECONDS = 2.0 // total Hatch clip length -> when the egg is removed
+const PET_EMERGE_AT = 1.4 // when the pet pops out (egg is open)
+const HATCH_POP_SECONDS = HATCH_ANIM_SECONDS - PET_EMERGE_AT // pop lasts until the egg is gone
+const HATCH_ADMIRE_SECONDS = 1.2 // camera lingers on the newborn before handing back control
+let egg: Entity | null = null
+let hatchSpecies = ''
+let hatchName = ''
+let hatchPopT = 0 // >0 while the freshly-hatched pet is popping in
+let hatchRevealPos: Vector3 | null = null // where the pet emerges (the egg's spot)
+let hatchAnimT = 0 // elapsed time since the Hatch clip started
+let hatchRevealed = false // pet already popped out this hatch?
+let hatchEggRemoved = false // egg entity already removed this hatch?
+let hatchCamRetargeted = false // camera already re-pointed from egg to pet?
+
+// --- Carrying the egg home ------------------------------------------------
+// On adoption the egg is attached above the avatar; the player walks it home,
+// where a Hatch button starts the rub-to-hatch flow below.
+let carriedEgg: Entity | null = null
+
+/** Adopt handoff: give the player an egg to carry home. */
+export function startCarryEgg(species: string, name: string): void {
+  clientState.carryEgg = { active: true, species, name, atHome: false }
+  if (!carriedEgg) carriedEgg = engine.addEntity()
+  Transform.createOrReplace(carriedEgg, { scale: Vector3.scale(Vector3.One(), 0.6) })
+  GltfContainer.createOrReplace(carriedEgg, { src: EGG_MODEL })
+  Animator.createOrReplace(carriedEgg, { states: [{ clip: 'Idle', playing: true, loop: true }] })
+  AvatarAttach.createOrReplace(carriedEgg, { anchorPointId: AvatarAnchorPointType.AAPT_NAME_TAG })
+  openDialog('Your Egg', ['Take it home and hatch it! Walk back to your house, then tap Hatch.'], 'Got it!')
+}
+
+/** Per-frame while carrying: flag whether the player is home (drives the button). */
+function updateCarryEgg(): void {
+  const st = clientState.carryEgg
+  if (!st.active) return
+  st.atHome = distFlat(playerPos(), C.HOME_POSITION) <= C.HOME_RADIUS
+}
+
+/** Hatch button pressed at home: drop the carried egg and start the rub flow. */
+export function beginHatchFromCarry(): void {
+  const st = clientState.carryEgg
+  if (!st.active) return
+  const { species, name } = st
+  if (carriedEgg) {
+    engine.removeEntity(carriedEgg)
+    carriedEgg = null
   }
+  clientState.carryEgg = { active: false, species: '', name: '', atHome: false }
+  startHatch(species, name)
+}
+
+/** Begin the adoption hatch: spawn the egg (Idle loop), frame it, freeze avatar. */
+export function startHatch(species: string, name: string): void {
+  hatchSpecies = species
+  hatchName = name
+  clientState.hatch.active = true
+  clientState.hatch.progress = 0
+  hatchAnimT = 0
+  hatchRevealed = false
+  hatchEggRemoved = false
+  hatchCamRetargeted = false
+
+  // Egg a bit in front of the player, framed by a dedicated camera.
+  const pp = playerPos()
+  const pt = Transform.getOrNull(engine.PlayerEntity)
+  const fwd = pt ? Vector3.rotate(Vector3.create(0, 0, 1), pt.rotation) : Vector3.create(0, 0, 1)
+  const dir = Vector3.normalize(Vector3.create(fwd.x, 0, fwd.z))
+  const eggPos = Vector3.create(pp.x + dir.x * 1.6, C.PET_BASE_Y, pp.z + dir.z * 1.6)
+  hatchRevealPos = eggPos
+
+  if (!egg) egg = engine.addEntity()
+  Transform.createOrReplace(egg, { position: eggPos, scale: Vector3.One() })
+  GltfContainer.createOrReplace(egg, { src: EGG_MODEL })
+  Animator.createOrReplace(egg, {
+    states: [
+      { clip: 'Idle', playing: true, loop: true },
+      { clip: 'Hatch', playing: false, loop: false, shouldReset: true }
+    ]
+  })
+
+  const camPos = Vector3.create(eggPos.x, eggPos.y + 1.2, eggPos.z + 2.6)
+  if (!petCam) petCam = engine.addEntity()
+  Transform.createOrReplace(petCam, { position: camPos })
+  VirtualCamera.createOrReplace(petCam, { lookAtEntity: egg })
+  MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: petCam })
+  InputModifier.createOrReplace(engine.PlayerEntity, { mode: InputModifier.Mode.Standard({ disableAll: true }) })
+}
+
+/** Bar full: play the Hatch clip and start the reveal timeline. */
+function startHatchAnim(): void {
+  clientState.hatch.progress = 1
+  hatchAnimT = 0
+  if (egg) {
+    const a = Animator.getMutable(egg)
+    for (const s of a.states) s.playing = s.clip === 'Hatch' // Idle -> Hatch (one-shot)
+  }
+}
+
+/** Reveal the pet (~when the egg opens): tell the server, pop it in at the egg. */
+function revealHatchedPet(): void {
+  hatchRevealed = true
+  adoptPet(hatchSpecies, hatchName) // pet now exists + the server is told
+  hatchPopT = HATCH_POP_SECONDS
+  pushToast(`Your ${speciesLabel(hatchSpecies)} hatched!`)
+}
+
+/** Admire beat over: hand the camera + avatar control back to the player. */
+function finishHatch(): void {
+  clientState.hatch.active = false
+  clientState.hatch.progress = 0
+  if (egg) {
+    engine.removeEntity(egg)
+    egg = null
+  }
+  releasePettingView() // release camera + avatar (shared helper)
+  hatchRevealPos = null
+}
+
+/** Register a tap on the egg (mobile fill) — see petTap for the why. */
+export function hatchTap(): void {
+  const st = clientState.hatch
+  if (!st.active || st.progress >= 1) return // ignore taps once it's hatching
+  st.progress += C.PET_TAP_FILL
+  if (st.progress >= 1) startHatchAnim()
+}
+
+/** Per-frame hatch update: rub to fill (progress<1), then run the Hatch timeline. */
+function updateHatch(dt: number): void {
+  const st = clientState.hatch
+  if (!st.active) return
+
+  if (st.progress < 1) {
+    // Still rubbing — Idle loops on the egg; fill the bar.
+    st.progress = gestureFill(st.progress, dt)
+    if (st.progress >= 1) startHatchAnim()
+    return
+  }
+
+  // Hatching timeline: reveal the pet as the egg opens, remove the egg once the
+  // Hatch clip ends (camera is already on the pet, so no jump), then let the
+  // camera linger on the newborn before handing control back.
+  hatchAnimT += dt
+  if (!hatchRevealed && hatchAnimT >= PET_EMERGE_AT) revealHatchedPet()
+  if (!hatchEggRemoved && hatchAnimT >= HATCH_ANIM_SECONDS) {
+    hatchEggRemoved = true
+    if (egg) {
+      engine.removeEntity(egg)
+      egg = null
+    }
+  }
+  if (hatchAnimT >= HATCH_ANIM_SECONDS + HATCH_ADMIRE_SECONDS) finishHatch()
 }
 
 export function setFollow(enabled: boolean): void {
@@ -314,12 +507,33 @@ function updateWander(dt: number): number {
     const ang = Math.random() * Math.PI * 2
     wanderTarget = Vector3.create(wanderHome.x + Math.cos(ang) * r, C.PET_BASE_Y, wanderHome.z + Math.sin(ang) * r)
   }
-  return localPet ? stepToward(localPet, wanderTarget, dt) : 0
+  return localPet ? stepToward(localPet, wanderTarget, dt, yawOffsetForSpecies(clientState.activePet?.species ?? '')) : 0
 }
 
 function updateLocalPet(dt: number): void {
   ensureLocalPet()
   if (!localPet) return
+
+  // During the hatch sequence: keep the newborn at the egg's spot playing idle,
+  // pop its scale in, and re-point the camera from the egg onto the pet so there's
+  // no jump when the egg is removed. Normal behavior resumes once hatch ends.
+  if (clientState.hatch.active && clientState.activePet) {
+    const petH = clientState.activePet
+    const full = petScale(petH.species, petH.size)
+    if (hatchPopT > 0) hatchPopT -= dt
+    const f = hatchPopT > 0 ? Math.max(0.05, 1 - hatchPopT / HATCH_POP_SECONDS) : 1 // 0 -> 1
+    const t = Transform.getMutable(localPet)
+    t.scale = Vector3.scale(full, f)
+    if (hatchRevealPos) t.position = flat(hatchRevealPos)
+    setClip(localPet, 'idle')
+    // Camera now follows the pet (was looking at the egg).
+    if (petCam && !hatchCamRetargeted) {
+      VirtualCamera.getMutable(petCam).lookAtEntity = localPet as number
+      hatchCamRetargeted = true
+    }
+    if (localTag) localTagName = updateTag(localTag, t.position, petH.size, petH.name, localTagName)
+    return
+  }
 
   // While the hold-to-pet overlay is up, the pet stays put and plays its happy
   // gesture — the whole focus is on petting it.
@@ -339,7 +553,7 @@ function updateLocalPet(dt: number): void {
     case 'follow': {
       const dest = followTarget()
       if (distFlat(playerPos(), Transform.get(localPet).position) > C.PET_FOLLOW_DISTANCE + 0.5) {
-        moved = stepToward(localPet, dest, dt)
+        moved = stepToward(localPet, dest, dt, yawOffsetForSpecies(clientState.activePet?.species ?? ''))
       }
       break
     }
@@ -349,7 +563,7 @@ function updateLocalPet(dt: number): void {
     }
     case 'goto': {
       moveClip = 'run'
-      moved = stepToward(localPet, target, dt)
+      moved = stepToward(localPet, target, dt, yawOffsetForSpecies(clientState.activePet?.species ?? ''))
       if (distFlat(Transform.get(localPet).position, target) <= C.PET_ARRIVE_DISTANCE) {
         mode = 'interact'
         interactTimer = 1.1
@@ -409,7 +623,7 @@ function updateRemotePets(dt: number): void {
     let ent = remotePets.get(addr)
     if (!ent) {
       ent = engine.addEntity()
-      Transform.create(ent, { position: Vector3.create(ownerPos.x - 2, C.PET_BASE_Y, ownerPos.z - 2), scale: Vector3.scale(Vector3.One(), entry.size) })
+      Transform.create(ent, { position: Vector3.create(ownerPos.x - 2, C.PET_BASE_Y, ownerPos.z - 2), scale: petScale(entry.species, entry.size) })
       remotePets.set(addr, ent)
       remoteTags.set(addr, makeTag())
       const targetAddr = entry.address
@@ -424,7 +638,7 @@ function updateRemotePets(dt: number): void {
       ensureAnimator(ent)
     }
     const t = Transform.getMutable(ent)
-    const s = Vector3.scale(Vector3.One(), entry.size)
+    const s = petScale(entry.species, entry.size)
     if (t.scale.x !== s.x) t.scale = s
     // Follow the owner only if their pet is currently following them; otherwise
     // it stays put (mirrors the owner having dismissed it).
@@ -432,7 +646,7 @@ function updateRemotePets(dt: number): void {
     let moved = 0
     if (following) {
       const dest = Vector3.create(ownerPos.x - 2, C.PET_BASE_Y, ownerPos.z - 2)
-      moved = distFlat(t.position, dest) > 0.5 ? stepToward(ent, dest, dt) : 0
+      moved = distFlat(t.position, dest) > 0.5 ? stepToward(ent, dest, dt, yawOffsetForSpecies(entry.species)) : 0
     }
     setClip(ent, moved > 0.003 ? 'walk' : 'idle')
 
@@ -472,7 +686,7 @@ function updateInactivePets(dt: number): void {
       if (!st) {
         const e = engine.addEntity()
         const home = careAreaPoint()
-        Transform.create(e, { position: home, scale: Vector3.scale(Vector3.One(), pet.size) })
+        Transform.create(e, { position: home, scale: petScale(pet.species, pet.size) })
         GltfContainer.createOrReplace(e, { src: modelForSpecies(pet.species), visibleMeshesCollisionMask: ColliderLayer.CL_POINTER })
         ensureAnimator(e)
         const petId = pet.id
@@ -502,12 +716,12 @@ function updateInactivePets(dt: number): void {
           st.target = Vector3.create(st.home.x + Math.cos(ang) * r, C.PET_BASE_Y, st.home.z + Math.sin(ang) * r)
         }
       } else {
-        moved = stepToward(st.entity, st.target, dt)
+        moved = stepToward(st.entity, st.target, dt, yawOffsetForSpecies(pet.species))
       }
       setClip(st.entity, moved > 0.003 ? 'walk' : 'idle')
 
       const t = Transform.getMutable(st.entity)
-      const s = Vector3.scale(Vector3.One(), pet.size)
+      const s = petScale(pet.species, pet.size)
       if (t.scale.x !== s.x) t.scale = s
       st.tagName = updateTag(st.tag, t.position, pet.size, pet.name, st.tagName)
     }
@@ -525,6 +739,8 @@ function updateInactivePets(dt: number): void {
 
 export function setupPetSystems(): void {
   engine.addSystem((dt: number) => {
+    updateCarryEgg()
+    updateHatch(dt)
     updatePetting(dt)
     updateLocalPet(dt)
     updateInactivePets(dt)

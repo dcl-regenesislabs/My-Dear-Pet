@@ -4,7 +4,7 @@
 import { getPlayer } from '@dcl/sdk/players'
 import { room } from '../shared/messages'
 import type { CareAction, PetData, PlayerData, PlayerSnapshot, PresenceEntry } from '../shared/types'
-import { SERVER_TIMEOUT_MS, SIZE_BASE, type SpinReward } from '../shared/config'
+import { SERVER_TIMEOUT_MS, SIZE_BASE, speciesLabel, type SpinReward } from '../shared/config'
 
 export type DialogState = {
   open: boolean
@@ -32,6 +32,12 @@ export const clientState: {
   // Hold-to-pet gesture: active while the overlay is up; progress 0..1 fills
   // while the pointer is held and ebbs back when released.
   petting: { active: boolean; progress: number }
+  // Carrying an egg home: on adoption the egg is attached to the avatar and the
+  // player must walk it home (`atHome` true within HOME_RADIUS) to hatch it.
+  carryEgg: { active: boolean; species: string; name: string; atHome: boolean }
+  // Hatch gesture: rubbing/tapping the egg fills this progress, then it hatches.
+  // Reuses the petting gesture input.
+  hatch: { active: boolean; progress: number }
   // Fetch (Play) mode: `active` shows the centered Fetch button and hides the
   // panel; `busy` is true from the moment the ball is thrown until the pet drops
   // it back (the Fetch button is disabled while busy).
@@ -59,6 +65,8 @@ export const clientState: {
   introShown: false,
   petPanelOpen: false,
   petting: { active: false, progress: 0 },
+  carryEgg: { active: false, species: '', name: '', atHome: false },
+  hatch: { active: false, progress: 0 },
   fetch: { active: false, busy: false },
   pendingPet: null,
   pendingUntil: 0,
@@ -131,7 +139,7 @@ function makeLocalPet(species: string, name: string): PetData {
   return {
     id: `local_${t}`,
     species,
-    name: name || species.replace('Pet', ''),
+    name: name || speciesLabel(species),
     rarity: 'common',
     hunger: 80,
     hygiene: 80,

@@ -44,7 +44,7 @@ function newPet(species: string, name: string): PetData {
   return {
     id: `pet_${t}_${Math.floor(Math.random() * 100000)}`,
     species,
-    name: name || species.replace('Pet', ''),
+    name: name || C.speciesLabel(species),
     rarity: 'common',
     hunger: 80,
     hygiene: 80,
