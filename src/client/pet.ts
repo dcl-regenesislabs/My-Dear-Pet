@@ -13,6 +13,8 @@ import {
   Animator,
   TextShape,
   Billboard,
+  MeshRenderer,
+  Material,
   pointerEventsSystem,
   inputSystem,
   InputAction,
@@ -25,9 +27,11 @@ import {
   AvatarAttach,
   AvatarAnchorPointType
 } from '@dcl/sdk/ecs'
-import { Vector3, Quaternion } from '@dcl/sdk/math'
+import { Vector3, Quaternion, Color4 } from '@dcl/sdk/math'
 import * as C from '../shared/config'
 import { modelForSpecies, scaleForSpecies, speciesLabel, yawOffsetForSpecies } from '../shared/config'
+import { petCondition } from '../shared/breeding'
+import type { PetData } from '../shared/types'
 import { clientState, actions, adoptPet, openDialog, pushToast, switchActivePet } from './state'
 import { mobile } from './ui/theme'
 
@@ -52,8 +56,17 @@ let wanderPause = 0
 const remotePets = new Map<string, Entity>()
 const remoteSpecies = new Map<string, string>()
 
+// Floating tag above each pet: name + a small health bar (average of the pet's
+// four stats). A billboard root faces the camera; the name text and the two bar
+// planes (track + fill) are parented to it.
+const TAG_HEIGHT = 1.5
+const BAR_W = 0.9 // health bar width (metres)
+const BAR_H = 0.11
+const BAR_Y = -0.3 // bar sits just below the name
+type HealthTag = { root: Entity; label: Entity; track: Entity; fill: Entity; name: string; frac: number }
+
 // The player's NON-active stored pets roam the care area on their own.
-type Roamer = { entity: Entity; species: string; tag: Entity; tagName: string; home: Vector3; target: Vector3 | null; pause: number }
+type Roamer = { entity: Entity; species: string; tag: HealthTag; home: Vector3; target: Vector3 | null; pause: number }
 const inactivePets = new Map<string, Roamer>()
 
 // Pick a random point inside the care area (objects sit ~x195-214, z235-249).
@@ -61,32 +74,72 @@ function careAreaPoint(): Vector3 {
   return Vector3.create(197.2 + Math.random() * 14, C.PET_BASE_Y, 235.8 + Math.random() * 18)
 }
 
-// Floating name tags (billboard) above each pet.
-const TAG_HEIGHT = 1.5
-let localTag: Entity | null = null
-let localTagName = ''
-const remoteTags = new Map<string, Entity>()
-const remoteTagNames = new Map<string, string>()
+let localTag: HealthTag | null = null
+const remoteTags = new Map<string, HealthTag>()
 
-function makeTag(): Entity {
-  const e = engine.addEntity()
-  Transform.create(e, { position: Vector3.create(0, TAG_HEIGHT, 0) })
-  Billboard.create(e, {})
-  TextShape.create(e, {
+/** Health-bar fill color: red (low) -> yellow (mid) -> green (full). */
+function healthColor(f: number): Color4 {
+  const r = f < 0.5 ? 1 : 2 * (1 - f)
+  const g = f < 0.5 ? 2 * f : 1
+  return Color4.create(r, g, 0.18, 1)
+}
+
+/** Average of the four stats, normalized 0..1 (the pet's "health"). */
+function healthFrac(pet: PetData): number {
+  return Math.max(0, Math.min(1, petCondition(pet) / 100))
+}
+
+function makeTag(): HealthTag {
+  const root = engine.addEntity()
+  Transform.create(root, { position: Vector3.create(0, TAG_HEIGHT, 0) })
+  Billboard.create(root, {})
+
+  const label = engine.addEntity()
+  Transform.create(label, { position: Vector3.create(0, 0.12, 0), parent: root })
+  TextShape.create(label, {
     text: '',
     fontSize: 2.2,
     textColor: { r: 1, g: 0.95, b: 0.8, a: 1 },
     outlineColor: { r: 0.1, g: 0.07, b: 0.04 },
     outlineWidth: 0.25
   })
-  return e
+
+  const track = engine.addEntity()
+  Transform.create(track, { position: Vector3.create(0, BAR_Y, 0), scale: Vector3.create(BAR_W, BAR_H, 1), parent: root })
+  MeshRenderer.setPlane(track)
+  Material.setPbrMaterial(track, { albedoColor: Color4.create(0.08, 0.07, 0.06, 0.85) })
+
+  const fill = engine.addEntity()
+  Transform.create(fill, { position: Vector3.create(0, BAR_Y, 0.01), scale: Vector3.create(BAR_W, BAR_H, 1), parent: root })
+  MeshRenderer.setPlane(fill)
+  Material.setPbrMaterial(fill, { albedoColor: healthColor(1) })
+
+  return { root, label, track, fill, name: '', frac: -1 }
 }
 
-function updateTag(tag: Entity, pos: Vector3, size: number, name: string, last: string): string {
-  const t = Transform.getMutable(tag)
-  t.position = Vector3.create(pos.x, TAG_HEIGHT + size, pos.z)
-  if (name !== last) TextShape.getMutable(tag).text = name
-  return name
+/** Reposition the tag over the pet, and refresh its name + health fill. */
+function updateTag(tag: HealthTag, pos: Vector3, size: number, name: string, frac: number): void {
+  Transform.getMutable(tag.root).position = Vector3.create(pos.x, TAG_HEIGHT + size, pos.z)
+  if (name !== tag.name) {
+    TextShape.getMutable(tag.label).text = name
+    tag.name = name
+  }
+  const f = Math.max(0, Math.min(1, frac))
+  if (Math.abs(f - tag.frac) > 0.01) {
+    tag.frac = f
+    // Plane is centered, so anchor the fill to the left edge as it shrinks.
+    Transform.getMutable(tag.fill).scale = Vector3.create(BAR_W * f, BAR_H, 1)
+    Transform.getMutable(tag.fill).position = Vector3.create((-BAR_W * (1 - f)) / 2, BAR_Y, 0.01)
+    Material.setPbrMaterial(tag.fill, { albedoColor: healthColor(f) })
+  }
+}
+
+/** Remove a tag and all its child entities. */
+function removeTag(tag: HealthTag): void {
+  engine.removeEntity(tag.fill)
+  engine.removeEntity(tag.track)
+  engine.removeEntity(tag.label)
+  engine.removeEntity(tag.root)
 }
 
 // ---------------------------------------------------------------------------
@@ -165,9 +218,8 @@ function ensureLocalPet(): void {
       localSpecies = ''
     }
     if (localTag) {
-      engine.removeEntity(localTag)
+      removeTag(localTag)
       localTag = null
-      localTagName = ''
     }
     return
   }
@@ -531,7 +583,7 @@ function updateLocalPet(dt: number): void {
       VirtualCamera.getMutable(petCam).lookAtEntity = localPet as number
       hatchCamRetargeted = true
     }
-    if (localTag) localTagName = updateTag(localTag, t.position, petH.size, petH.name, localTagName)
+    if (localTag) updateTag(localTag, t.position, petH.size, petH.name, healthFrac(petH))
     return
   }
 
@@ -541,7 +593,7 @@ function updateLocalPet(dt: number): void {
     setClip(localPet, 'gesture-positive')
     if (localTag) {
       const petT = clientState.activePet
-      localTagName = updateTag(localTag, Transform.get(localPet).position, petT ? petT.size : 0.55, petT ? petT.name : '', localTagName)
+      updateTag(localTag, Transform.get(localPet).position, petT ? petT.size : 0.55, petT ? petT.name : '', petT ? healthFrac(petT) : 0)
     }
     return
   }
@@ -592,7 +644,7 @@ function updateLocalPet(dt: number): void {
   // Floating name tag follows the pet.
   if (localTag) {
     const pet2 = clientState.activePet
-    localTagName = updateTag(localTag, Transform.get(localPet).position, pet2 ? pet2.size : 0.55, pet2 ? pet2.name : '', localTagName)
+    updateTag(localTag, Transform.get(localPet).position, pet2 ? pet2.size : 0.55, pet2 ? pet2.name : '', pet2 ? healthFrac(pet2) : 0)
   }
 }
 
@@ -651,7 +703,7 @@ function updateRemotePets(dt: number): void {
     setClip(ent, moved > 0.003 ? 'walk' : 'idle')
 
     const tag = remoteTags.get(addr)
-    if (tag) remoteTagNames.set(addr, updateTag(tag, t.position, entry.size, entry.name, remoteTagNames.get(addr) ?? ''))
+    if (tag) updateTag(tag, t.position, entry.size, entry.name, entry.mood / 100)
   }
 
   for (const [addr, ent] of remotePets) {
@@ -662,9 +714,8 @@ function updateRemotePets(dt: number): void {
       curClip.delete(ent)
       const tag = remoteTags.get(addr)
       if (tag) {
-        engine.removeEntity(tag)
+        removeTag(tag)
         remoteTags.delete(addr)
-        remoteTagNames.delete(addr)
       }
     }
   }
@@ -694,7 +745,7 @@ function updateInactivePets(dt: number): void {
           { entity: e, opts: { button: InputAction.IA_POINTER, hoverText: `Select ${pet.name}`, maxDistance: 8 } },
           () => switchActivePet(petId)
         )
-        st = { entity: e, species: pet.species, tag: makeTag(), tagName: '', home, target: null, pause: Math.random() * 2 }
+        st = { entity: e, species: pet.species, tag: makeTag(), home, target: null, pause: Math.random() * 2 }
         inactivePets.set(pet.id, st)
       }
       if (st.species !== pet.species) {
@@ -723,14 +774,14 @@ function updateInactivePets(dt: number): void {
       const t = Transform.getMutable(st.entity)
       const s = petScale(pet.species, pet.size)
       if (t.scale.x !== s.x) t.scale = s
-      st.tagName = updateTag(st.tag, t.position, pet.size, pet.name, st.tagName)
+      updateTag(st.tag, t.position, pet.size, pet.name, healthFrac(pet))
     }
   }
 
   for (const [id, st] of inactivePets) {
     if (!wanted.has(id)) {
       engine.removeEntity(st.entity)
-      engine.removeEntity(st.tag)
+      removeTag(st.tag)
       curClip.delete(st.entity)
       inactivePets.delete(id)
     }
