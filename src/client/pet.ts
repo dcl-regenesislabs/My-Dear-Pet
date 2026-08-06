@@ -32,6 +32,7 @@ import * as C from '../shared/config'
 import { modelForSpecies, scaleForSpecies, speciesLabel, yawOffsetForSpecies } from '../shared/config'
 import { petCondition } from '../shared/breeding'
 import type { PetData } from '../shared/types'
+import { triggerSceneEmote } from '~system/RestrictedActions'
 import { clientState, actions, adoptPet, openDialog, pushToast, switchActivePet } from './state'
 import { mobile } from './ui/theme'
 
@@ -385,24 +386,60 @@ let hatchCamRetargeted = false // camera already re-pointed from egg to pet?
 // --- Carrying the egg home ------------------------------------------------
 // On adoption the egg is attached above the avatar; the player walks it home,
 // where a Hatch button starts the rub-to-hatch flow below.
-let carriedEgg: Entity | null = null
+let carriedEgg: Entity | null = null // the egg mesh (child)
+let carriedEggAnchor: Entity | null = null // empty attached to the hand bone
+// Offset of the egg from the hand bone origin, and its scale in hand. Tune these.
+const EGG_HAND_OFFSET = Vector3.create(0.14, 0.1, 0.03)
+const EGG_HAND_SCALE = 0.6 // back to the previous size (looks big in hand, that's fine)
+// Rotation of the egg in hand (euler degrees). Tune to point the tip up (^).
+const EGG_HAND_ROTATION = Quaternion.fromEulerDegrees(90, 0, 0)
+// Looping "hold" emote played while carrying (poses the arms as if cradling the
+// egg). Movement cancels emotes, so we re-play it whenever the player stops.
+const HOLD_EMOTE = 'models/hold.glb'
+let carryPrevPos: Vector3 | null = null
+let carryMoving = false
 
-/** Adopt handoff: give the player an egg to carry home. */
+function playHoldEmote(): void {
+  void triggerSceneEmote({ src: HOLD_EMOTE, loop: true }).catch(() => {})
+}
+
+/** Adopt handoff: give the player an egg to carry home (held in the hand). */
 export function startCarryEgg(species: string, name: string): void {
   clientState.carryEgg = { active: true, species, name, atHome: false }
+
+  // An empty follows the right hand; the egg is a child offset into the palm.
+  if (!carriedEggAnchor) carriedEggAnchor = engine.addEntity()
+  Transform.createOrReplace(carriedEggAnchor, {})
+  AvatarAttach.createOrReplace(carriedEggAnchor, { anchorPointId: AvatarAnchorPointType.AAPT_RIGHT_HAND })
+
   if (!carriedEgg) carriedEgg = engine.addEntity()
-  Transform.createOrReplace(carriedEgg, { scale: Vector3.scale(Vector3.One(), 0.6) })
+  Transform.createOrReplace(carriedEgg, { parent: carriedEggAnchor, position: EGG_HAND_OFFSET, rotation: EGG_HAND_ROTATION, scale: Vector3.scale(Vector3.One(), EGG_HAND_SCALE) })
   GltfContainer.createOrReplace(carriedEgg, { src: EGG_MODEL })
   Animator.createOrReplace(carriedEgg, { states: [{ clip: 'Idle', playing: true, loop: true }] })
-  AvatarAttach.createOrReplace(carriedEgg, { anchorPointId: AvatarAnchorPointType.AAPT_NAME_TAG })
+
+  carryPrevPos = null
+  carryMoving = false
+  playHoldEmote() // pose the arms as if holding the egg
+
   openDialog('Your Egg', ['Take it home and hatch it! Walk back to your house, then tap Hatch.'], 'Got it!')
 }
 
-/** Per-frame while carrying: flag whether the player is home (drives the button). */
+/** Per-frame while carrying: flag whether the player is home (drives the button)
+ *  and re-play the hold emote each time the player stops (movement cancels it). */
 function updateCarryEgg(): void {
   const st = clientState.carryEgg
-  if (!st.active) return
-  st.atHome = distFlat(playerPos(), C.HOME_POSITION) <= C.HOME_RADIUS
+  if (!st.active) {
+    carryPrevPos = null
+    return
+  }
+  const pp = playerPos()
+  st.atHome = distFlat(pp, C.HOME_POSITION) <= C.HOME_RADIUS
+  if (carryPrevPos) {
+    const moving = distFlat(pp, carryPrevPos) > 0.02
+    if (carryMoving && !moving) playHoldEmote() // just stopped -> re-apply the hold pose
+    carryMoving = moving
+  }
+  carryPrevPos = Vector3.create(pp.x, pp.y, pp.z)
 }
 
 /** Hatch button pressed at home: drop the carried egg and start the rub flow. */
@@ -413,6 +450,10 @@ export function beginHatchFromCarry(): void {
   if (carriedEgg) {
     engine.removeEntity(carriedEgg)
     carriedEgg = null
+  }
+  if (carriedEggAnchor) {
+    engine.removeEntity(carriedEggAnchor)
+    carriedEggAnchor = null
   }
   clientState.carryEgg = { active: false, species: '', name: '', atHome: false }
   startHatch(species, name)
