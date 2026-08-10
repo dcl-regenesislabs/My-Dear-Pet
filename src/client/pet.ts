@@ -450,6 +450,12 @@ export function startCarryPet(): void {
   playHoldPetEmote()
 }
 
+/** Cancel the bath carry (BACK): drop the flow, the pet just resumes following. */
+export function cancelCarryPet(): void {
+  if (!clientState.carryPet.active) return
+  clientState.carryPet = { active: false, atStation: false }
+}
+
 /** Bath step 2: place the pet in the tub and run the clean action. */
 export function placePetAtStation(): void {
   if (!clientState.carryPet.active) return

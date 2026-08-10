@@ -10,7 +10,7 @@ import { movePlayerTo } from '~system/RestrictedActions'
 import * as Cfg from '../shared/config'
 import type { CareAction } from '../shared/types'
 import { actions, clientState, pushToast, serverConnected, switchActivePet } from './state'
-import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry, startCarryPet, placePetAtStation } from './pet'
+import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry, startCarryPet, placePetAtStation, cancelCarryPet } from './pet'
 import { throwMeteor } from './play'
 import { triggerCare, careActive, queueLength } from './input'
 import { buyItemLocal, buySlotLocal, claimStreak, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
@@ -866,6 +866,24 @@ function Toasts() {
   )
 }
 
+// Shared BACK button for full-screen action overlays (Petting / Fetch / Bath).
+// Top-left, inset from the corner, pushed further in on mobile so the app's own
+// corner UI doesn't cover it. One place so every action's BACK matches.
+function BackButton(props: { onClick: () => void; disabled?: boolean }) {
+  const isM = mobile()
+  return (
+    <UiEntity
+      uiTransform={{ positionType: 'absolute', position: { top: isM ? S(120) : S(96), left: isM ? S(210) : S(130) }, width: S(150), height: S(56), alignItems: 'center', justifyContent: 'center', borderRadius: S(28), pointerFilter: 'block' }}
+      uiBackground={{ color: props.disabled ? C.cardAlt : C.pink }}
+      onMouseDown={() => {
+        if (!props.disabled) props.onClick()
+      }}
+    >
+      <OutlineLabel value="BACK" fontSize={S(24)} color={props.disabled ? C.dim : C.text} width={'100%'} height={S(30)} textAlign="middle-center" />
+    </UiEntity>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Pet gesture overlay — the camera is locked on the pet (rendered underneath),
 // so this is a transparent layer: a BACK button, a hand that sways left/right to
@@ -894,14 +912,7 @@ function PettingOverlay() {
         if (isM) petTap()
       }}
     >
-      {/* BACK button (top, horizontally centered) */}
-      <UiEntity
-        uiTransform={{ positionType: 'absolute', position: { top: S(20), left: '50%' }, margin: { left: -S(75) }, width: S(150), height: S(56), alignItems: 'center', justifyContent: 'center', borderRadius: S(28), pointerFilter: 'block' }}
-        uiBackground={{ color: C.pink }}
-        onMouseDown={() => cancelPetting()}
-      >
-        <OutlineLabel value="BACK" fontSize={S(24)} color={C.text} width={'100%'} height={S(30)} textAlign="middle-center" />
-      </UiEntity>
+      <BackButton onClick={() => cancelPetting()} />
       {/* Swipe hint: a hand that drifts side to side across the middle (over the
           centered pet). Placeholder disc + emoji until the hand art arrives. */}
       <UiEntity
@@ -985,23 +996,10 @@ function FetchOverlay() {
   const busy = clientState.fetch.busy
   const bw = S(300)
   const bh = S(92)
-  const isM = mobile()
-  // Mobile clips/overlaps the very corner (native app UI sits there), so inset
-  // the BACK button further in; desktop/Bevy keep the tighter corner offset.
-  const backTop = isM ? S(80) : S(56)
-  const backLeft = isM ? S(150) : S(64)
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'none' }}>
-      {/* BACK (top-left, inset from the corner so it isn't lost in the vertex) */}
-      <UiEntity
-        uiTransform={{ positionType: 'absolute', position: { top: backTop, left: backLeft }, width: S(150), height: S(56), alignItems: 'center', justifyContent: 'center', borderRadius: S(28), pointerFilter: 'block' }}
-        uiBackground={{ color: busy ? C.cardAlt : C.pink }}
-        onMouseDown={() => {
-          if (!clientState.fetch.busy) clientState.fetch.active = false
-        }}
-      >
-        <OutlineLabel value="BACK" fontSize={S(24)} color={busy ? C.dim : C.text} width={'100%'} height={S(30)} textAlign="middle-center" />
-      </UiEntity>
+      {/* BACK — disabled mid-throw so you don't leave a ball in the air */}
+      <BackButton disabled={busy} onClick={() => (clientState.fetch.active = false)} />
       {/* Fetch button (bottom-center) */}
       <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(80), left: '50%' }, margin: { left: -bw / 2 }, width: bw, height: bh, alignItems: 'center', justifyContent: 'center' }}>
         <TactileButton
@@ -1175,21 +1173,26 @@ function CarryHatchButton() {
 function BathButton() {
   const st = clientState.carryPet
   if (!st.active) return <UiEntity />
-  if (!st.atStation) {
-    return (
-      <UiEntity
-        uiTransform={{ positionType: 'absolute', position: { top: S(90), left: '50%' }, margin: { left: -S(240) }, width: S(480), height: S(58), alignItems: 'center', justifyContent: 'center', borderRadius: S(29), pointerFilter: 'none' }}
-        uiBackground={{ color: C.panelBg }}
-      >
-        <Label value="Carry your pet to the bath!" fontSize={S(20)} color={C.text} textAlign="middle-center" textWrap="nowrap" uiTransform={{ width: '100%', height: S(30) }} />
-      </UiEntity>
-    )
-  }
   const bw = S(300)
   const bh = S(92)
   return (
-    <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(80), left: '50%' }, margin: { left: -bw / 2 }, width: bw, height: bh, alignItems: 'center', justifyContent: 'center', pointerFilter: 'none' }}>
-      <TactileButton id="place_bath" label="Bath" width={bw} height={bh} bg={C.hygiene} textColor={C.outline} fontSize={S(34)} radius={S(26)} pulse onClick={() => placePetAtStation()} />
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'none' }}>
+      {/* BACK — cancel the bath and just keep the pet following */}
+      <BackButton onClick={() => cancelCarryPet()} />
+      {!st.atStation ? (
+        // Walking to the tub — reminder banner (top-center).
+        <UiEntity
+          uiTransform={{ positionType: 'absolute', position: { top: S(90), left: '50%' }, margin: { left: -S(240) }, width: S(480), height: S(58), alignItems: 'center', justifyContent: 'center', borderRadius: S(29), pointerFilter: 'none' }}
+          uiBackground={{ color: C.panelBg }}
+        >
+          <Label value="Carry your pet to the bath!" fontSize={S(20)} color={C.text} textAlign="middle-center" textWrap="nowrap" uiTransform={{ width: '100%', height: S(30) }} />
+        </UiEntity>
+      ) : (
+        // At the tub — place the pet.
+        <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(80), left: '50%' }, margin: { left: -bw / 2 }, width: bw, height: bh, alignItems: 'center', justifyContent: 'center', pointerFilter: 'none' }}>
+          <TactileButton id="place_bath" label="Bath" width={bw} height={bh} bg={C.hygiene} textColor={C.outline} fontSize={S(34)} radius={S(26)} pulse onClick={() => placePetAtStation()} />
+        </UiEntity>
+      )}
     </UiEntity>
   )
 }
