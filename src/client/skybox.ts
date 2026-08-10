@@ -1,44 +1,21 @@
-// Martian space scene — ported from the `skybox-test` project.
+// Martian scene boundaries — ported from the `skybox-test` project.
 //
-// Everything here is created by code (not placed in the Creator Hub): the ground,
-// the skybox sphere, the "here" anchor marker, the 4 boundary planes, and the
-// system that makes the sphere follow the camera 1:1 (so the sky feels infinite
-// instead of close) plus a slow rotation.
+// Everything here is created by code (not placed in the Creator Hub): the
+// "here" anchor marker and the 4 boundary planes. There is no custom ground —
+// gameplay objects now sit at y=0, flush with the scene's default terrain.
 //
 // The gameplay area (Bowl/Bed/Ball/Pond/Caretaker/Shop) was moved in
 // `main.composite` to sit around the "here" anchor below — see `shared/config.ts`.
 
-import {
-  engine,
-  Transform,
-  MeshCollider,
-  MeshRenderer,
-  Material,
-  GltfContainer,
-  ColliderLayer,
-  Entity,
-  inputSystem,
-  InputAction,
-  PointerEventType
-} from '@dcl/sdk/ecs'
-import { Vector3, Quaternion, Color4 } from '@dcl/sdk/math'
+import { engine, Transform, MeshCollider, ColliderLayer, inputSystem, InputAction, PointerEventType } from '@dcl/sdk/ecs'
+import { Vector3, Quaternion } from '@dcl/sdk/math'
 import { movePlayerTo } from '~system/RestrictedActions'
 
 // --- Configuration (positions copied verbatim from skybox-test's main.composite —
 // My Dear Pet now uses the same 30x30 parcel layout, so no translation is needed). ---
 
-// Flat Mars floor — a thin, wide box centered on the play area. A box (not a GLB
-// terrain) keeps the ground perfectly flat and level with the gameplay, so pets
-// and objects (all at y≈0.5) sit right on top and nothing gets buried.
-// The box is 2m tall and sunk 0.5m so its TOP surface lands exactly at y=0.5.
-const FLOOR_POSITION = Vector3.create(204.5, -0.5, 238.5)
-const FLOOR_SCALE = Vector3.create(100, 2, 100)
-const FLOOR_TOP_Y = 0.5 // = FLOOR_POSITION.y + FLOOR_SCALE.y / 2
-const FLOOR_COLOR = Color4.create(0.62, 0.35, 0.25, 1) // dusty Mars red
-const SKYBOX_POSITION = Vector3.create(200.5, -3.5, 232.25)
-
 // The empty "here" anchor entity — the center of the relocated gameplay area.
-const HERE_POSITION = Vector3.create(204.5, 1, 241)
+const HERE_POSITION = Vector3.create(204.5, 0.5, 241)
 
 interface PlaneDef {
   x: number
@@ -55,22 +32,15 @@ const BOUNDARY_PLANES: PlaneDef[] = [
   { x: 367.25, y: 18, z: 221.5, scale: Vector3.create(30, 300, 1), rotation: Quaternion.create(-0.5, -0.5, 0.5, 0.5) }
 ]
 
-const SKYBOX_ROTATION_DEG_PER_SEC = 360 / (4 * 60 * 60)
-
-let skyboxRoot: Entity | null = null
-
 export function setupSkybox() {
-  createGroundAndSkybox()
   createHereMarker()
   createBoundaryPlanes()
 
-  engine.addSystem(skyboxAnimSystem, 1, 'SkyboxAnimSystem')
   engine.addSystem(heightTeleportSystem, 1, 'HeightTeleportSystem')
 }
 
 // Key "1" (InputAction.IA_ACTION_3) -> teleport to 5m height, at the same X/Z
-// you're standing on. Dev shortcut while the mars ground can't be walked on
-// properly / to quickly get up and test the skybox.
+// you're standing on. Dev shortcut to quickly get above the scene.
 const TELEPORT_HEIGHT = 5
 
 function heightTeleportSystem() {
@@ -82,24 +52,8 @@ function heightTeleportSystem() {
   }
 }
 
-function createGroundAndSkybox() {
-  // Flat floor: a box you can walk on, colored like Mars. Its top sits at
-  // FLOOR_TOP_Y so gameplay objects rest on it instead of hovering / sinking.
-  const ground = engine.addEntity()
-  Transform.create(ground, { position: FLOOR_POSITION, scale: FLOOR_SCALE })
-  MeshRenderer.setBox(ground)
-  MeshCollider.setBox(ground, ColliderLayer.CL_PHYSICS)
-  Material.setPbrMaterial(ground, { albedoColor: FLOOR_COLOR, roughness: 1, metallic: 0 })
-
-  const sky = engine.addEntity()
-  Transform.create(sky, { position: SKYBOX_POSITION })
-  GltfContainer.create(sky, { src: 'assets/scene/Models/skybox_80m/skybox_80m.glb' })
-
-  skyboxRoot = sky
-}
-
-// Just a reference point for the offset math in shared/config.ts — no visual,
-// no collider, so it doesn't block the player walking through the care area.
+// Just a reference point for the play area's center — no visual, no collider,
+// so it doesn't block the player walking through the care area.
 function createHereMarker() {
   const here = engine.addEntity()
   Transform.create(here, { position: HERE_POSITION })
@@ -115,18 +69,4 @@ function createBoundaryPlanes() {
     })
     MeshCollider.setPlane(plane, ColliderLayer.CL_PHYSICS)
   }
-}
-
-function skyboxAnimSystem(dt: number) {
-  if (!skyboxRoot) return
-
-  const rootTransform = Transform.getMutable(skyboxRoot)
-
-  const cameraTransform = Transform.getOrNull(engine.CameraEntity)
-  if (cameraTransform) {
-    rootTransform.position = cameraTransform.position
-  }
-
-  const spin = Quaternion.fromAngleAxis(SKYBOX_ROTATION_DEG_PER_SEC * dt, Vector3.Up())
-  rootTransform.rotation = Quaternion.multiply(rootTransform.rotation, spin)
 }

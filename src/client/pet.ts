@@ -35,6 +35,8 @@ import type { PetData } from '../shared/types'
 import { triggerSceneEmote } from '~system/RestrictedActions'
 import { clientState, actions, adoptPet, openDialog, pushToast, switchActivePet } from './state'
 import { applyCareLocal } from './sim'
+import { EntityNames } from '../../assets/scene/entity-names'
+import { objectPosition } from './objects'
 import { mobile } from './ui/theme'
 
 type Mode = 'follow' | 'goto' | 'interact' | 'wander'
@@ -462,7 +464,7 @@ export function placePetAtStation(): void {
   clientState.carryPet = { active: false, atStation: false }
   if (localPet) {
     const t = Transform.getMutable(localPet)
-    t.position = flat(C.OBJECTS.Pond)
+    t.position = flat(objectPosition(EntityNames.Pond))
     t.rotation = Quaternion.Identity()
   }
   petReact() // happy splash at the tub
@@ -709,7 +711,7 @@ function updateLocalPet(dt: number): void {
     t.scale = Vector3.scale(Vector3.One(), PET_HAND_SCALE)
     setClip(localPet, 'idle')
     const pp = playerPos()
-    clientState.carryPet.atStation = distFlat(pp, C.OBJECTS.Pond) <= BATH_RADIUS
+    clientState.carryPet.atStation = distFlat(pp, objectPosition(EntityNames.Pond)) <= BATH_RADIUS
     if (carryPetPrevPos) {
       const moving = distFlat(pp, carryPetPrevPos) > 0.02
       if (carryPetMoving && !moving) playHoldPetEmote() // stopped -> re-apply the hold pose

@@ -78,31 +78,18 @@ export function speciesImage(species: string): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
-// Scene object world positions (read from assets/scene/main.composite).
-// Used for pet navigation targets and care-action object click handlers.
-// Relocated around the "here" anchor brought in from skybox-test (see
-// client/skybox.ts) — offset from the original cluster near the map origin.
+// NOTE: scene object positions (Bowl, Bed, Ball, Pond, Caretaker, Shop) are NOT
+// hardcoded here anymore — they used to be, and drifted out of sync with the
+// Creator Hub composite (assets/scene/main.composite) whenever an object got
+// moved in the editor. They're now read live from each entity's Transform via
+// client/objects.ts (objectPosition / actionObjectPosition), so the code always
+// matches wherever the object actually is in the scene.
 // ---------------------------------------------------------------------------
-export const OBJECTS = {
-  Bowl: Vector3.create(209.5, 0.5, 248.8),
-  Bed: Vector3.create(201.0, 0.5, 245.1),
-  Ball: Vector3.create(205.0, 0.5, 241.1),
-  Pond: Vector3.create(213.7, 0.5, 240.6),
-  Caretaker: Vector3.create(202.7, 0.5, 234.6),
-  Shop: Vector3.create(195.2, 0.5, 235.8)
-}
 
-// Home — where the player hatches a carried egg. Matches the scene spawn point.
-export const HOME_POSITION = Vector3.create(195.7, 0.5, 229.3)
+// Home — where the player hatches a carried egg. Matches the scene spawn point
+// (scene.json spawnPoints) — not a placed object, so no entity to read this from.
+export const HOME_POSITION = Vector3.create(195.7, 0, 229.3)
 export const HOME_RADIUS = 6 // metres from home within which the Hatch button shows
-
-/** Which object a care action navigates to. */
-export const ACTION_OBJECT: Record<CareAction, Vector3> = {
-  feed: OBJECTS.Bowl,
-  clean: OBJECTS.Pond,
-  sleep: OBJECTS.Bed,
-  play: OBJECTS.Ball
-}
 
 // ---------------------------------------------------------------------------
 // Stat decay — points lost per real second. Hunger fastest, happiness slowest.
@@ -351,7 +338,7 @@ export const SPIN_REWARDS: SpinReward[] = [
 export const PET_FOLLOW_DISTANCE = 2.2
 export const PET_MOVE_SPEED = 4.0 // m/s
 export const PET_ARRIVE_DISTANCE = 0.6
-export const PET_BASE_Y = 0.5
+export const PET_BASE_Y = 0
 
 // ---------------------------------------------------------------------------
 // Analytics (PostHog) — see dev-docs/posthog-analytics-integration.md.

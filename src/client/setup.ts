@@ -109,7 +109,7 @@ function registerHandlers(): void {
 export function setupClient(): void {
   resolveMyAddress()
   seedLocalPlayer() // HUD renders immediately, no waiting on the network
-  setupSkybox() // Mars ground, sky sphere + nebula clouds, boundary colliders
+  setupSkybox() // Mars ground + boundary colliders
   setupPlane() // placeholder plane in the middle of the scene (reposition later)
   setupCaretakerFloat() // Caretaker robot gently hovers up/down
   setupMeteor() // meteor reward drop (falls, settles, clickable)

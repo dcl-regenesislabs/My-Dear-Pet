@@ -6,7 +6,7 @@
 import { engine, pointerEventsSystem, InputAction } from '@dcl/sdk/ecs'
 import { EntityNames } from '../../assets/scene/entity-names'
 import type { CareAction } from '../shared/types'
-import { ACTION_OBJECT } from '../shared/config'
+import { actionObjectPosition } from './objects'
 import { isBusy, sendPetTo } from './pet'
 import { applyCareLocal } from './sim'
 import { actions, clientState, pushToast } from './state'
@@ -48,7 +48,7 @@ export function triggerCare(action: CareAction): void {
 }
 
 function startCare(action: CareAction): void {
-  const dest = ACTION_OBJECT[action]
+  const dest = actionObjectPosition(action)
   const onBed = action === 'sleep'
   sendPetTo(
     dest,

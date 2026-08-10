@@ -83,7 +83,7 @@ export const ui = {
 
 // Care Center spawn — the adoption area. Shared by the "Choose Location!" modal
 // and the tutorial's Adopt step.
-const CARE_CENTER = { x: 174.272, y: 0.5, z: 249.377 }
+const CARE_CENTER = { x: 174.272, y: 0, z: 249.377 }
 
 // ---------------------------------------------------------------------------
 // Top profile bar (Caretaker level + XP + coins) -> tap opens Goals
