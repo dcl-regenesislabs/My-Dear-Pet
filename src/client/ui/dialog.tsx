@@ -67,6 +67,8 @@ export function DialogBox() {
   const btnH = S(88)
   const nextW = Math.round((btnH * 639) / 378) // keep the Next art aspect
   const adoptW = Math.round((btnH * 897) / 378) // keep the Adopt art aspect
+  // Explicit body height (NOT flex:1) — Unity collapses flex-grow + height:'100%'.
+  const bodyH = S(320)
 
   return (
     <UiEntity
@@ -88,9 +90,9 @@ export function DialogBox() {
         {/* Title */}
         <OutlineLabel value={d.npcName} fontSize={S(46)} color={LGT.title} outlineColor={LGT.titleOutline} width={'100%'} height={S(64)} textAlign="middle-center" />
 
-        {/* Body (vertically centered in the remaining space) */}
-        <UiEntity uiTransform={{ width: contentW, flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <Label value={body} fontSize={S(32)} color={LGT.body} textAlign="middle-center" uiTransform={{ width: contentW, height: '100%' }} />
+        {/* Body (explicit height so it stacks correctly in every client) */}
+        <UiEntity uiTransform={{ width: contentW, height: bodyH, alignItems: 'center', justifyContent: 'center', margin: { top: S(6) } }}>
+          <Label value={body} fontSize={S(30)} color={LGT.body} textAlign="middle-center" uiTransform={{ width: contentW, height: bodyH }} />
         </UiEntity>
 
         {/* Page dots */}

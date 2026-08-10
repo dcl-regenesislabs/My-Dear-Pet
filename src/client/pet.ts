@@ -34,6 +34,7 @@ import { petCondition } from '../shared/breeding'
 import type { PetData } from '../shared/types'
 import { triggerSceneEmote } from '~system/RestrictedActions'
 import { clientState, actions, adoptPet, openDialog, pushToast, switchActivePet } from './state'
+import { applyCareLocal } from './sim'
 import { mobile } from './ui/theme'
 
 type Mode = 'follow' | 'goto' | 'interact' | 'wander'
@@ -395,12 +396,73 @@ const EGG_HAND_SCALE = 0.6 // back to the previous size (looks big in hand, that
 const EGG_HAND_ROTATION = Quaternion.fromEulerDegrees(90, 0, 0)
 // Looping "hold" emote played while carrying (poses the arms as if cradling the
 // egg). Movement cancels emotes, so we re-play it whenever the player stops.
-const HOLD_EMOTE = 'models/hold.glb'
+// Scene emotes must end in '_emote.glb' (Unity enforces this naming convention).
+const HOLD_EMOTE = 'models/hold_emote.glb'
 let carryPrevPos: Vector3 | null = null
 let carryMoving = false
 
 function playHoldEmote(): void {
   void triggerSceneEmote({ src: HOLD_EMOTE, loop: true }).catch(() => {})
+}
+
+// ---------------------------------------------------------------------------
+// Holding the pet in hand — the pet is placed in WORLD space in front of the
+// player (NOT parented to the hand bone), so it stays upright and faces the same
+// way as the player. Used by the Bath flow: carry the pet to the tub and place
+// it. Tune the offsets (player's frame) below.
+// ---------------------------------------------------------------------------
+const HOLD_PET_EMOTE = 'models/hold_pet_emote.glb'
+const PET_HOLD_FWD = 0.45 // metres in front of the player
+const PET_HOLD_UP = 1.0 // height off the ground (~chest)
+const PET_HOLD_RIGHT = 0.0 // sideways (+ = player's right)
+const PET_HOLD_YAW = 0 // extra yaw if the model faces the wrong way (0/90/180/270)
+const PET_HAND_SCALE = 0.4
+const BATH_RADIUS = 3 // how close to the tub before the Bath button appears
+
+let carryPetPrevPos: Vector3 | null = null
+let carryPetMoving = false
+
+/** World pose for a pet held in front of the player (upright, facing forward). */
+function heldPetPose(species: string): { position: Vector3; rotation: Quaternion } | null {
+  const pt = Transform.getOrNull(engine.PlayerEntity)
+  if (!pt) return null
+  const fwd = Vector3.rotate(Vector3.create(0, 0, 1), pt.rotation)
+  const f = Vector3.normalize(Vector3.create(fwd.x, 0, fwd.z)) // player forward (flat)
+  const r = Vector3.create(f.z, 0, -f.x) // player right
+  const p = pt.position
+  const yaw = (Math.atan2(f.x, f.z) * 180) / Math.PI
+  return {
+    position: Vector3.create(p.x + f.x * PET_HOLD_FWD + r.x * PET_HOLD_RIGHT, p.y + PET_HOLD_UP, p.z + f.z * PET_HOLD_FWD + r.z * PET_HOLD_RIGHT),
+    rotation: Quaternion.fromEulerDegrees(0, yaw + yawOffsetForSpecies(species) + PET_HOLD_YAW, 0)
+  }
+}
+
+function playHoldPetEmote(): void {
+  void triggerSceneEmote({ src: HOLD_PET_EMOTE, loop: true }).catch(() => {})
+}
+
+/** Bath step 1: pick the pet up into the player's hands to carry it to the tub. */
+export function startCarryPet(): void {
+  if (!clientState.activePet || !localPet) return
+  clientState.carryPet = { active: true, atStation: false }
+  carryPetPrevPos = null
+  carryPetMoving = false
+  playHoldPetEmote()
+}
+
+/** Bath step 2: place the pet in the tub and run the clean action. */
+export function placePetAtStation(): void {
+  if (!clientState.carryPet.active) return
+  clientState.carryPet = { active: false, atStation: false }
+  if (localPet) {
+    const t = Transform.getMutable(localPet)
+    t.position = flat(C.OBJECTS.Pond)
+    t.rotation = Quaternion.Identity()
+  }
+  petReact() // happy splash at the tub
+  applyCareLocal('clean', false) // optimistic local effect
+  actions.care('clean', false) // server is authoritative
+  pushToast('Bath time!  +Hygiene')
 }
 
 /** Adopt handoff: give the player an egg to carry home (held in the hand). */
@@ -625,6 +687,30 @@ function updateLocalPet(dt: number): void {
       hatchCamRetargeted = true
     }
     if (localTag) updateTag(localTag, t.position, petH.size, petH.name, healthFrac(petH))
+    return
+  }
+
+  // Carrying the pet to the bath: hold it in the player's hands (upright, facing
+  // forward), flag when we're near the tub, and re-play the hold emote on stop.
+  if (clientState.carryPet.active && clientState.activePet) {
+    const petC = clientState.activePet
+    const pose = heldPetPose(petC.species)
+    const t = Transform.getMutable(localPet)
+    if (pose) {
+      t.position = pose.position
+      t.rotation = pose.rotation
+    }
+    t.scale = Vector3.scale(Vector3.One(), PET_HAND_SCALE)
+    setClip(localPet, 'idle')
+    const pp = playerPos()
+    clientState.carryPet.atStation = distFlat(pp, C.OBJECTS.Pond) <= BATH_RADIUS
+    if (carryPetPrevPos) {
+      const moving = distFlat(pp, carryPetPrevPos) > 0.02
+      if (carryPetMoving && !moving) playHoldPetEmote() // stopped -> re-apply the hold pose
+      carryPetMoving = moving
+    }
+    carryPetPrevPos = Vector3.create(pp.x, pp.y, pp.z)
+    if (localTag) updateTag(localTag, t.position, petC.size, petC.name, healthFrac(petC))
     return
   }
 

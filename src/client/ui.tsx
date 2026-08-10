@@ -10,7 +10,7 @@ import { movePlayerTo } from '~system/RestrictedActions'
 import * as Cfg from '../shared/config'
 import type { CareAction } from '../shared/types'
 import { actions, clientState, pushToast, serverConnected, switchActivePet } from './state'
-import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry } from './pet'
+import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry, startCarryPet, placePetAtStation } from './pet'
 import { throwMeteor } from './play'
 import { triggerCare, careActive, queueLength } from './input'
 import { buyItemLocal, buySlotLocal, claimStreak, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
@@ -227,7 +227,22 @@ function PetPanel() {
       {/* Care actions (flat, colored per stat) */}
       <UiEntity uiTransform={{ width: contentW, flexDirection: 'row', justifyContent: 'center', margin: { top: S(12) } }}>
         <TactileButton id="care_feed" label="Feed" width={chipW} height={chipH} bg={C.hunger} textColor={C.outline} fontSize={S(16)} radius={S(14)} margin={{ left: S(3), right: S(3) }} onClick={() => care('feed')} />
-        <TactileButton id="care_bath" label="Bath" width={chipW} height={chipH} bg={C.hygiene} textColor={C.outline} fontSize={S(16)} radius={S(14)} margin={{ left: S(3), right: S(3) }} onClick={() => care('clean')} />
+        <TactileButton
+          id="care_bath"
+          label="Bath"
+          width={chipW}
+          height={chipH}
+          bg={C.hygiene}
+          textColor={C.outline}
+          fontSize={S(16)}
+          radius={S(14)}
+          margin={{ left: S(3), right: S(3) }}
+          onClick={() => {
+            // Pick the pet up and carry it to the tub (place it there to bathe).
+            startCarryPet()
+            clientState.petPanelOpen = false
+          }}
+        />
         <TactileButton
           id="care_sleep"
           label={pet.sleeping ? 'Wake' : 'Sleep'}
@@ -300,8 +315,8 @@ function PetPanel() {
 function BottomNav() {
   const p = clientState.player
   // Hidden while a dialog is open — the dialog sits where these buttons are.
-  // Also hidden in Fetch mode / while carrying an egg home (they own the screen).
-  if (!p || clientState.dialog.open || clientState.fetch.active || clientState.carryEgg.active) return <UiEntity />
+  // Also hidden in Fetch mode / while carrying an egg or the pet (they own the screen).
+  if (!p || clientState.dialog.open || clientState.fetch.active || clientState.carryEgg.active || clientState.carryPet.active) return <UiEntity />
   const bw = Sbtn(160)
   const bh = Sbtn(72)
   // Flat button style (same look as the modals): blue when its panel is open,
@@ -337,7 +352,7 @@ function BottomNav() {
 // ---------------------------------------------------------------------------
 function SideButtons() {
   const p = clientState.player
-  if (!p || clientState.fetch.active || clientState.carryEgg.active) return <UiEntity />
+  if (!p || clientState.fetch.active || clientState.carryEgg.active || clientState.carryPet.active) return <UiEntity />
   const hasPet = !!clientState.activePet
   const w = Sbtn(112)
   const h = Sbtn(58)
@@ -1048,7 +1063,9 @@ function LightModal(props: { title: string; width: number; height: number; onClo
           onMouseDown={props.onClose}
         />
         <OutlineLabel value={props.title} fontSize={S(42)} color={LOC.title} outlineColor={LOC.titleOutline} width={'100%'} height={S(58)} textAlign="middle-center" />
-        <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'column', alignItems: 'center', margin: { top: S(10) }, overflow: 'hidden' }}>
+        {/* Explicit height (NOT flex:1): Unity collapses flex-grow fill, piling the
+            content up. height = card - paddings - title - margin. */}
+        <UiEntity uiTransform={{ width: '100%', height: props.height - S(126), flexDirection: 'column', alignItems: 'center', margin: { top: S(10) }, overflow: 'hidden' }}>
           {props.children}
         </UiEntity>
       </UiEntity>
@@ -1153,6 +1170,30 @@ function CarryHatchButton() {
   )
 }
 
+// Carry-pet-to-bath flow — a hint while walking to the tub, then a big "Bath"
+// button once close; tapping it places the pet in the tub and bathes it.
+function BathButton() {
+  const st = clientState.carryPet
+  if (!st.active) return <UiEntity />
+  if (!st.atStation) {
+    return (
+      <UiEntity
+        uiTransform={{ positionType: 'absolute', position: { top: S(90), left: '50%' }, margin: { left: -S(240) }, width: S(480), height: S(58), alignItems: 'center', justifyContent: 'center', borderRadius: S(29), pointerFilter: 'none' }}
+        uiBackground={{ color: C.panelBg }}
+      >
+        <Label value="Carry your pet to the bath!" fontSize={S(20)} color={C.text} textAlign="middle-center" textWrap="nowrap" uiTransform={{ width: '100%', height: S(30) }} />
+      </UiEntity>
+    )
+  }
+  const bw = S(300)
+  const bh = S(92)
+  return (
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(80), left: '50%' }, margin: { left: -bw / 2 }, width: bw, height: bh, alignItems: 'center', justifyContent: 'center', pointerFilter: 'none' }}>
+      <TactileButton id="place_bath" label="Bath" width={bw} height={bh} bg={C.hygiene} textColor={C.outline} fontSize={S(34)} radius={S(26)} pulse onClick={() => placePetAtStation()} />
+    </UiEntity>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Root
 // ---------------------------------------------------------------------------
@@ -1185,6 +1226,7 @@ const Root = () => {
     <Toasts />
     <FetchOverlay />
     <CarryHatchButton />
+    <BathButton />
     {uiState.panel === 'adopt' && <AdoptPanel />}
     {uiState.panel === 'shop' && <ShopPanel />}
     {uiState.panel === 'roster' && <RosterPanel />}

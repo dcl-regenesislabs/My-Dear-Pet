@@ -35,6 +35,9 @@ export const clientState: {
   // Carrying an egg home: on adoption the egg is attached to the avatar and the
   // player must walk it home (`atHome` true within HOME_RADIUS) to hatch it.
   carryEgg: { active: boolean; species: string; name: string; atHome: boolean }
+  // Carrying the pet to the bath: the pet is held in the player's hands; walk it
+  // to the tub (`atStation` true when close) and place it there to bathe it.
+  carryPet: { active: boolean; atStation: boolean }
   // Hatch gesture: rubbing/tapping the egg fills this progress, then it hatches.
   // Reuses the petting gesture input.
   hatch: { active: boolean; progress: number }
@@ -66,6 +69,7 @@ export const clientState: {
   petPanelOpen: false,
   petting: { active: false, progress: 0 },
   carryEgg: { active: false, species: '', name: '', atHome: false },
+  carryPet: { active: false, atStation: false },
   hatch: { active: false, progress: 0 },
   fetch: { active: false, busy: false },
   pendingPet: null,
