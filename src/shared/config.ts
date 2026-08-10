@@ -25,22 +25,16 @@ export const COLONY_GOAL = 100 // target population for the current milestone
 // Pet roster — the 11 species already modeled under assets/scene/Models/.
 // ---------------------------------------------------------------------------
 export const SPECIES: string[] = [
+  'alienPet-v1',
+  'alienPet-2',
   'PetPanda',
-  'PetTiger',
-  'PetLion',
-  'PetGiraffe',
-  'PetPenguin',
-  'PetPolar',
-  'PetPig',
-  'PetMonkey',
-  'PetParrot',
-  'PetKoala',
-  'alienPet-v1'
+  'PetTiger'
 ]
 
 // Per-species model overrides (outside the assets/scene/Models convention).
 const MODEL_OVERRIDES: Record<string, string> = {
-  'alienPet-v1': 'models/AlienPet_dcl.glb' // alien model (idle + walk)
+  'alienPet-v1': 'models/AlienPet_dcl.glb', // alien model (idle + walk)
+  'alienPet-2': 'models/alien_pet_2.glb' // second alien model (idle + walk)
 }
 
 export function modelForSpecies(species: string): string {
@@ -54,7 +48,9 @@ export function speciesLabel(species: string): string {
 }
 
 // Per-species scale multiplier (× the pet's grown size). Default 1.
-const SPECIES_SCALE: Record<string, number> = {}
+const SPECIES_SCALE: Record<string, number> = {
+  'alienPet-2': 3 // new alien model is authored small — scale it up
+}
 
 export function scaleForSpecies(species: string): number {
   return SPECIES_SCALE[species] ?? 1
@@ -68,6 +64,17 @@ const SPECIES_YAW_OFFSET: Record<string, number> = {
 
 export function yawOffsetForSpecies(species: string): number {
   return SPECIES_YAW_OFFSET[species] ?? 0
+}
+
+// Optional thumbnail shown in the adoption card circle. Add image paths as the
+// art lands; species without one fall back to a colored disc.
+const SPECIES_IMAGE: Record<string, string> = {
+  'alienPet-v1': 'assets/images/pets/alien1.png',
+  'alienPet-2': 'assets/images/pets/alien2.png'
+}
+
+export function speciesImage(species: string): string | undefined {
+  return SPECIES_IMAGE[species]
 }
 
 // ---------------------------------------------------------------------------
