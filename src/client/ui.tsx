@@ -409,17 +409,21 @@ function speciesColor(s: string): Color {
 
 function SpeciesCard(props: { key?: string; species: string }) {
   const selected = uiState.adoptSpecies === props.species
-  const disc = S(60)
+  const disc = S(96)
+  const img = Cfg.speciesImage(props.species)
   return (
     <UiEntity
-      uiTransform={{ width: S(150), height: S(136), flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: S(6), borderRadius: S(16), padding: S(4) }}
+      uiTransform={{ width: S(280), height: S(168), flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: S(8), borderRadius: S(18), padding: S(8) }}
       uiBackground={{ color: selected ? LOC.blue : LOC.tile }}
       onMouseDown={() => {
         uiState.adoptSpecies = props.species
       }}
     >
-      <UiEntity uiTransform={{ width: disc, height: disc, borderRadius: disc / 2, margin: { bottom: S(8) } }} uiBackground={{ color: speciesColor(props.species) }} />
-      <Label value={Cfg.speciesLabel(props.species)} fontSize={S(16)} color={selected ? LOC.white : LOC.body} textAlign="middle-center" uiTransform={{ width: '100%', height: S(22) }} />
+      <UiEntity
+        uiTransform={{ width: disc, height: disc, borderRadius: disc / 2, margin: { bottom: S(10) } }}
+        uiBackground={img ? { texture: { src: img }, textureMode: 'stretch' } : { color: speciesColor(props.species) }}
+      />
+      <Label value={Cfg.speciesLabel(props.species)} fontSize={S(18)} color={selected ? LOC.white : LOC.body} textAlign="middle-center" uiTransform={{ width: '100%', height: S(26) }} />
     </UiEntity>
   )
 }
@@ -431,8 +435,8 @@ function AdoptPanel() {
 
   if (uiState.adoptStep === 'pick') {
     return (
-      <LightModal title="Choose a Pet" width={S(760)} height={S(760)} onClose={() => ui.close()}>
-        <Label value="Tap a friend to choose, then Next." fontSize={S(18)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(28), margin: { bottom: S(8) } }} />
+      <LightModal title="Choose a Pet" width={S(720)} height={S(620)} onClose={() => ui.close()}>
+        <Label value="Tap a friend to choose, then Next." fontSize={S(16)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24), margin: { bottom: S(6) } }} />
         <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignContent: 'flex-start', overflow: 'hidden' }}>
           {Cfg.SPECIES.map((s) => (
             <SpeciesCard key={s} species={s} />
