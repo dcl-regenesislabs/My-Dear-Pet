@@ -123,14 +123,9 @@ export function applySnapshot(snap: PlayerSnapshot): void {
     clientState.activePet = snap.activePet
     clientState.pendingPet = null
   } else if (clientState.pendingPet && Date.now() < clientState.pendingUntil) {
-    // Server hasn't caught up yet — keep showing the optimistic pet.
+    // Server hasn't caught up yet — keep showing the optimistic hatchling.
     clientState.activePet = clientState.pendingPet
-    if (clientState.player) {
-      clientState.player.activePetId = clientState.pendingPet.id
-      if (!clientState.player.pets.find((p) => p.id === clientState.pendingPet!.id)) {
-        clientState.player.pets = [...clientState.player.pets, clientState.pendingPet]
-      }
-    }
+    if (clientState.player) clientState.player.hatchling = clientState.pendingPet
   } else {
     clientState.activePet = snap.activePet
     clientState.pendingPet = null
@@ -171,17 +166,38 @@ export function switchActivePet(petId: string): void {
   actions.switchPet(petId)
 }
 
-/** Adopt: render the pet immediately (optimistic) and tell the server. */
+/** Adopt/hatch: the pet becomes an unplaced "hatchling" (rendered immediately,
+ *  optimistic). The player later keeps it (into a slot) or discards it. */
 export function adoptPet(species: string, name: string): void {
   const pet = makeLocalPet(species, name)
   clientState.pendingPet = pet
   clientState.pendingUntil = Date.now() + 12000
   clientState.activePet = pet
-  if (clientState.player) {
-    clientState.player.activePetId = pet.id
-    clientState.player.pets = [...clientState.player.pets.filter((p) => p.id !== pet.id), pet]
-  }
+  if (clientState.player) clientState.player.hatchling = pet
   actions.adopt(species, name)
+}
+
+/** Keep the hatchling: place it in a slot, make it active (optimistic + server). */
+export function keepHatchling(): void {
+  const p = clientState.player
+  if (!p || !p.hatchling) return
+  const pet = p.hatchling
+  p.hatchling = null
+  if (!p.pets.find((x) => x.id === pet.id)) p.pets = [...p.pets, pet]
+  p.activePetId = pet.id
+  clientState.activePet = pet
+  clientState.pendingPet = null
+  actions.keepPet()
+}
+
+/** Discard the hatchling: it goes back to the Care Center — nothing kept. */
+export function discardHatchling(): void {
+  const p = clientState.player
+  if (!p || !p.hatchling) return
+  p.hatchling = null
+  clientState.pendingPet = null
+  clientState.activePet = p.pets.find((x) => x.id === p.activePetId) ?? null
+  actions.discardPet()
 }
 
 export function applyPresence(entries: PresenceEntry[]): void {
@@ -217,6 +233,12 @@ export const actions = {
   },
   care(action: CareAction, onBed = false): void {
     room.send('careAction', { action, onBed })
+  },
+  keepPet(): void {
+    room.send('keepPet', {})
+  },
+  discardPet(): void {
+    room.send('discardPet', {})
   },
   petSelf(): void {
     room.send('petSelf', {})

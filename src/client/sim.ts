@@ -39,6 +39,7 @@ export function seedLocalPlayer(): void {
     petSlots: Cfg.STARTING_SLOTS,
     activePetId: '',
     pets: [],
+    hatchling: null,
     createdAt: t,
     lastUpdated: t
   }

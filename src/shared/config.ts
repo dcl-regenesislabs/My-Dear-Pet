@@ -191,7 +191,7 @@ export const SHOP_ITEMS: ShopItem[] = [
 // Pet storage slots.
 // ---------------------------------------------------------------------------
 export const STARTING_SLOTS = 1
-export const MAX_SLOTS = 5
+export const MAX_SLOTS = 4 // 4 slots total: 1 free, 3 unlocked with currency
 export const SLOT_PRICE = 250 // currency to buy an extra slot directly
 
 // ---------------------------------------------------------------------------
