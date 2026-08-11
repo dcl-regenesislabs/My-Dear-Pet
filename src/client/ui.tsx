@@ -9,7 +9,7 @@ import ReactEcs, { ReactEcsRenderer, Label, UiEntity, Input } from '@dcl/sdk/rea
 import { movePlayerTo } from '~system/RestrictedActions'
 import * as Cfg from '../shared/config'
 import type { CareAction } from '../shared/types'
-import { actions, clientState, pushToast, serverConnected, switchActivePet } from './state'
+import { actions, clientState, discardHatchling, keepHatchling, pushToast, serverConnected, switchActivePet } from './state'
 import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry, startCarryPet, placePetAtStation, cancelCarryPet } from './pet'
 import { throwMeteor } from './play'
 import { triggerCare, careActive, queueLength } from './input'
@@ -33,6 +33,11 @@ const uiState = {
 
 export const ui = {
   openAdopt(): void {
+    // One hatchling at a time: finish (keep/discard) the current one first.
+    if (clientState.player?.hatchling) {
+      pushToast('Place or discard your current pet first.')
+      return
+    }
     uiState.panel = 'adopt'
     uiState.adoptStep = 'pick'
   },
@@ -375,19 +380,6 @@ function SideButtons() {
   )
 }
 
-// ---------------------------------------------------------------------------
-// Shared row
-// ---------------------------------------------------------------------------
-function Row(props: { key?: string | number; children?: any; h?: number }) {
-  return (
-    <UiEntity
-      uiTransform={{ width: '100%', height: props.h ?? S(60), flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', margin: { bottom: S(8) }, padding: { left: S(12), right: S(12) }, borderRadius: S(14) }}
-      uiBackground={{ color: LOC.tile }}
-    >
-      {props.children}
-    </UiEntity>
-  )
-}
 
 function CoinIcon(props: { accent?: Color; size?: number }) {
   const d = props.size ?? S(26)
@@ -624,32 +616,101 @@ function InventoryPanel() {
 // ---------------------------------------------------------------------------
 // Roster (Pets) — selection system
 // ---------------------------------------------------------------------------
-function RosterPanel() {
+// One slot in the My Pets 2x2 grid: a pet, an empty "+" (add), or locked (price).
+function SlotCard(props: { key?: number; index: number }) {
   const p = clientState.player
-  const pets = p?.pets ?? []
-  const slotsFree = p ? pets.length < p.petSlots : false
-  return (
-    <LightModal title="My Pets" width={S(680)} height={S(680)} onClose={() => ui.close()}>
-      <Label value={`Select your active pet — slots ${pets.length}/${p?.petSlots ?? 1}`} fontSize={S(16)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(28), margin: { bottom: S(6) } }} />
-      <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
-        {pets.map((pet) => {
-          const isActive = pet.id === p?.activePetId
-          return (
-            <Row key={pet.id} h={S(64)}>
-              <UiEntity uiTransform={{ flexDirection: 'row', alignItems: 'center' }}>
-                <UiEntity uiTransform={{ width: S(44), height: S(44), borderRadius: S(22), margin: { right: S(12) } }} uiBackground={{ color: isActive ? LOC.green : LOC.neutral }} />
-                <Label value={`${pet.name}  ·  ${Cfg.speciesLabel(pet.species)}  ·  Lv ${pet.petLevel}`} fontSize={S(16)} color={isActive ? LOC.green : LOC.body} textAlign="middle-left" uiTransform={{ width: S(300), height: S(40) }} />
-              </UiEntity>
-              <TactileButton id={`switch_${pet.id}`} label={isActive ? 'Active' : 'Select'} width={S(120)} height={S(46)} bg={isActive ? LOC.neutral : LOC.blue} textColor={isActive ? LOC.dim : LOC.white} fontSize={S(15)} radius={S(14)} disabled={isActive} onClick={() => switchActivePet(pet.id)} />
-            </Row>
-          )
-        })}
+  if (!p) return <UiEntity />
+  const cardW = S(280)
+  const cardH = S(168)
+  const disc = S(90)
+  const unlocked = props.index < p.petSlots
+  const pet = p.pets[props.index]
+
+  // Locked slot — shows the unlock price. Only the NEXT slot is buyable.
+  if (!unlocked) {
+    const canUnlock = props.index === p.petSlots
+    return (
+      <UiEntity uiTransform={{ width: cardW, height: cardH, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: S(8), borderRadius: S(18), padding: S(8) }} uiBackground={{ color: LOC.neutral }}>
+        <Label value="🔒" fontSize={S(40)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(48) }} />
+        {canUnlock ? (
+          <TactileButton
+            id={`unlock_${props.index}`}
+            label={`Unlock  ${Cfg.SLOT_PRICE}`}
+            width={S(190)}
+            height={S(52)}
+            bg={LOC.orange}
+            textColor={LOC.white}
+            fontSize={S(17)}
+            radius={S(14)}
+            pulse
+            onClick={() => {
+              if (buySlotLocal()) pushToast('Slot unlocked!')
+              else pushToast('Not enough coins')
+              actions.buySlot()
+            }}
+          />
+        ) : (
+          <Label value={`Unlock: ${Cfg.SLOT_PRICE}`} fontSize={S(16)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24) }} />
+        )}
       </UiEntity>
-      {slotsFree && (
-        <UiEntity uiTransform={{ width: '100%', justifyContent: 'center', margin: { top: S(6) } }}>
-          <TactileButton id="roster_adopt" label="Adopt Another Pet" width={S(320)} height={S(60)} bg={LOC.green} textColor={LOC.white} fontSize={S(18)} radius={S(16)} pulse onClick={() => ui.openAdopt()} />
+    )
+  }
+
+  // Empty unlocked slot. The FIRST empty slot holds a just-hatched pet (if any),
+  // which the player keeps or discards; otherwise it's a "+" to adopt.
+  if (!pet) {
+    const isFirstEmpty = props.index === p.pets.length
+    const hatch = p.hatchling
+    if (isFirstEmpty && hatch) {
+      const img = Cfg.speciesImage(hatch.species)
+      return (
+        <UiEntity uiTransform={{ width: cardW, height: cardH, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: S(8), borderRadius: S(18), padding: S(8) }} uiBackground={{ color: LOC.card }}>
+          <UiEntity uiTransform={{ width: S(70), height: S(70), borderRadius: S(35), margin: { bottom: S(6) } }} uiBackground={img ? { texture: { src: img }, textureMode: 'stretch' } : { color: speciesColor(hatch.species) }} />
+          <Label value={`${hatch.name} hatched!`} fontSize={S(15)} color={LOC.body} textAlign="middle-center" uiTransform={{ width: '100%', height: S(22) }} />
+          <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', justifyContent: 'center', margin: { top: S(6) } }}>
+            <TactileButton id="hatch_keep" label="Keep" width={S(120)} height={S(46)} bg={LOC.violet} textColor={LOC.white} fontSize={S(16)} radius={S(12)} margin={{ right: S(4) }} pulse onClick={() => keepHatchling()} />
+            <TactileButton id="hatch_discard" label="Discard" width={S(120)} height={S(46)} bg={LOC.rose} textColor={LOC.white} fontSize={S(16)} radius={S(12)} margin={{ left: S(4) }} onClick={() => discardHatchling()} />
+          </UiEntity>
         </UiEntity>
-      )}
+      )
+    }
+    return (
+      <UiEntity
+        uiTransform={{ width: cardW, height: cardH, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: S(8), borderRadius: S(18), padding: S(8) }}
+        uiBackground={{ color: LOC.tile }}
+        onMouseDown={() => pushToast('Go to the Care Center to adopt a pet!')}
+      >
+        <Label value="+" fontSize={S(72)} color={LOC.blue} textAlign="middle-center" uiTransform={{ width: '100%', height: S(80) }} />
+        <Label value="Add a pet" fontSize={S(17)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24) }} />
+      </UiEntity>
+    )
+  }
+
+  // Filled slot — the pet. Tap to make it the active pet.
+  const isActive = pet.id === p.activePetId
+  const img = Cfg.speciesImage(pet.species)
+  return (
+    <UiEntity
+      uiTransform={{ width: cardW, height: cardH, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: S(8), borderRadius: S(18), padding: S(8) }}
+      uiBackground={{ color: isActive ? LOC.blue : LOC.tile }}
+      onMouseDown={() => switchActivePet(pet.id)}
+    >
+      <UiEntity uiTransform={{ width: disc, height: disc, borderRadius: disc / 2, margin: { bottom: S(8) } }} uiBackground={img ? { texture: { src: img }, textureMode: 'stretch' } : { color: speciesColor(pet.species) }} />
+      <Label value={`${pet.name}  ·  Lv ${pet.petLevel}`} fontSize={S(17)} color={isActive ? LOC.white : LOC.body} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24) }} />
+      <Label value={isActive ? 'Active' : 'Tap to select'} fontSize={S(13)} color={isActive ? LOC.white : LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(20) }} />
+    </UiEntity>
+  )
+}
+
+function RosterPanel() {
+  return (
+    <LightModal title="My Pets" width={S(720)} height={S(620)} onClose={() => ui.close()}>
+      <Label value="Your colony — tap a pet to select it, unlock slots to grow." fontSize={S(16)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24), margin: { bottom: S(8) } }} />
+      <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignContent: 'flex-start' }}>
+        {[0, 1, 2, 3].map((i) => (
+          <SlotCard key={i} index={i} />
+        ))}
+      </UiEntity>
     </LightModal>
   )
 }
@@ -1039,6 +1100,8 @@ const LOC = {
   blue: { r: 0.25, g: 0.66, b: 0.95, a: 1 } as Color,
   green: { r: 0.35, g: 0.75, b: 0.45, a: 1 } as Color,
   red: { r: 0.9, g: 0.24, b: 0.2, a: 1 } as Color,
+  violet: { r: 0.6, g: 0.5, b: 0.86, a: 1 } as Color, // pastel violet (Keep)
+  rose: { r: 0.9, g: 0.55, b: 0.72, a: 1 } as Color, // pastel rose (Discard)
   white: { r: 1, g: 1, b: 1, a: 1 } as Color,
   body: { r: 0.2, g: 0.22, b: 0.28, a: 1 } as Color, // dark text on the light card
   dim: { r: 0.5, g: 0.47, b: 0.53, a: 1 } as Color,
@@ -1230,7 +1293,6 @@ const Root = () => {
     <PetPanel />
     <SideButtons />
     <BottomNav />
-    <Toasts />
     <FetchOverlay />
     <CarryHatchButton />
     <BathButton />
@@ -1244,6 +1306,8 @@ const Root = () => {
     {uiState.panel === 'daily' && <DailyRewardPanel />}
     <DialogBox />
     <LocationPanel />
+    {/* Toasts render LAST so they sit on top of any open panel/modal. */}
+    <Toasts />
   </UiEntity>
   )
 }

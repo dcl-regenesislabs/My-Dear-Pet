@@ -79,6 +79,7 @@ function newPlayer(address: string): PlayerData {
     petSlots: C.STARTING_SLOTS,
     activePetId: '',
     pets: [],
+    hatchling: null,
     createdAt: t,
     lastUpdated: t
   }
@@ -89,7 +90,9 @@ function clamp(v: number, lo = 0, hi = 100): number {
 }
 
 function activePet(p: PlayerData): PetData | null {
-  return p.pets.find((pet) => pet.id === p.activePetId) ?? null
+  // A just-hatched pet (not yet placed) is what you see/care for until you keep
+  // or discard it; otherwise it's the selected slotted pet.
+  return p.hatchling ?? p.pets.find((pet) => pet.id === p.activePetId) ?? null
 }
 
 // ---------------------------------------------------------------------------
@@ -192,7 +195,8 @@ function sanitize(address: string, d: PlayerData): PlayerData {
     inventory: { ...base.inventory, ...(d.inventory ?? {}) },
     counters: d.counters ?? {},
     achievements: d.achievements ?? [],
-    pets: (d.pets ?? []).map((pet) => ({ ...newPet(pet.species, pet.name), ...pet }))
+    pets: (d.pets ?? []).map((pet) => ({ ...newPet(pet.species, pet.name), ...pet })),
+    hatchling: d.hatchling ? { ...newPet(d.hatchling.species, d.hatchling.name), ...d.hatchling } : null
   }
 }
 
@@ -309,19 +313,41 @@ function cooldownOk(address: string, action: string, ms: number): boolean {
 }
 
 export function adopt(p: PlayerData, species: string, name: string): Notify[] {
-  const notes: Notify[] = []
   if (C.SPECIES.indexOf(species) === -1) {
     return [{ kind: 'error', message: 'Unknown species' }]
+  }
+  if (p.hatchling) {
+    return [{ kind: 'error', message: 'Place or discard your current pet first' }]
   }
   if (p.pets.length >= p.petSlots) {
     return [{ kind: 'error', message: 'No free pet slots' }]
   }
-  const pet = newPet(species, name)
+  // A newly adopted pet hatches into `hatchling` — the player then keeps it (into
+  // a slot) or discards it. Not added to the roster yet.
+  p.hatchling = newPet(species, name)
+  return []
+}
+
+/** Keep the hatchling: place it in a free slot and make it the active pet. */
+export function keepPet(p: PlayerData): Notify[] {
+  if (!p.hatchling) return [{ kind: 'error', message: 'Nothing to keep' }]
+  if (p.pets.length >= p.petSlots) {
+    return [{ kind: 'error', message: 'No free pet slots' }]
+  }
+  const pet = p.hatchling
+  p.hatchling = null
   p.pets.push(pet)
   p.activePetId = pet.id
   bump(p, 'adoptCount')
-  notes.push({ kind: 'adopt', message: `You adopted ${pet.name}!` })
-  return notes
+  return [{ kind: 'adopt', message: `${pet.name} joined your colony!` }]
+}
+
+/** Discard the hatchling: it goes back to the Care Center — you keep nothing. */
+export function discardPet(p: PlayerData): Notify[] {
+  if (!p.hatchling) return []
+  const name = p.hatchling.name
+  p.hatchling = null
+  return [{ kind: 'adopt', message: `${name} was sent back to the Care Center.` }]
 }
 
 // ---------------------------------------------------------------------------
