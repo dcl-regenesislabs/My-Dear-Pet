@@ -22,6 +22,10 @@ export const Messages = {
   useItem: Schemas.Map({ tier: Schemas.Int }),
   // Roster: switch which pet is active.
   switchPet: Schemas.Map({ petId: Schemas.String }),
+  // Keep the just-hatched pet (place it in a free slot) or discard it (send it
+  // back to the Care Center — you end up with nothing).
+  keepPet: Schemas.Map({}),
+  discardPet: Schemas.Map({}),
   // Buy an extra pet slot with currency.
   buySlot: Schemas.Map({}),
   // Spend a spin ticket on the wheel.

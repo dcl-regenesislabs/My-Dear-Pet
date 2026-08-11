@@ -53,6 +53,8 @@ export interface PlayerData {
   petSlots: number
   activePetId: string
   pets: PetData[]
+  // A just-hatched pet not yet placed in a slot: keep it (-> pets) or discard it.
+  hatchling: PetData | null
   // Bookkeeping
   createdAt: number
   lastUpdated: number
