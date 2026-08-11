@@ -12,3 +12,4 @@ yarn-error.log*
 main.crdt
 main1.crdt
 .env
+.claude/settings.json
