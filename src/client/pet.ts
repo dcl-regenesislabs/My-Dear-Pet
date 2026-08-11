@@ -15,6 +15,7 @@ import {
   Billboard,
   MeshRenderer,
   Material,
+  VisibilityComponent,
   pointerEventsSystem,
   inputSystem,
   InputAction,
@@ -471,6 +472,54 @@ export function placePetAtStation(): void {
   pushToast('Bath time!  +Hygiene')
 }
 
+// ---------------------------------------------------------------------------
+// Ground arrow guide — a flowing arrow on the floor that points from the player
+// toward a destination (e.g. home while carrying the egg). Reusable: set a target
+// with showArrowTo(), clear it with hideArrow().
+// ---------------------------------------------------------------------------
+const ARROW_MODEL = 'models/arrow_indicator.glb'
+const ARROW_LEAD = 1 // metres ahead of the player, toward the target
+const ARROW_Y = C.PET_BASE_Y + 0.05 // just above the floor
+const ARROW_YAW_OFFSET = 180 // model points backwards; flip it to point at the target
+const ARROW_SCALE = 1 // tune the arrow size
+let arrow: Entity | null = null
+let arrowTarget: Vector3 | null = null
+
+export function showArrowTo(target: Vector3): void {
+  arrowTarget = target
+}
+export function hideArrow(): void {
+  arrowTarget = null
+}
+
+function updateArrow(): void {
+  if (!arrow) {
+    arrow = engine.addEntity()
+    Transform.create(arrow, { scale: Vector3.scale(Vector3.One(), ARROW_SCALE) })
+    GltfContainer.create(arrow, { src: ARROW_MODEL })
+    Animator.create(arrow, { states: [{ clip: 'flow', playing: true, loop: true }] })
+    VisibilityComponent.create(arrow, { visible: false })
+  }
+  const vis = VisibilityComponent.getMutable(arrow)
+
+  if (!arrowTarget) {
+    if (vis.visible) vis.visible = false
+    return
+  }
+  const pp = playerPos()
+  const dir = Vector3.subtract(flat(arrowTarget), flat(pp))
+  if (Vector3.lengthSquared(dir) < 0.01) {
+    if (vis.visible) vis.visible = false
+    return
+  }
+  const n = Vector3.normalize(dir)
+  const t = Transform.getMutable(arrow)
+  t.position = Vector3.create(pp.x + n.x * ARROW_LEAD, ARROW_Y, pp.z + n.z * ARROW_LEAD)
+  t.rotation = yawToward(pp, arrowTarget, ARROW_YAW_OFFSET)
+  t.scale = Vector3.scale(Vector3.One(), ARROW_SCALE)
+  if (!vis.visible) vis.visible = true
+}
+
 /** Adopt handoff: give the player an egg to carry home (held in the hand). */
 export function startCarryEgg(species: string, name: string): void {
   clientState.carryEgg = { active: true, species, name, atHome: false }
@@ -498,10 +547,14 @@ function updateCarryEgg(): void {
   const st = clientState.carryEgg
   if (!st.active) {
     carryPrevPos = null
+    hideArrow()
     return
   }
   const pp = playerPos()
   st.atHome = distFlat(pp, C.HOME_POSITION) <= C.HOME_RADIUS
+  // Guide arrow points home until you're there (where the Hatch button shows).
+  if (st.atHome) hideArrow()
+  else showArrowTo(C.HOME_POSITION)
   if (carryPrevPos) {
     const moving = distFlat(pp, carryPrevPos) > 0.02
     if (carryMoving && !moving) playHoldEmote() // just stopped -> re-apply the hold pose
@@ -924,6 +977,7 @@ function updateInactivePets(dt: number): void {
 export function setupPetSystems(): void {
   engine.addSystem((dt: number) => {
     updateCarryEgg()
+    updateArrow()
     updateHatch(dt)
     updatePetting(dt)
     updateLocalPet(dt)
