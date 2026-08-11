@@ -1,7 +1,6 @@
 // Central tuning + content tables. Everything tweakable lives here so the
 // "tuning pass" in mvp.md never has to hunt through logic files.
 
-import { Vector3 } from '@dcl/sdk/math'
 import type { CareAction, Rarity, StatKey } from './types'
 
 export const DAY_MS = 24 * 60 * 60 * 1000
@@ -78,18 +77,15 @@ export function speciesImage(species: string): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
-// NOTE: scene object positions (Bowl, Bed, Ball, Pond, Caretaker, Shop) are NOT
-// hardcoded here anymore — they used to be, and drifted out of sync with the
-// Creator Hub composite (assets/scene/main.composite) whenever an object got
-// moved in the editor. They're now read live from each entity's Transform via
-// client/objects.ts (objectPosition / actionObjectPosition), so the code always
-// matches wherever the object actually is in the scene.
+// NOTE: scene object positions (PetFeeder, PetPool, PetBed, Dome01/home,
+// Caretaker, Shop) are NOT hardcoded here anymore — they used to be, and
+// drifted out of sync with the Creator Hub composite (assets/scene/main.composite)
+// whenever an object got moved in the editor. They're now read live from each
+// entity's Transform via client/objects.ts (objectPosition / actionObjectPosition),
+// so the code always matches wherever the object actually is in the scene.
 // ---------------------------------------------------------------------------
 
-// Home — where the player hatches a carried egg. Matches the scene spawn point
-// (scene.json spawnPoints) — not a placed object, so no entity to read this from.
-export const HOME_POSITION = Vector3.create(195.7, 0, 229.3)
-export const HOME_RADIUS = 6 // metres from home within which the Hatch button shows
+export const HOME_RADIUS = 6 // metres from the Dome01 house entity within which the Hatch button shows
 
 // ---------------------------------------------------------------------------
 // Stat decay — points lost per real second. Hunger fastest, happiness slowest.

@@ -1,5 +1,5 @@
-// Live positions of named scene objects (Bowl, Bed, Ball, Pond...), placed in
-// the Creator Hub editor (assets/scene/main.composite). Read straight from each
+// Live positions of named scene objects (PetFeeder, PetBed, PetPool...), placed
+// in the Creator Hub editor (assets/scene/main.composite). Read straight from each
 // entity's Transform every time, instead of a hardcoded copy in config.ts, so
 // moving an object in the editor can never silently desync from where the pet
 // walks / where "am I close enough" checks fire.
@@ -20,14 +20,16 @@ export function objectPosition(name: EntityNames): Vector3 {
   return Transform.get(e).position
 }
 
-const ACTION_ENTITY: Record<CareAction, EntityNames> = {
-  feed: EntityNames.Bowl,
-  clean: EntityNames.Pond,
-  sleep: EntityNames.Bed,
-  play: EntityNames.Ball
+const ACTION_ENTITY: Partial<Record<CareAction, EntityNames>> = {
+  feed: EntityNames.PetFeeder_glb,
+  clean: EntityNames.PetPool_glb,
+  sleep: EntityNames.PetBed_glb
+  // play has no station — it's a thrown-meteorite action (client/play.ts), not a walk-to.
 }
 
-/** Which object a care action navigates to, read live from the scene. */
+/** Which object a care action navigates to, read live from the scene.
+ *  Vector3.Zero() for actions with no station (currently: play). */
 export function actionObjectPosition(action: CareAction): Vector3 {
-  return objectPosition(ACTION_ENTITY[action])
+  const name = ACTION_ENTITY[action]
+  return name ? objectPosition(name) : Vector3.Zero()
 }

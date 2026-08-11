@@ -5,12 +5,13 @@
  * Object containing all entity names in the scene for autocomplete support.
  */
 export enum EntityNames {
-  Ball = "Ball",
-  Bed = "Bed",
-  Bowl = "Bowl",
+  CareCenter = "CareCenter",
   Caretaker = "Caretaker",
-  Large_Stone_Wall = "Large Stone Wall",
-  Large_Stone_Wall_2 = "Large Stone Wall_2",
-  Pond = "Pond",
+  Dome01_glb = "Dome01.glb",
+  HomeDoor = "HomeDoor",
+  PetBed_glb = "PetBed.glb",
+  PetFeeder_glb = "PetFeeder.glb",
+  PetPool_glb = "PetPool.glb",
   Shop = "Shop",
+  meteorite_animated = "meteorite_animated",
 } 

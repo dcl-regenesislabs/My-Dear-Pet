@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.githubstatus.com)",
+      "Bash(git ls-tree *)",
+      "Bash(ssh -T git@github.com -o ConnectTimeout=15 -o BatchMode=yes)"
+    ]
+  }
+}

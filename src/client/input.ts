@@ -85,9 +85,9 @@ function onClick(name: string, hoverText: string, cb: () => void): void {
 }
 
 export function setupInput(): void {
-  onClick(EntityNames.Bowl, 'Feed', () => triggerCare('feed'))
-  onClick(EntityNames.Pond, 'Bath', () => triggerCare('clean'))
-  onClick(EntityNames.Bed, 'Sleep', () => triggerCare('sleep'))
+  onClick(EntityNames.PetFeeder_glb, 'Feed', () => triggerCare('feed'))
+  onClick(EntityNames.PetPool_glb, 'Bath', () => triggerCare('clean'))
+  onClick(EntityNames.PetBed_glb, 'Sleep', () => triggerCare('sleep'))
   // Old play action (pet walks to the ball) is suspended — Play now throws a
   // meteorite forward (see play.ts, wired to the Play button in ui.tsx).
   // onClick(EntityNames.Ball, 'Play', () => triggerCare('play'))
