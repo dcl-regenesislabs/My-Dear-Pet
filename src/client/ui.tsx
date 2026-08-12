@@ -324,6 +324,22 @@ function BottomNav() {
   if (!p || clientState.dialog.open || clientState.fetch.active || clientState.carryEgg.active || clientState.carryPet.active) return <UiEntity />
   const bw = Sbtn(160)
   const bh = Sbtn(72)
+
+  // Just hatched: a new pet is waiting on a Keep/Discard decision. It takes over
+  // the nav bar — Keep places it (nav returns), Discard sends it to the Care
+  // Center (nothing kept). Until then the 3 nav buttons stay hidden.
+  if (p.hatchling) {
+    return (
+      <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(18), left: 0 }, width: '100%', height: bh, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', pointerFilter: 'none' }}>
+        <TactileButton id="nav_keep" label="Keep" width={bw} height={bh} bg={LOC.violet} textColor={LOC.white} fontSize={S(20)} radius={S(20)} margin={{ left: S(8), right: S(8) }} pulse onClick={() => keepHatchling()} />
+        <TactileButton id="nav_discard" label="Discard" width={bw} height={bh} bg={LOC.rose} textColor={LOC.white} fontSize={S(20)} radius={S(20)} margin={{ left: S(8), right: S(8) }} onClick={() => discardHatchling()} />
+      </UiEntity>
+    )
+  }
+
+  // The nav buttons only appear once you actually own a pet (kept at least one).
+  if (p.pets.length === 0) return <UiEntity />
+
   // Flat button style (same look as the modals): blue when its panel is open,
   // white otherwise. Replaces the old navButtonUi PNGs.
   const nav = (id: string, label: string, panel: Panel, onClick: () => void) => {
