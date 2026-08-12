@@ -832,22 +832,67 @@ function ServerStatus() {
 }
 
 // ---------------------------------------------------------------------------
-// Meteor reward — the daily meteor cracked open (reuses the spin reward pool)
+// Daily reward — a login-streak ladder shown when you crack open the meteor.
+// TODAY is claimable; the following days preview what you'd get if you keep
+// coming back. Claim! gives the reward; Watch Ad grants 2x (ad is a stub).
 // ---------------------------------------------------------------------------
-function MeteorRewardPanel() {
-  const last = clientState.lastSpin
-  if (!last) return <UiEntity />
-  const r = last.reward
-  const accent = r.rarity === 'jackpot' ? C.happy : r.rarity === 'rare' ? C.energy : C.gold
+function DailyDayCard(props: { key?: string; day: number; state: 'claimed' | 'today' | 'future' }) {
+  const r = Cfg.STREAK_WEEK_REWARDS[props.day - 1]
+  const today = props.state === 'today'
+  const future = props.state === 'future'
+  const cardW = S(126)
   return (
-    <LightModal title="Meteor Cracked Open!" width={S(560)} height={S(460)} onClose={() => ui.close()}>
-      <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-        <Label value="A meteor struck the colony — inside you found:" fontSize={S(18)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(30) }} />
-        <Label value={r.rarity.toUpperCase()} fontSize={S(16)} color={accent} textAlign="middle-center" uiTransform={{ width: '100%', height: S(26), margin: { top: S(14) } }} />
-        <OutlineLabel value={r.label} fontSize={S(34)} color={accent} outlineColor={LOC.titleOutline} width={'100%'} height={S(50)} textAlign="middle-center" />
+    <UiEntity
+      uiTransform={{ width: cardW, height: S(168), flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', margin: S(4), padding: S(8), borderRadius: S(16) }}
+      uiBackground={{ color: today ? LOC.blue : LOC.tile }}
+    >
+      <Label value={today ? 'TODAY' : `DAY ${props.day}`} fontSize={S(18)} color={today ? LOC.white : future ? LOC.dim : LOC.body} textAlign="middle-center" uiTransform={{ width: '100%', height: S(22) }} />
+      <UiEntity uiTransform={{ width: cardW - S(22), height: S(84), alignItems: 'center', justifyContent: 'center', margin: { top: S(4), bottom: S(4) }, borderRadius: S(12) }} uiBackground={{ color: today ? LOC.white : LOC.card }}>
+        <Label value={props.state === 'claimed' ? '✅' : '💰'} fontSize={S(44)} color={LOC.body} textAlign="middle-center" uiTransform={{ width: cardW - S(22), height: S(84) }} />
       </UiEntity>
-      <UiEntity uiTransform={{ width: '100%', justifyContent: 'center' }}>
-        <TactileButton id="meteor_collect" label="Collect" width={S(280)} height={S(70)} bg={LOC.green} textColor={LOC.white} fontSize={S(26)} radius={S(18)} pulse onClick={() => ui.close()} />
+      <UiEntity uiTransform={{ width: cardW - S(14), height: S(30), alignItems: 'center', justifyContent: 'center', borderRadius: S(10) }} uiBackground={{ color: today ? LOC.white : future ? LOC.neutral : LOC.green }}>
+        <Label value={`$${r.currency}`} fontSize={S(18)} color={today ? LOC.blue : future ? LOC.dim : LOC.white} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24) }} />
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+function MeteorRewardPanel() {
+  const weekDay = Math.min(6, streakWeekDay()) // this UI shows a 6-day ladder
+  const claimable = streakClaimable()
+  const days = [1, 2, 3, 4, 5, 6].map((d) => {
+    let state: 'claimed' | 'today' | 'future' = 'future'
+    if (d < weekDay) state = 'claimed'
+    else if (d === weekDay) state = claimable ? 'today' : 'claimed'
+    return { d, state }
+  })
+  const claim = (x2: boolean) => {
+    const r = claimStreak()
+    if (r) {
+      if (x2 && clientState.player) clientState.player.currency += r.currency // second helping = 2x
+      const total = x2 ? r.currency * 2 : r.currency
+      pushToast(`Daily reward: +${total} coins${r.spins ? ` +${r.spins} spins` : ''}!`)
+    }
+    ui.close()
+  }
+  return (
+    <LightModal title="Daily Rewards" width={S(920)} height={S(440)} onClose={() => ui.close()}>
+      <Label value="Play every day to get better prizes!" fontSize={S(20)} color={LOC.body} textAlign="middle-center" uiTransform={{ width: '100%', height: S(28), margin: { bottom: S(6) } }} />
+      <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center' }}>
+        {days.map((c) => (
+          <DailyDayCard key={`dd-${c.d}`} day={c.d} state={c.state} />
+        ))}
+      </UiEntity>
+      <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', margin: { top: S(14) } }}>
+        {claimable && (
+          <TactileButton id="daily_claim" label="Claim!" width={S(230)} height={S(70)} bg={LOC.green} textColor={LOC.white} fontSize={S(26)} radius={S(18)} pulse margin={{ right: S(10) }} onClick={() => claim(false)} />
+        )}
+        {claimable && (
+          <TactileButton id="daily_claim_2x" label="Watch Ad  ·  2x Reward" width={S(360)} height={S(70)} bg={LOC.violet} textColor={LOC.white} fontSize={S(22)} radius={S(18)} margin={{ left: S(10) }} onClick={() => claim(true)} />
+        )}
+        {!claimable && (
+          <TactileButton id="daily_done" label="Come back tomorrow!" width={S(360)} height={S(70)} bg={LOC.neutral} textColor={LOC.body} fontSize={S(22)} radius={S(18)} disabled onClick={() => {}} />
+        )}
       </UiEntity>
     </LightModal>
   )
