@@ -30,7 +30,7 @@ import {
 } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion, Color4 } from '@dcl/sdk/math'
 import * as C from '../shared/config'
-import { modelForSpecies, scaleForSpecies, speciesLabel, yawOffsetForSpecies } from '../shared/config'
+import { modelForSpecies, petStage, scaleForSpecies, speciesLabel, stageScaleFor, yawOffsetForSpecies } from '../shared/config'
 import { petCondition } from '../shared/breeding'
 import type { PetData } from '../shared/types'
 import { triggerSceneEmote } from '~system/RestrictedActions'
@@ -59,14 +59,20 @@ let wanderPause = 0
 const remotePets = new Map<string, Entity>()
 const remoteSpecies = new Map<string, string>()
 
-// Floating tag above each pet: name + a small health bar (average of the pet's
-// four stats). A billboard root faces the camera; the name text and the two bar
-// planes (track + fill) are parented to it.
+// Floating tag above each pet: name + a health bar whose celeste fill shows how
+// full the pet's condition is (dark track behind it = the empty part), with the
+// growth stage (JUNIOR / TEEN / ADULT) written across it. A billboard root
+// faces the camera. IMPORTANT: on a Billboard, local +Z points AWAY from the
+// camera, so nearer-camera = SMALLER z. The stack, front (camera) -> back:
+//   text (z<0)  >  fill (0)  >  track (>0)  >  frame (largest z).
 const TAG_HEIGHT = 1.5
-const BAR_W = 0.9 // health bar width (metres)
-const BAR_H = 0.11
+const BAR_W = 1.0 // health-bar width (metres)
+const BAR_H = 0.24
 const BAR_Y = -0.3 // bar sits just below the name
-type HealthTag = { root: Entity; label: Entity; track: Entity; fill: Entity; name: string; frac: number }
+const FRAME_COLOR = Color4.create(0.06, 0.09, 0.13, 1) // dark border rim
+const TRACK_COLOR = Color4.create(0.16, 0.2, 0.26, 0.95) // empty-bar background
+const FILL_COLOR = Color4.create(0.45, 0.78, 0.98, 1) // celeste health fill
+type HealthTag = { root: Entity; label: Entity; frame: Entity; track: Entity; fill: Entity; stageLabel: Entity; name: string; frac: number; stage: string }
 
 // The player's NON-active stored pets roam the care area on their own.
 type Roamer = { entity: Entity; species: string; tag: HealthTag; home: Vector3; target: Vector3 | null; pause: number }
@@ -80,13 +86,6 @@ function careAreaPoint(): Vector3 {
 let localTag: HealthTag | null = null
 const remoteTags = new Map<string, HealthTag>()
 
-/** Health-bar fill color: red (low) -> yellow (mid) -> green (full). */
-function healthColor(f: number): Color4 {
-  const r = f < 0.5 ? 1 : 2 * (1 - f)
-  const g = f < 0.5 ? 2 * f : 1
-  return Color4.create(r, g, 0.18, 1)
-}
-
 /** Average of the four stats, normalized 0..1 (the pet's "health"). */
 function healthFrac(pet: PetData): number {
   return Math.max(0, Math.min(1, petCondition(pet) / 100))
@@ -98,7 +97,7 @@ function makeTag(): HealthTag {
   Billboard.create(root, {})
 
   const label = engine.addEntity()
-  Transform.create(label, { position: Vector3.create(0, 0.12, 0), parent: root })
+  Transform.create(label, { position: Vector3.create(0, 0.16, 0), parent: root })
   TextShape.create(label, {
     text: '',
     fontSize: 2.2,
@@ -107,25 +106,49 @@ function makeTag(): HealthTag {
     outlineWidth: 0.25
   })
 
-  const track = engine.addEntity()
-  Transform.create(track, { position: Vector3.create(0, BAR_Y, 0), scale: Vector3.create(BAR_W, BAR_H, 1), parent: root })
-  MeshRenderer.setPlane(track)
-  Material.setPbrMaterial(track, { albedoColor: Color4.create(0.08, 0.07, 0.06, 0.85) })
+  // Dark border rim (furthest from camera -> largest z).
+  const frame = engine.addEntity()
+  Transform.create(frame, { position: Vector3.create(0, BAR_Y, 0.03), scale: Vector3.create(BAR_W + 0.06, BAR_H + 0.06, 1), parent: root })
+  MeshRenderer.setPlane(frame)
+  Material.setPbrMaterial(frame, { albedoColor: FRAME_COLOR })
 
+  // Empty-bar background (the "not filled" part shows through here).
+  const track = engine.addEntity()
+  Transform.create(track, { position: Vector3.create(0, BAR_Y, 0.02), scale: Vector3.create(BAR_W, BAR_H, 1), parent: root })
+  MeshRenderer.setPlane(track)
+  Material.setPbrMaterial(track, { albedoColor: TRACK_COLOR })
+
+  // Celeste health fill (shrinks from the left as condition drops).
   const fill = engine.addEntity()
   Transform.create(fill, { position: Vector3.create(0, BAR_Y, 0.01), scale: Vector3.create(BAR_W, BAR_H, 1), parent: root })
   MeshRenderer.setPlane(fill)
-  Material.setPbrMaterial(fill, { albedoColor: healthColor(1) })
+  Material.setPbrMaterial(fill, { albedoColor: FILL_COLOR })
 
-  return { root, label, track, fill, name: '', frac: -1 }
+  // Growth-stage text (JUNIOR / TEEN / ADULT) across the bar: white with a
+  // black outline. NEGATIVE z so it sits in FRONT of the bar (toward camera).
+  const stageLabel = engine.addEntity()
+  Transform.create(stageLabel, { position: Vector3.create(0, BAR_Y, -0.05), parent: root })
+  TextShape.create(stageLabel, {
+    text: '',
+    fontSize: 1.4,
+    textColor: { r: 1, g: 1, b: 1, a: 1 },
+    outlineColor: { r: 0, g: 0, b: 0 },
+    outlineWidth: 0.3
+  })
+
+  return { root, label, frame, track, fill, stageLabel, name: '', frac: -1, stage: '' }
 }
 
-/** Reposition the tag over the pet, and refresh its name + health fill. */
-function updateTag(tag: HealthTag, pos: Vector3, size: number, name: string, frac: number): void {
+/** Reposition the tag over the pet, refresh its name + health fill + stage text. */
+function updateTag(tag: HealthTag, pos: Vector3, size: number, name: string, frac: number, stage: string): void {
   Transform.getMutable(tag.root).position = Vector3.create(pos.x, TAG_HEIGHT + size, pos.z)
   if (name !== tag.name) {
     TextShape.getMutable(tag.label).text = name
     tag.name = name
+  }
+  if (stage !== tag.stage) {
+    TextShape.getMutable(tag.stageLabel).text = stage
+    tag.stage = stage
   }
   const f = Math.max(0, Math.min(1, frac))
   if (Math.abs(f - tag.frac) > 0.01) {
@@ -133,14 +156,15 @@ function updateTag(tag: HealthTag, pos: Vector3, size: number, name: string, fra
     // Plane is centered, so anchor the fill to the left edge as it shrinks.
     Transform.getMutable(tag.fill).scale = Vector3.create(BAR_W * f, BAR_H, 1)
     Transform.getMutable(tag.fill).position = Vector3.create((-BAR_W * (1 - f)) / 2, BAR_Y, 0.01)
-    Material.setPbrMaterial(tag.fill, { albedoColor: healthColor(f) })
   }
 }
 
 /** Remove a tag and all its child entities. */
 function removeTag(tag: HealthTag): void {
+  engine.removeEntity(tag.stageLabel)
   engine.removeEntity(tag.fill)
   engine.removeEntity(tag.track)
+  engine.removeEntity(tag.frame)
   engine.removeEntity(tag.label)
   engine.removeEntity(tag.root)
 }
@@ -228,7 +252,7 @@ function ensureLocalPet(): void {
   }
   if (!localPet) {
     localPet = engine.addEntity()
-    Transform.create(localPet, { position: Vector3.create(197.2, C.PET_BASE_Y, 229.8), scale: petScale(pet.species, pet.size) })
+    Transform.create(localPet, { position: Vector3.create(197.2, C.PET_BASE_Y, 229.8), scale: petScale(pet.species, stageScaleFor(pet.size)) })
     pointerEventsSystem.onPointerDown(
       { entity: localPet, opts: { button: InputAction.IA_POINTER, hoverText: 'Open', maxDistance: 8 } },
       () => {
@@ -246,7 +270,7 @@ function ensureLocalPet(): void {
   }
   // Keep visual scale synced to growth.
   const t = Transform.getMutable(localPet)
-  const s = petScale(pet.species, pet.size)
+  const s = petScale(pet.species, stageScaleFor(pet.size))
   if (t.scale.x !== s.x) t.scale = s
 }
 
@@ -733,7 +757,7 @@ function updateLocalPet(dt: number): void {
   // no jump when the egg is removed. Normal behavior resumes once hatch ends.
   if (clientState.hatch.active && clientState.activePet) {
     const petH = clientState.activePet
-    const full = petScale(petH.species, petH.size)
+    const full = petScale(petH.species, stageScaleFor(petH.size))
     if (hatchPopT > 0) hatchPopT -= dt
     const f = hatchPopT > 0 ? Math.max(0.05, 1 - hatchPopT / HATCH_POP_SECONDS) : 1 // 0 -> 1
     const t = Transform.getMutable(localPet)
@@ -745,7 +769,7 @@ function updateLocalPet(dt: number): void {
       VirtualCamera.getMutable(petCam).lookAtEntity = localPet as number
       hatchCamRetargeted = true
     }
-    if (localTag) updateTag(localTag, t.position, petH.size, petH.name, healthFrac(petH))
+    if (localTag) updateTag(localTag, t.position, stageScaleFor(petH.size), petH.name, healthFrac(petH), petStage(petH.size))
     return
   }
 
@@ -769,7 +793,7 @@ function updateLocalPet(dt: number): void {
       carryPetMoving = moving
     }
     carryPetPrevPos = Vector3.create(pp.x, pp.y, pp.z)
-    if (localTag) updateTag(localTag, t.position, petC.size, petC.name, healthFrac(petC))
+    if (localTag) updateTag(localTag, t.position, stageScaleFor(petC.size), petC.name, healthFrac(petC), petStage(petC.size))
     return
   }
 
@@ -779,7 +803,14 @@ function updateLocalPet(dt: number): void {
     setClip(localPet, 'gesture-positive')
     if (localTag) {
       const petT = clientState.activePet
-      updateTag(localTag, Transform.get(localPet).position, petT ? petT.size : 0.55, petT ? petT.name : '', petT ? healthFrac(petT) : 0)
+      updateTag(
+        localTag,
+        Transform.get(localPet).position,
+        petT ? stageScaleFor(petT.size) : 0.55,
+        petT ? petT.name : '',
+        petT ? healthFrac(petT) : 0,
+        petT ? petStage(petT.size) : ''
+      )
     }
     return
   }
@@ -830,7 +861,14 @@ function updateLocalPet(dt: number): void {
   // Floating name tag follows the pet.
   if (localTag) {
     const pet2 = clientState.activePet
-    updateTag(localTag, Transform.get(localPet).position, pet2 ? pet2.size : 0.55, pet2 ? pet2.name : '', pet2 ? healthFrac(pet2) : 0)
+    updateTag(
+      localTag,
+      Transform.get(localPet).position,
+      pet2 ? stageScaleFor(pet2.size) : 0.55,
+      pet2 ? pet2.name : '',
+      pet2 ? healthFrac(pet2) : 0,
+      pet2 ? petStage(pet2.size) : ''
+    )
   }
 }
 
@@ -861,7 +899,7 @@ function updateRemotePets(dt: number): void {
     let ent = remotePets.get(addr)
     if (!ent) {
       ent = engine.addEntity()
-      Transform.create(ent, { position: Vector3.create(ownerPos.x - 2, C.PET_BASE_Y, ownerPos.z - 2), scale: petScale(entry.species, entry.size) })
+      Transform.create(ent, { position: Vector3.create(ownerPos.x - 2, C.PET_BASE_Y, ownerPos.z - 2), scale: petScale(entry.species, stageScaleFor(entry.size)) })
       remotePets.set(addr, ent)
       remoteTags.set(addr, makeTag())
       const targetAddr = entry.address
@@ -876,7 +914,7 @@ function updateRemotePets(dt: number): void {
       ensureAnimator(ent)
     }
     const t = Transform.getMutable(ent)
-    const s = petScale(entry.species, entry.size)
+    const s = petScale(entry.species, stageScaleFor(entry.size))
     if (t.scale.x !== s.x) t.scale = s
     // Follow the owner only if their pet is currently following them; otherwise
     // it stays put (mirrors the owner having dismissed it).
@@ -889,7 +927,7 @@ function updateRemotePets(dt: number): void {
     setClip(ent, moved > 0.003 ? 'walk' : 'idle')
 
     const tag = remoteTags.get(addr)
-    if (tag) updateTag(tag, t.position, entry.size, entry.name, entry.mood / 100)
+    if (tag) updateTag(tag, t.position, stageScaleFor(entry.size), entry.name, entry.mood / 100, petStage(entry.size))
   }
 
   for (const [addr, ent] of remotePets) {
@@ -923,7 +961,7 @@ function updateInactivePets(dt: number): void {
       if (!st) {
         const e = engine.addEntity()
         const home = careAreaPoint()
-        Transform.create(e, { position: home, scale: petScale(pet.species, pet.size) })
+        Transform.create(e, { position: home, scale: petScale(pet.species, stageScaleFor(pet.size)) })
         GltfContainer.createOrReplace(e, { src: modelForSpecies(pet.species), visibleMeshesCollisionMask: ColliderLayer.CL_POINTER })
         ensureAnimator(e)
         const petId = pet.id
@@ -958,9 +996,9 @@ function updateInactivePets(dt: number): void {
       setClip(st.entity, moved > 0.003 ? 'walk' : 'idle')
 
       const t = Transform.getMutable(st.entity)
-      const s = petScale(pet.species, pet.size)
+      const s = petScale(pet.species, stageScaleFor(pet.size))
       if (t.scale.x !== s.x) t.scale = s
-      updateTag(st.tag, t.position, pet.size, pet.name, healthFrac(pet))
+      updateTag(st.tag, t.position, stageScaleFor(pet.size), pet.name, healthFrac(pet), petStage(pet.size))
     }
   }
 

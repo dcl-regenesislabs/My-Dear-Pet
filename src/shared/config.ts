@@ -254,6 +254,33 @@ export function sizeForCareCount(careCount: number): number {
   return Math.min(SIZE_MAX, SIZE_BASE + careCount * SIZE_PER_CARE)
 }
 
+// ---------------------------------------------------------------------------
+// Growth stages (Adopt-Me style): a pet's SIZE grows with cumulative care
+// (see sizeForCareCount) and crosses 3 thresholds over a couple of days. Each
+// stage renders at a fixed, chunky size, and its name shows in the health bar.
+// ---------------------------------------------------------------------------
+export type PetStage = 'JUNIOR' | 'TEEN' | 'ADULT'
+
+// Size thresholds along the SIZE_BASE..SIZE_MAX (0.55..1.1) growth range.
+export const PET_STAGE_TEEN_SIZE = 0.73 // grown this big -> TEEN
+export const PET_STAGE_ADULT_SIZE = 0.92 // grown this big -> ADULT
+
+/** Which growth stage a pet's current size falls into. */
+export function petStage(size: number): PetStage {
+  if (size >= PET_STAGE_ADULT_SIZE) return 'ADULT'
+  if (size >= PET_STAGE_TEEN_SIZE) return 'TEEN'
+  return 'JUNIOR'
+}
+
+// Each stage renders at one fixed size, so pets visibly snap between 3 sizes.
+// The range is deliberately wide so a JUNIOR reads as a tiny baby next to an ADULT.
+const STAGE_SCALE: Record<PetStage, number> = { JUNIOR: 0.35, TEEN: 0.45, ADULT: 0.7 }
+
+/** Discrete display scale for a pet's current growth stage. */
+export function stageScaleFor(size: number): number {
+  return STAGE_SCALE[petStage(size)]
+}
+
 // Caretaker level -> reward table (data-driven; stubbed rewards).
 export interface LevelReward {
   level: number
