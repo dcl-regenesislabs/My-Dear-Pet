@@ -7,8 +7,10 @@
 
 import ReactEcs, { ReactEcsRenderer, Label, UiEntity, Input } from '@dcl/sdk/react-ecs'
 import { movePlayerTo } from '~system/RestrictedActions'
+import { EntityNames } from '../../assets/scene/entity-names'
 import * as Cfg from '../shared/config'
 import type { CareAction } from '../shared/types'
+import { objectPosition } from './objects'
 import { actions, clientState, discardHatchling, dismissBubble, keepHatchling, pushToast, serverConnected, showBubble, switchActivePet } from './state'
 import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry, startCarryPet, placePetAtStation, cancelCarryPet } from './pet'
 import { throwMeteor } from './play'
@@ -96,6 +98,10 @@ export const ui = {
   /** Teleport the player to the Care Center (where adoption happens). */
   goCareCenter(): void {
     void movePlayerTo({ newRelativePosition: CARE_CENTER })
+  },
+  /** Teleport the player to the middle of the home dome. */
+  goHome(): void {
+    void movePlayerTo({ newRelativePosition: objectPosition(EntityNames.Dome01_glb) })
   }
 }
 
@@ -1353,8 +1359,15 @@ function LocationPanel() {
               ui.goCareCenter()
             }}
           />
-          {/* House: stay put, just close the modal. */}
-          <LocationTile icon="🏠" label="HOUSE" color={LOC.blue} onClick={close} />
+          <LocationTile
+            icon="🏠"
+            label="HOUSE"
+            color={LOC.blue}
+            onClick={() => {
+              close()
+              ui.goHome()
+            }}
+          />
         </UiEntity>
       </UiEntity>
     </UiEntity>
