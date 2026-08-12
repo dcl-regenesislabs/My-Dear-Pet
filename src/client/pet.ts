@@ -41,7 +41,7 @@ import { EntityNames } from '../../assets/scene/entity-names'
 import { objectPosition } from './objects'
 import { mobile } from './ui/theme'
 
-type Mode = 'follow' | 'goto' | 'interact' | 'wander'
+type Mode = 'follow' | 'goto' | 'interact' | 'wander' | 'bathhop'
 
 const ANIM_CLIPS = ['idle', 'walk', 'run', 'eat', 'dance', 'gesture-positive', 'gesture-negative']
 
@@ -53,6 +53,17 @@ let onArrive: (() => void) | null = null
 let interactTimer = 0
 let interactClip = 'idle'
 const curClip = new Map<Entity, string>()
+
+// Bath exit hop — placePetAtStation teleports the pet straight into the tub, which
+// sits above/inside walled geometry. Walking straight out afterward (normal 'follow'
+// stepToward) would clip through the tub's rim, so we set this flag to detour through
+// a short hop (horizontal step + vertical arc) instead of returning to follow/wander directly.
+let justBathed = false
+let bathHopT = 0 // seconds remaining in the hop; >0 while mode === 'bathhop'
+let bathHopFrom = Vector3.Zero()
+const BATH_HOP_DURATION = 0.45 // seconds
+const BATH_HOP_DISTANCE = 1.2 // metres covered horizontally while hopping out
+const BATH_HOP_HEIGHT = 0.6 // metres, peak arc height
 
 // Wander state (used while the pet is dismissed / told to stay).
 let wanderHome = Vector3.create(199.2, 0, 231.8)
@@ -251,7 +262,7 @@ export function getLocalPet(): Entity | null {
 
 /** True while the pet is walking to / performing a care action. */
 export function isBusy(): boolean {
-  return mode === 'goto' || mode === 'interact'
+  return mode === 'goto' || mode === 'interact' || mode === 'bathhop'
 }
 
 function ensureLocalPet(): void {
@@ -508,6 +519,7 @@ export function startCarryPet(): void {
   clientState.carryPet = { active: true, atStation: false }
   attachPetToHands(clientState.activePet.species)
   playHoldPetEmote()
+  showArrowTo(objectPosition(EntityNames.PetPool_glb))
 }
 
 /** Cancel the bath carry (BACK): drop the flow, the pet just resumes following. */
@@ -516,6 +528,7 @@ export function cancelCarryPet(): void {
   clientState.carryPet = { active: false, atStation: false }
   detachPetFromHands()
   void stopEmote({}).catch(() => {}) // drop the hold pose, pet is no longer in hand
+  hideArrow()
 }
 
 /** Bath step 2: place the pet in the tub and run the clean action. */
@@ -524,12 +537,14 @@ export function placePetAtStation(): void {
   clientState.carryPet = { active: false, atStation: false }
   detachPetFromHands()
   void stopEmote({}).catch(() => {}) // drop the hold pose, pet is no longer in hand
+  hideArrow()
   if (localPet) {
     const t = Transform.getMutable(localPet)
     t.position = flat(objectPosition(EntityNames.PetPool_glb))
     t.rotation = Quaternion.Identity()
   }
   petReact() // happy splash at the tub
+  justBathed = true // hop out of the tub instead of walking straight through its rim
   applyCareLocal('clean', false) // optimistic local effect
   actions.care('clean', false) // server is authoritative
   pushToast('Bath time!  +Hygiene')
@@ -542,7 +557,7 @@ export function placePetAtStation(): void {
 // ---------------------------------------------------------------------------
 const ARROW_MODEL = 'models/arrow_indicator.glb'
 const ARROW_LEAD = 1 // metres ahead of the player, toward the target
-const ARROW_Y = C.PET_BASE_Y + 0.05 // just above the floor
+const ARROW_LOCAL_Y = 0.05 // just above the player's feet (local, since it's parented to the player)
 const ARROW_YAW_OFFSET = 180 // model points backwards; flip it to point at the target
 const ARROW_SCALE = 1 // tune the arrow size
 let arrow: Entity | null = null
@@ -555,10 +570,17 @@ export function hideArrow(): void {
   arrowTarget = null
 }
 
+// Parented to the player (body-fixed, same trick as AvatarAttach) instead of
+// positioned each frame from a world-space read of the player's Transform — that
+// read lags behind the avatar's actual (render-smooth) movement and looked
+// jittery/stuck while running, same root cause the carried pet had before it was
+// switched to AvatarAttach. With native parenting the renderer supplies the
+// player's *current* position every render frame; we only ever compute the
+// (slowly-changing) bearing to the target, expressed as a small local offset/yaw.
 function updateArrow(): void {
   if (!arrow) {
     arrow = engine.addEntity()
-    Transform.create(arrow, { scale: Vector3.scale(Vector3.One(), ARROW_SCALE) })
+    Transform.create(arrow, { parent: engine.PlayerEntity, scale: Vector3.scale(Vector3.One(), ARROW_SCALE) })
     GltfContainer.create(arrow, { src: ARROW_MODEL })
     Animator.create(arrow, { states: [{ clip: 'flow', playing: true, loop: true }] })
     VisibilityComponent.create(arrow, { visible: false })
@@ -569,16 +591,26 @@ function updateArrow(): void {
     if (vis.visible) vis.visible = false
     return
   }
-  const pp = playerPos()
-  const dir = Vector3.subtract(flat(arrowTarget), flat(pp))
-  if (Vector3.lengthSquared(dir) < 0.01) {
+  const pt = Transform.getOrNull(engine.PlayerEntity)
+  if (!pt) return
+  const dx = arrowTarget.x - pt.position.x
+  const dz = arrowTarget.z - pt.position.z
+  if (dx * dx + dz * dz < 0.01) {
     if (vis.visible) vis.visible = false
     return
   }
-  const n = Vector3.normalize(dir)
+  // World bearing to the target, then the player's own current facing — both via
+  // atan2(x,z), DCL's yaw convention — so we can express the arrow's pose in the
+  // PLAYER's local frame (localYaw = worldYaw - playerYaw). Parented, that local
+  // pose combines with the renderer's own current (smooth) player transform.
+  const worldYaw = (Math.atan2(dx, dz) * 180) / Math.PI
+  const fwd = Vector3.rotate(Vector3.create(0, 0, 1), pt.rotation)
+  const playerYaw = (Math.atan2(fwd.x, fwd.z) * 180) / Math.PI
+  const localYaw = worldYaw - playerYaw
+  const rad = (localYaw * Math.PI) / 180
   const t = Transform.getMutable(arrow)
-  t.position = Vector3.create(pp.x + n.x * ARROW_LEAD, ARROW_Y, pp.z + n.z * ARROW_LEAD)
-  t.rotation = yawToward(pp, arrowTarget, ARROW_YAW_OFFSET)
+  t.position = Vector3.create(Math.sin(rad) * ARROW_LEAD, ARROW_LOCAL_Y, Math.cos(rad) * ARROW_LEAD)
+  t.rotation = Quaternion.fromEulerDegrees(0, localYaw + ARROW_YAW_OFFSET, 0)
   t.scale = Vector3.scale(Vector3.One(), ARROW_SCALE)
   if (!vis.visible) vis.visible = true
 }
@@ -605,10 +637,7 @@ export function startCarryEgg(species: string, name: string): void {
 /** Per-frame while carrying: flag whether the player is home (drives the button). */
 function updateCarryEgg(): void {
   const st = clientState.carryEgg
-  if (!st.active) {
-    hideArrow()
-    return
-  }
+  if (!st.active) return
   const pp = playerPos()
   const home = objectPosition(EntityNames.Dome01_glb)
   st.atHome = distFlat(pp, home) <= C.HOME_RADIUS
@@ -632,6 +661,7 @@ export function beginHatchFromCarry(): void {
   }
   clientState.carryEgg = { active: false, species: '', name: '', atHome: false }
   void stopEmote({}).catch(() => {}) // drop the hold pose, egg is no longer in hand
+  hideArrow() // stop guiding home, the egg is no longer being carried
   startHatch(species, name)
 }
 
@@ -886,7 +916,30 @@ function updateLocalPet(dt: number): void {
     }
     case 'interact': {
       interactTimer -= dt
-      if (interactTimer <= 0) mode = clientState.followEnabled ? 'follow' : 'wander'
+      if (interactTimer <= 0) {
+        if (justBathed) {
+          justBathed = false
+          bathHopT = BATH_HOP_DURATION
+          bathHopFrom = Transform.get(localPet).position
+          mode = 'bathhop'
+        } else {
+          mode = clientState.followEnabled ? 'follow' : 'wander'
+        }
+      }
+      break
+    }
+    case 'bathhop': {
+      bathHopT -= dt
+      const hopT = Math.min(1, 1 - Math.max(0, bathHopT) / BATH_HOP_DURATION)
+      const toward = Vector3.subtract(flat(followTarget()), flat(bathHopFrom))
+      const away = Vector3.lengthSquared(toward) > 0.01 ? Vector3.normalize(toward) : Vector3.create(0, 0, 1)
+      const horizontal = Vector3.add(flat(bathHopFrom), Vector3.scale(away, BATH_HOP_DISTANCE * hopT))
+      const pt = Transform.getMutable(localPet)
+      pt.position = Vector3.create(horizontal.x, C.PET_BASE_Y + Math.sin(hopT * Math.PI) * BATH_HOP_HEIGHT, horizontal.z)
+      const awayYaw = (Math.atan2(away.x, away.z) * 180) / Math.PI
+      pt.rotation = Quaternion.fromEulerDegrees(0, awayYaw + yawOffsetForSpecies(clientState.activePet?.species ?? ''), 0)
+      moved = 1 // plays the walk clip below instead of idle
+      if (bathHopT <= 0) mode = clientState.followEnabled ? 'follow' : 'wander'
       break
     }
   }
