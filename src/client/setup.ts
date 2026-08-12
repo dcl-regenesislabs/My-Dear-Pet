@@ -1,9 +1,15 @@
-// Client bootstrap: seed a local player (so the HUD always renders), register
-// server handlers, run the local simulation, and request persisted state. The
-// server corrects us via snapshots when it answers; if it never does, the
-// client simulates the whole game locally.
+// Client bootstrap: seed a local player, register server handlers, run the
+// local simulation, and request persisted state.
+//
+// INTENTIONAL: this is NOT playable offline. The loading gate in ui.tsx
+// (Root, gated on clientState.serverReady) blocks all UI/input until the
+// FIRST stateSnapshot answers requestState() below. If the server never
+// answers, the player is stuck on "Loading server..." forever — there is no
+// local-only fallback anymore. seedLocalPlayer()/simTick() still run so the
+// data is ready the instant the gate lifts, but nothing is shown or usable
+// before that.
 
-import { engine } from '@dcl/sdk/ecs'
+import { engine, InputModifier } from '@dcl/sdk/ecs'
 import { room } from '../shared/messages'
 import type { PlayerSnapshot, PresenceEntry } from '../shared/types'
 import type { SpinReward } from '../shared/config'
@@ -39,19 +45,26 @@ function showIntro(): void {
 function registerHandlers(): void {
   room.onMessage('stateSnapshot', (data) => {
     markServerAlive()
+    clientState.serverReady = true // lifts the loading gate in ui.tsx (Root)
     try {
       const snap = JSON.parse(data.json) as PlayerSnapshot
       applySnapshot(snap)
-      // Decide the "Choose Location!" modal on the FIRST snapshot only: a player
-      // who ALREADY had a pet on entry is "returning" -> show it. A first-timer
-      // (no pet at load) gets the tutorial instead, and must NOT get the modal
-      // later when they adopt this session.
+      // Decide intro-vs-"Choose Location!" on the FIRST snapshot ONLY, and only
+      // here — this used to also be guessed from a timer (elapsed >= 2.5s) in case
+      // the server was slow, but that guess could fire showIntro() BEFORE this
+      // snapshot arrived and then get contradicted by it, leaving both the
+      // Caretaker intro AND the Location modal open at once. Now that the loading
+      // gate (clientState.serverReady) already blocks all UI until this snapshot
+      // lands, there's no need to guess early — decide once, for real.
       if (!firstSnapshotSeen) {
         firstSnapshotSeen = true
-        if (snap.activePet) ui.openLocation()
+        if (snap.activePet) {
+          introTriggered = true // returning player already has a pet -> skip the tutorial
+          ui.openLocation()
+        } else {
+          showIntro()
+        }
       }
-      // Returning player already has a pet -> skip the tutorial.
-      if (snap.activePet) introTriggered = true
     } catch (e) {
       console.log('[Client] bad snapshot', e)
     }
@@ -120,6 +133,12 @@ export function setupClient(): void {
   setupPetSystems() // renders + simulates remote pets from server `presence`
   setupPlay() // Play action: throw an animated meteorite forward
 
+  // Freeze the player (movement + camera input) while the loading gate is up —
+  // ui.tsx only blocks pointer/UI, InputModifier is what stops the avatar from
+  // walking off before the server has answered.
+  InputModifier.createOrReplace(engine.PlayerEntity, { mode: InputModifier.Mode.Standard({ disableAll: true }) })
+  let inputFrozen = true
+
   // Try to load persisted state from the server (retry until it answers).
   let sinceReq = 99
   let elapsed = 0
@@ -127,6 +146,11 @@ export function setupClient(): void {
   engine.addSystem((dt: number) => {
     elapsed += dt
     simTick(dt) // local game simulation
+
+    if (inputFrozen && clientState.serverReady) {
+      inputFrozen = false
+      InputModifier.deleteFrom(engine.PlayerEntity)
+    }
 
     // Keep asking the server for our saved progress for a while.
     if (elapsed < 30) {
@@ -136,11 +160,6 @@ export function setupClient(): void {
         resolveMyAddress()
         actions.requestState()
       }
-    }
-
-    // Greet first-time players (give the server ~2.5s to load an existing pet).
-    if (!introTriggered && elapsed >= 2.5 && !clientState.activePet) {
-      showIntro()
     }
 
     // Daily reward is suspended for now — the meteor covers the daily drop.

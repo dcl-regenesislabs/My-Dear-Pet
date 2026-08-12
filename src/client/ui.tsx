@@ -14,7 +14,7 @@ import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg
 import { throwMeteor } from './play'
 import { triggerCare, careActive, queueLength } from './input'
 import { buyItemLocal, buySlotLocal, claimStreak, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
-import { sway, startAnimSystem } from './ui/anim'
+import { sway, startAnimSystem, attentionPulse } from './ui/anim'
 import { C, Color, mobile, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, TactileButton, useCompactCanvas } from './ui/theme'
 import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './ui/dialog'
 
@@ -96,12 +96,22 @@ export const ui = {
   /** Teleport the player to the Care Center (where adoption happens). */
   goCareCenter(): void {
     void movePlayerTo({ newRelativePosition: CARE_CENTER })
+  },
+  /** Teleport the player to the middle of the home dome. */
+  goHome(): void {
+    void movePlayerTo({ newRelativePosition: HOME_DOME })
   }
 }
 
 // Care Center spawn — the adoption area. Shared by the "Choose Location!" modal
 // and the tutorial's Adopt step.
 const CARE_CENTER = { x: 174.272, y: 0, z: 249.377 }
+// Home dome spawn (Dome01, from main.composite). Hardcoded like CARE_CENTER above
+// instead of objectPosition(EntityNames.Dome01_glb) — that reads the entity's live
+// Transform, which can still be Vector3.Zero() if the composite entity hasn't
+// resolved by name yet (the "Choose Location!" modal can open early, right on the
+// first server snapshot) — teleporting the player to scene origin.
+const HOME_DOME = { x: 205.75, y: 0, z: 247.5 }
 
 // ---------------------------------------------------------------------------
 // Top profile bar (Caretaker level + XP + coins) -> tap opens Goals
@@ -1291,9 +1301,11 @@ function LightModal(props: { title: string; width: number; height: number; onClo
   )
 }
 
-function LocationTile(props: { icon: string; label: string; color: Color; onClick: () => void }) {
+function LocationTile(props: { imageSrc: string; label: string; color: Color; onClick: () => void }) {
   const tileW = S(300)
   const iconH = S(210)
+  const imageW = S(220)
+  const imageH = S(147)
   return (
     <UiEntity
       uiTransform={{ width: tileW, flexDirection: 'column', alignItems: 'center', margin: { left: S(12), right: S(12) }, pointerFilter: 'block' }}
@@ -1304,7 +1316,7 @@ function LocationTile(props: { icon: string; label: string; color: Color; onClic
         uiTransform={{ width: tileW, height: iconH, alignItems: 'center', justifyContent: 'center', borderRadius: S(22) }}
         uiBackground={{ color: LOC.tile }}
       >
-        <Label value={props.icon} fontSize={S(120)} color={props.color} textAlign="middle-center" uiTransform={{ width: tileW, height: iconH }} />
+        <UiEntity uiTransform={{ width: imageW, height: imageH }} uiBackground={{ texture: { src: props.imageSrc }, textureMode: 'stretch' }} />
       </UiEntity>
       {/* Colored label banner */}
       <UiEntity
@@ -1345,7 +1357,7 @@ function LocationPanel() {
         {/* Two options */}
         <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', margin: { top: S(20) } }}>
           <LocationTile
-            icon="🏥"
+            imageSrc="assets/images/carecenter.png"
             label="ADOPTION CENTER"
             color={LOC.orange}
             onClick={() => {
@@ -1353,8 +1365,15 @@ function LocationPanel() {
               ui.goCareCenter()
             }}
           />
-          {/* House: stay put, just close the modal. */}
-          <LocationTile icon="🏠" label="HOUSE" color={LOC.blue} onClick={close} />
+          <LocationTile
+            imageSrc="assets/images/dome.png"
+            label="HOUSE"
+            color={LOC.blue}
+            onClick={() => {
+              close()
+              ui.goHome()
+            }}
+          />
         </UiEntity>
       </UiEntity>
     </UiEntity>
@@ -1418,9 +1437,43 @@ function BathButton() {
 }
 
 // ---------------------------------------------------------------------------
+// Loading gate — blocks all UI/input until the authoritative server answers
+// with our persisted state (the first stateSnapshot, see setup.ts). Nothing
+// else in Root renders while this is up, and pointerFilter 'block' stops
+// clicks from reaching anything underneath.
+// ---------------------------------------------------------------------------
+function LoadingServerOverlay() {
+  const pulse = attentionPulse()
+  const cardW = S(480)
+  const cardH = S(200)
+  return (
+    <UiEntity
+      uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
+      uiBackground={{ color: C.scrim }}
+      onMouseDown={() => {}}
+    >
+      <UiEntity
+        uiTransform={{ width: cardW, height: cardH, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: S(24), pointerFilter: 'block' }}
+        uiBackground={{ color: C.panelBg }}
+      >
+        <OutlineLabel
+          value="Loading server..."
+          fontSize={Math.round(S(30) * pulse)}
+          color={C.gold}
+          width={cardW - S(60)}
+          height={S(48)}
+          textAlign="middle-center"
+        />
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Root
 // ---------------------------------------------------------------------------
 const Root = () => {
+  if (!clientState.serverReady) return <LoadingServerOverlay />
   // In petting mode the camera is locked on the pet — hide the whole HUD so
   // nothing covers it, leaving only the petting overlay (BACK + swipe hint).
   if (clientState.petting.active) {
