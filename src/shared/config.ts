@@ -196,10 +196,6 @@ export const SLOT_PRICE = 250 // currency to buy an extra slot directly
 export const PET_XP_PER_ACTION = 8
 export const PET_XP_PASSIVE_PER_SEC = 0.007 // scaled by happiness/100; ~2-3 days to reach the breeding unlock level
 
-/** Pet level at which breeding unlocks. Teaser only for now — no breeding logic
- *  yet (see issue #10); the pet panel shows a locked "Breed" gated on this. */
-export const BREEDING_UNLOCK_LEVEL = 5
-
 // ---------------------------------------------------------------------------
 // Breeding rarity — the offspring's tier is a random d10 (the "surprise") plus a
 // bonus from how well both parents were cared for. Well-kept pets don't

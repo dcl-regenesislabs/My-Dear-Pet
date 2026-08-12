@@ -312,7 +312,13 @@ function PetPanel() {
               return
             }
             if (!partner) {
-              pushToast('You need a second pet to breed with.')
+              showBubble('You need a second pet to breed with.')
+              return
+            }
+            // The server requires BOTH parents to be Adult — check the partner
+            // here so a JUNIOR partner shows a hint instead of a server error.
+            if (Cfg.petStage(partner.size) !== 'ADULT') {
+              showBubble(`${partner.name} must also grow to Adult to breed.`)
               return
             }
             actions.breed(partner.id)
@@ -964,7 +970,10 @@ function Toasts() {
 // ---------------------------------------------------------------------------
 function SpeechBubble() {
   const b = clientState.bubble
-  if (!b || b.until <= Date.now()) return <UiEntity />
+  if (!b || b.until <= Date.now()) {
+    if (b) clientState.bubble = null // expired: clear the stale entry
+    return <UiEntity />
+  }
   const w = S(430)
   // A blue-ringed white dot (outer blue circle + inner white circle).
   const tail = (d: number, offsetRight: number) => (

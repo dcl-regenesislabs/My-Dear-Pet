@@ -786,7 +786,9 @@ function updateLocalPet(dt: number): void {
   if ((clientState.carryEgg.active || (clientState.hatch.active && !hatchRevealed)) && clientState.activePet) {
     const petP = clientState.activePet
     const idx = activePetSlotIndex()
-    const moved = stepToward(localPet, slotHome(idx >= 0 ? idx : 0), dt, yawOffsetForSpecies(petP.species))
+    // Only walk to a slot if this pet actually has one; otherwise just idle in
+    // place (never fall back to slot 0, which another pet may already occupy).
+    const moved = idx >= 0 ? stepToward(localPet, slotHome(idx), dt, yawOffsetForSpecies(petP.species)) : 0
     setClip(localPet, moved > 0.003 ? 'walk' : 'idle')
     if (localTag) updateTag(localTag, Transform.get(localPet).position, stageScaleFor(petP.size), petP.name, healthFrac(petP), petStage(petP.size))
     return
