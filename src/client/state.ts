@@ -57,6 +57,10 @@ export const clientState: {
   // ms timestamp of the last message received from the authoritative server
   // (0 = never heard from it). Drives the connection indicator.
   lastServerMsgAt: number
+  // True once the FIRST stateSnapshot has been received — the loading gate
+  // (ui.tsx Root) blocks all UI/input until this flips, so nothing starts
+  // before the server has answered with our persisted state.
+  serverReady: boolean
   // Shared Mars colony population, broadcast by the server (same for everyone).
   colonyPopulation: number
 } = {
@@ -80,6 +84,7 @@ export const clientState: {
   pendingUntil: 0,
   streak: { count: 1, lastDay: 0, claimedDay: 0 },
   lastServerMsgAt: 0,
+  serverReady: false,
   colonyPopulation: 0
 }
 

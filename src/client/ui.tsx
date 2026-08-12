@@ -14,7 +14,7 @@ import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg
 import { throwMeteor } from './play'
 import { triggerCare, careActive, queueLength } from './input'
 import { buyItemLocal, buySlotLocal, claimStreak, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
-import { sway, startAnimSystem } from './ui/anim'
+import { sway, startAnimSystem, attentionPulse } from './ui/anim'
 import { C, Color, mobile, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, TactileButton, useCompactCanvas } from './ui/theme'
 import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './ui/dialog'
 
@@ -1418,9 +1418,43 @@ function BathButton() {
 }
 
 // ---------------------------------------------------------------------------
+// Loading gate — blocks all UI/input until the authoritative server answers
+// with our persisted state (the first stateSnapshot, see setup.ts). Nothing
+// else in Root renders while this is up, and pointerFilter 'block' stops
+// clicks from reaching anything underneath.
+// ---------------------------------------------------------------------------
+function LoadingServerOverlay() {
+  const pulse = attentionPulse()
+  const cardW = S(480)
+  const cardH = S(200)
+  return (
+    <UiEntity
+      uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
+      uiBackground={{ color: C.scrim }}
+      onMouseDown={() => {}}
+    >
+      <UiEntity
+        uiTransform={{ width: cardW, height: cardH, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: S(24), pointerFilter: 'block' }}
+        uiBackground={{ color: C.panelBg }}
+      >
+        <OutlineLabel
+          value="Loading server..."
+          fontSize={Math.round(S(30) * pulse)}
+          color={C.gold}
+          width={cardW - S(60)}
+          height={S(48)}
+          textAlign="middle-center"
+        />
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Root
 // ---------------------------------------------------------------------------
 const Root = () => {
+  if (!clientState.serverReady) return <LoadingServerOverlay />
   // In petting mode the camera is locked on the pet — hide the whole HUD so
   // nothing covers it, leaving only the petting overlay (BACK + swipe hint).
   if (clientState.petting.active) {
