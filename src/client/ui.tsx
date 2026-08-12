@@ -1297,9 +1297,11 @@ function LightModal(props: { title: string; width: number; height: number; onClo
   )
 }
 
-function LocationTile(props: { icon: string; label: string; color: Color; onClick: () => void }) {
+function LocationTile(props: { icon?: string; imageSrc?: string; label: string; color: Color; onClick: () => void }) {
   const tileW = S(300)
   const iconH = S(210)
+  const imageW = S(220)
+  const imageH = S(147)
   return (
     <UiEntity
       uiTransform={{ width: tileW, flexDirection: 'column', alignItems: 'center', margin: { left: S(12), right: S(12) }, pointerFilter: 'block' }}
@@ -1310,7 +1312,14 @@ function LocationTile(props: { icon: string; label: string; color: Color; onClic
         uiTransform={{ width: tileW, height: iconH, alignItems: 'center', justifyContent: 'center', borderRadius: S(22) }}
         uiBackground={{ color: LOC.tile }}
       >
-        <Label value={props.icon} fontSize={S(120)} color={props.color} textAlign="middle-center" uiTransform={{ width: tileW, height: iconH }} />
+        {props.imageSrc ? (
+          <UiEntity
+            uiTransform={{ width: imageW, height: imageH }}
+            uiBackground={{ texture: { src: props.imageSrc }, textureMode: 'stretch' }}
+          />
+        ) : (
+          <Label value={props.icon ?? ''} fontSize={S(120)} color={props.color} textAlign="middle-center" uiTransform={{ width: tileW, height: iconH }} />
+        )}
       </UiEntity>
       {/* Colored label banner */}
       <UiEntity
@@ -1352,6 +1361,7 @@ function LocationPanel() {
         <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', margin: { top: S(20) } }}>
           <LocationTile
             icon="🏥"
+            imageSrc="assets/images/carecenter.png"
             label="ADOPTION CENTER"
             color={LOC.orange}
             onClick={() => {
@@ -1361,6 +1371,7 @@ function LocationPanel() {
           />
           <LocationTile
             icon="🏠"
+            imageSrc="assets/images/dome.png"
             label="HOUSE"
             color={LOC.blue}
             onClick={() => {
