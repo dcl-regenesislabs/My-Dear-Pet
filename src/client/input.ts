@@ -3,13 +3,13 @@
 // walk to the object, do the animation for a beat, then a short rest before
 // the next. This stops the pet from teleport-spamming between stations.
 
-import { engine, pointerEventsSystem, InputAction } from '@dcl/sdk/ecs'
+import { engine, pointerEventsSystem, inputSystem, InputAction, PointerEventType } from '@dcl/sdk/ecs'
 import { EntityNames } from '../../assets/scene/entity-names'
 import type { CareAction } from '../shared/types'
 import { actionObjectPosition } from './objects'
 import { isBusy, sendPetTo } from './pet'
 import { applyCareLocal } from './sim'
-import { actions, clientState, pushToast } from './state'
+import { actions, clientState, debugGrowAdultLocal, pushToast } from './state'
 import { ui } from './ui'
 
 const ACTION_CLIP: Record<CareAction, string> = {
@@ -75,6 +75,22 @@ function setupCareQueue(): void {
   })
 }
 
+// DEBUG hotkey: press "4" to grow the active pet to Adult + Lv5 (unlock breeding).
+// NOTE: DCL exposes only number keys 1-4 (IA_ACTION_3..6); there is no key "5",
+// so this testing shortcut lives on 4 (IA_ACTION_6).
+function setupDebugHotkeys(): void {
+  engine.addSystem(() => {
+    if (inputSystem.isTriggered(InputAction.IA_ACTION_6, PointerEventType.PET_DOWN)) {
+      if (!clientState.activePet) {
+        pushToast('DEBUG: no active pet to grow')
+        return
+      }
+      debugGrowAdultLocal()
+      pushToast('DEBUG: pet grown to Adult (Lv 5) — breeding unlocked')
+    }
+  })
+}
+
 function onClick(name: string, hoverText: string, cb: () => void): void {
   const ent = engine.getEntityOrNullByName(name)
   if (!ent) {
@@ -94,4 +110,5 @@ export function setupInput(): void {
   onClick(EntityNames.Caretaker, 'Talk to Caretaker', () => ui.openCaretaker())
   // Shop is suspended for now — the object stays in the scene but isn't clickable.
   setupCareQueue()
+  setupDebugHotkeys()
 }
