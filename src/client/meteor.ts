@@ -16,8 +16,8 @@ import {
   InputAction
 } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion } from '@dcl/sdk/math'
-import { actions } from './state'
-import { meteorAvailable } from './sim'
+import { meteorAvailable, streakClaimable } from './sim'
+import { ui } from './ui'
 
 const MODEL = 'assets/scene/Models/meteor_gold.glb'
 const LANDING_CLIP = 'meteorLanding'
@@ -37,10 +37,11 @@ export function setupMeteor(): void {
   // claimed day comes from the server, so spawning early could show a meteor
   // that was already collected today.
   const waitForState = (): void => {
-    const available = meteorAvailable()
-    if (available === null) return // no snapshot yet
+    // meteorAvailable() is null until the first snapshot lands — use it only as a
+    // "player state is ready" signal, then gate the drop on the daily streak.
+    if (meteorAvailable() === null) return
     engine.removeSystem(waitForState)
-    if (available) spawnMeteor()
+    if (streakClaimable()) spawnMeteor()
   }
   engine.addSystem(waitForState)
 }
@@ -90,7 +91,7 @@ function spawnMeteor(): void {
     () => {
       if (collected) return
       collected = true
-      actions.openMeteor()
+      ui.openMeteorReward() // opens the daily-reward ladder (client streak)
       engine.removeSystem(timeline)
       engine.removeEntity(meteor)
     }
