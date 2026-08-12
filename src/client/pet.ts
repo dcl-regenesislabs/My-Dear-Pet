@@ -80,9 +80,25 @@ type HealthTag = { root: Entity; label: Entity; frame: Entity; track: Entity; fi
 type Roamer = { entity: Entity; species: string; tag: HealthTag; home: Vector3; target: Vector3 | null; pause: number }
 const inactivePets = new Map<string, Roamer>()
 
-// Pick a random point inside the care area (objects sit ~x195-214, z235-249).
-function careAreaPoint(): Vector3 {
-  return Vector3.create(197.2 + Math.random() * 14, C.PET_BASE_Y, 235.8 + Math.random() * 18)
+// Each owned pet gets its OWN home slot so up-to-4 pets never pile up on the same
+// spot. Slots are spread across the care area (objects sit ~x195-214, z235-249);
+// a stored pet roams a little around its slot, and the active pet parks on its
+// slot while you carry/hatch a new egg so the newborn won't overlap it.
+const PET_SLOT_HOMES: Vector3[] = [
+  Vector3.create(200, C.PET_BASE_Y, 239),
+  Vector3.create(206, C.PET_BASE_Y, 239),
+  Vector3.create(200, C.PET_BASE_Y, 245),
+  Vector3.create(206, C.PET_BASE_Y, 245)
+]
+function slotHome(index: number): Vector3 {
+  const s = PET_SLOT_HOMES[((index % PET_SLOT_HOMES.length) + PET_SLOT_HOMES.length) % PET_SLOT_HOMES.length]
+  return Vector3.create(s.x, s.y, s.z)
+}
+/** Index of the currently-shown active pet within the roster (-1 if none). */
+function activePetSlotIndex(): number {
+  const p = clientState.player
+  const id = clientState.activePet?.id
+  return p && id ? p.pets.findIndex((x) => x.id === id) : -1
 }
 
 let localTag: HealthTag | null = null
@@ -764,6 +780,20 @@ function updateLocalPet(dt: number): void {
   ensureLocalPet()
   if (!localPet) return
 
+  // While carrying a new egg (or hatching it, before the newborn emerges), send
+  // the CURRENT pet to its home slot and park it there. This clears the hatch
+  // spot in front of the player so the new pet won't spawn on top of this one.
+  if ((clientState.carryEgg.active || (clientState.hatch.active && !hatchRevealed)) && clientState.activePet) {
+    const petP = clientState.activePet
+    const idx = activePetSlotIndex()
+    // Only walk to a slot if this pet actually has one; otherwise just idle in
+    // place (never fall back to slot 0, which another pet may already occupy).
+    const moved = idx >= 0 ? stepToward(localPet, slotHome(idx), dt, yawOffsetForSpecies(petP.species)) : 0
+    setClip(localPet, moved > 0.003 ? 'walk' : 'idle')
+    if (localTag) updateTag(localTag, Transform.get(localPet).position, stageScaleFor(petP.size), petP.name, healthFrac(petP), petStage(petP.size))
+    return
+  }
+
   // During the hatch sequence: keep the newborn at the egg's spot playing idle,
   // pop its scale in, and re-point the camera from the egg onto the pet so there's
   // no jump when the egg is removed. Normal behavior resumes once hatch ends.
@@ -961,14 +991,19 @@ function updateInactivePets(dt: number): void {
   const wanted = new Set<string>()
 
   if (p) {
-    for (const pet of p.pets) {
-      if (pet.id === p.activePetId) continue
+    // Exclude the pet currently shown as the ACTIVE localPet (which may be the
+    // pending hatchling, not yet in p.pets) — never by activePetId, or a pet
+    // would vanish during the hatch window.
+    const shownId = clientState.activePet?.id
+    for (let index = 0; index < p.pets.length; index++) {
+      const pet = p.pets[index]
+      if (pet.id === shownId) continue
       wanted.add(pet.id)
+      const home = slotHome(index) // this pet's fixed slot
 
       let st = inactivePets.get(pet.id)
       if (!st) {
         const e = engine.addEntity()
-        const home = careAreaPoint()
         Transform.create(e, { position: home, scale: petScale(pet.species, stageScaleFor(pet.size)) })
         GltfContainer.createOrReplace(e, { src: modelForSpecies(pet.species), visibleMeshesCollisionMask: ColliderLayer.CL_POINTER })
         ensureAnimator(e)
@@ -980,12 +1015,13 @@ function updateInactivePets(dt: number): void {
         st = { entity: e, species: pet.species, tag: makeTag(), home, target: null, pause: Math.random() * 2 }
         inactivePets.set(pet.id, st)
       }
+      st.home = home // keep anchored to its slot even if the roster reorders
       if (st.species !== pet.species) {
         st.species = pet.species
         GltfContainer.createOrReplace(st.entity, { src: modelForSpecies(pet.species), visibleMeshesCollisionMask: ColliderLayer.CL_POINTER })
       }
 
-      // Wander: walk to a random nearby point, idle a beat, repeat.
+      // Wander in a SMALL radius around its slot, so it stays in its own spot.
       let moved = 0
       if (st.pause > 0) {
         st.pause -= dt
@@ -994,7 +1030,7 @@ function updateInactivePets(dt: number): void {
           st.target = null
           st.pause = 1.5 + Math.random() * 3
         } else {
-          const r = 2 + Math.random() * 4
+          const r = 0.6 + Math.random() * 1.0
           const ang = Math.random() * Math.PI * 2
           st.target = Vector3.create(st.home.x + Math.cos(ang) * r, C.PET_BASE_Y, st.home.z + Math.sin(ang) * r)
         }

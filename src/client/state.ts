@@ -4,7 +4,7 @@
 import { getPlayer } from '@dcl/sdk/players'
 import { room } from '../shared/messages'
 import type { CareAction, PetData, PlayerData, PlayerSnapshot, PresenceEntry } from '../shared/types'
-import { SERVER_TIMEOUT_MS, SIZE_BASE, speciesLabel, type SpinReward } from '../shared/config'
+import { levelForXp, SERVER_TIMEOUT_MS, SIZE_BASE, SIZE_MAX, SLOT_PRICE, speciesLabel, xpForLevel, type SpinReward } from '../shared/config'
 
 export type DialogState = {
   open: boolean
@@ -23,6 +23,9 @@ export const clientState: {
   // UI flags
   followEnabled: boolean
   toasts: { message: string; until: number }[]
+  // Speech-bubble hint (one at a time): a cozy dialogue balloon for contextual
+  // tips like "grow your pet to Adult to unlock breeding". null = nothing showing.
+  bubble: { message: string; until: number } | null
   lastSpin: { reward: SpinReward; index: number; at: number } | null
   dialog: DialogState
   introShown: boolean
@@ -63,6 +66,7 @@ export const clientState: {
   presence: [],
   followEnabled: true,
   toasts: [],
+  bubble: null,
   lastSpin: null,
   dialog: { open: false, npcName: '', pages: [], page: 0, finalLabel: 'Got it!', onDone: null },
   introShown: false,
@@ -213,6 +217,16 @@ export function pushToast(message: string): void {
   if (clientState.toasts.length > 4) clientState.toasts.shift()
 }
 
+/** Show a speech-bubble hint for `ms` milliseconds (replaces any current one). */
+export function showBubble(message: string, ms = 5000): void {
+  clientState.bubble = { message, until: Date.now() + ms }
+}
+
+/** Dismiss the speech bubble immediately (e.g. the player tapped it). */
+export function dismissBubble(): void {
+  clientState.bubble = null
+}
+
 export function resolveMyAddress(): string {
   if (clientState.myAddress) return clientState.myAddress
   const p = getPlayer()
@@ -269,5 +283,21 @@ export const actions = {
   },
   breed(partnerPetId: string): void {
     room.send('breed', { partnerPetId })
+  },
+  debugGrowAdult(): void {
+    room.send('debugGrowAdult', {})
   }
+}
+
+/** DEBUG/testing: grow the active pet to Adult + Lv5 instantly (optimistic +
+ *  server). Bound to a hotkey in input.ts so breeding can be tested fast. */
+export function debugGrowAdultLocal(): void {
+  const pet = clientState.activePet
+  if (!pet) return
+  pet.careCount = Math.max(pet.careCount, 70)
+  pet.size = SIZE_MAX
+  pet.petXp = Math.max(pet.petXp, xpForLevel(5))
+  pet.petLevel = levelForXp(pet.petXp)
+  if (clientState.player) clientState.player.currency = Math.max(clientState.player.currency, SLOT_PRICE)
+  actions.debugGrowAdult()
 }

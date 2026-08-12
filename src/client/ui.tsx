@@ -9,7 +9,7 @@ import ReactEcs, { ReactEcsRenderer, Label, UiEntity, Input } from '@dcl/sdk/rea
 import { movePlayerTo } from '~system/RestrictedActions'
 import * as Cfg from '../shared/config'
 import type { CareAction } from '../shared/types'
-import { actions, clientState, discardHatchling, keepHatchling, pushToast, serverConnected, switchActivePet } from './state'
+import { actions, clientState, discardHatchling, dismissBubble, keepHatchling, pushToast, serverConnected, showBubble, switchActivePet } from './state'
 import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry, startCarryPet, placePetAtStation, cancelCarryPet } from './pet'
 import { throwMeteor } from './play'
 import { triggerCare, careActive, queueLength } from './input'
@@ -67,12 +67,21 @@ export const ui = {
     if (uiState.panel === 'none' && !clientState.dialog.open) uiState.panel = 'daily'
   },
   openCaretaker(): void {
-    if (!clientState.activePet)
+    const p = clientState.player
+    const hasFreeSlot = !!p && p.pets.length < p.petSlots
+    if (!clientState.activePet) {
+      // First adoption: intro dialog, then the picker.
       openCaretakerIntro(() => {
         ui.goCareCenter()
         ui.openAdopt()
       })
-    else openCaretakerTips()
+    } else if (hasFreeSlot) {
+      // Already have a pet + a free unlocked slot: go straight to the picker.
+      ui.openAdopt()
+    } else {
+      // Have a pet but no room: just the caretaker tips.
+      openCaretakerTips()
+    }
   },
   close(): void {
     uiState.panel = 'none'
@@ -214,7 +223,7 @@ function PetPanel() {
   const chipW = Math.floor((contentW - S(30)) / 4) // 4 care buttons across, with slack
   const chipH = S(60)
   const halfW = Math.round((contentW - S(8)) / 2)
-  const unlocked = pet.petLevel >= Cfg.BREEDING_UNLOCK_LEVEL
+  const unlocked = Cfg.petStage(pet.size) === 'ADULT'
   const partner = clientState.player?.pets.find((x) => x.id !== pet.id)
 
   return (
@@ -288,7 +297,7 @@ function PetPanel() {
         <TactileButton id="pet_gesture" label="Pet  ·  +Happy" width={halfW} height={S(54)} bg={C.happy} textColor={C.outline} fontSize={S(16)} radius={S(16)} margin={{ right: S(4) }} onClick={() => startPetting()} />
         <TactileButton
           id="breed_teaser"
-          label={unlocked ? 'Breed' : `Breed  ·  Lv ${Cfg.BREEDING_UNLOCK_LEVEL}`}
+          label={unlocked ? 'Breed' : 'Breed  ·  Adult'}
           width={halfW}
           height={S(54)}
           bg={unlocked ? LOC.blue : LOC.neutral}
@@ -299,11 +308,17 @@ function PetPanel() {
           pulse={unlocked}
           onClick={() => {
             if (!unlocked) {
-              pushToast(`Breeding unlocks at level ${Cfg.BREEDING_UNLOCK_LEVEL}.`)
+              showBubble('Grow your pet to Adult to unlock breeding!')
               return
             }
             if (!partner) {
-              pushToast('You need a second pet to breed with.')
+              showBubble('You need a second pet to breed with.')
+              return
+            }
+            // The server requires BOTH parents to be Adult — check the partner
+            // here so a JUNIOR partner shows a hint instead of a server error.
+            if (Cfg.petStage(partner.size) !== 'ADULT') {
+              showBubble(`${partner.name} must also grow to Adult to breed.`)
               return
             }
             actions.breed(partner.id)
@@ -947,6 +962,43 @@ function Toasts() {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Speech bubble — a cozy dialogue balloon for contextual hints (one at a time).
+// White balloon with a blue rim + a two-dot "thought" tail (UI can't rotate a
+// triangle, so the shrinking-circles tail is what reads as a speech bubble).
+// Tap it to dismiss; it also auto-expires. Rendered on top of everything.
+// ---------------------------------------------------------------------------
+function SpeechBubble() {
+  const b = clientState.bubble
+  if (!b || b.until <= Date.now()) {
+    if (b) clientState.bubble = null // expired: clear the stale entry
+    return <UiEntity />
+  }
+  const w = S(430)
+  // A blue-ringed white dot (outer blue circle + inner white circle).
+  const tail = (d: number, offsetRight: number) => (
+    <UiEntity uiTransform={{ width: d, height: d, borderRadius: d, margin: { top: S(4), right: offsetRight }, alignItems: 'center', justifyContent: 'center' }} uiBackground={{ color: LOC.blue }}>
+      <UiEntity uiTransform={{ width: d - S(5), height: d - S(5), borderRadius: d }} uiBackground={{ color: LOC.tile }} />
+    </UiEntity>
+  )
+  return (
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: '24%', left: '50%' }, margin: { left: -w / 2 }, width: w, flexDirection: 'column', alignItems: 'center', pointerFilter: 'none' }}>
+      {/* Balloon: blue rim wrapping a white body. */}
+      <UiEntity
+        uiTransform={{ width: w, height: S(96), justifyContent: 'center', alignItems: 'center', borderRadius: S(26), pointerFilter: 'block' }}
+        uiBackground={{ color: LOC.blue }}
+        onMouseDown={() => dismissBubble()}
+      >
+        <UiEntity uiTransform={{ width: w - S(8), height: S(88), justifyContent: 'center', alignItems: 'center', borderRadius: S(22) }} uiBackground={{ color: LOC.tile }}>
+          <Label value={b.message} fontSize={S(20)} color={LOC.body} textAlign="middle-center" uiTransform={{ width: w - S(40), height: S(72) }} />
+        </UiEntity>
+      </UiEntity>
+      {tail(S(26), S(70))}
+      {tail(S(14), S(108))}
+    </UiEntity>
+  )
+}
+
 // Shared BACK button for full-screen action overlays (Petting / Fetch / Bath).
 // Top-left, inset from the corner, pushed further in on mobile so the app's own
 // corner UI doesn't cover it. One place so every action's BACK matches.
@@ -1322,7 +1374,8 @@ const Root = () => {
     {uiState.panel === 'daily' && <DailyRewardPanel />}
     <DialogBox />
     <LocationPanel />
-    {/* Toasts render LAST so they sit on top of any open panel/modal. */}
+    {/* Bubble + toasts render LAST so they sit on top of any open panel/modal. */}
+    <SpeechBubble />
     <Toasts />
   </UiEntity>
   )

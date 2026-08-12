@@ -363,8 +363,8 @@ export function breed(p: PlayerData, partnerId: string): { notes: Notify[]; rari
   if (!a) return { notes: [{ kind: 'error', message: 'No active pet' }], rarity: null }
   const b = p.pets.find((x) => x.id === partnerId && x.id !== a.id)
   if (!b) return { notes: [{ kind: 'error', message: 'Pick a different pet to breed with' }], rarity: null }
-  if (a.petLevel < C.BREEDING_UNLOCK_LEVEL || b.petLevel < C.BREEDING_UNLOCK_LEVEL) {
-    return { notes: [{ kind: 'error', message: `Both pets must reach level ${C.BREEDING_UNLOCK_LEVEL} to breed` }], rarity: null }
+  if (C.petStage(a.size) !== 'ADULT' || C.petStage(b.size) !== 'ADULT') {
+    return { notes: [{ kind: 'error', message: 'Both pets must be Adult to breed' }], rarity: null }
   }
   if (p.pets.length >= p.petSlots) {
     return { notes: [{ kind: 'error', message: 'No free pet slots for the offspring' }], rarity: null }
@@ -378,6 +378,19 @@ export function breed(p: PlayerData, partnerId: string): { notes: Notify[]; rari
   bump(p, 'breedCount')
 
   return { notes: [{ kind: 'breed', message: `A ${rarity} ${child.name} was born!` }], rarity }
+}
+
+/** DEBUG/testing: grow the active pet straight to Adult + level 5 so breeding
+ *  can be tested without days of care. Sets careCount/size and XP to match. */
+export function debugGrowAdult(p: PlayerData): Notify[] {
+  const pet = activePet(p)
+  if (!pet) return [{ kind: 'error', message: 'No active pet' }]
+  pet.careCount = Math.max(pet.careCount, 70) // keeps size maxed even after care
+  pet.size = C.SIZE_MAX // Adult (>= PET_STAGE_ADULT_SIZE)
+  pet.petXp = Math.max(pet.petXp, C.xpForLevel(5))
+  pet.petLevel = C.levelForXp(pet.petXp)
+  p.currency = Math.max(p.currency, C.SLOT_PRICE) // enough to unlock pet slot 2
+  return [{ kind: 'adopt', message: `DEBUG: ${pet.name} is now Adult (Lv ${pet.petLevel}), +${C.SLOT_PRICE} coins — breeding + slot 2 unlocked.` }]
 }
 
 export function careAction(p: PlayerData, action: CareAction, onBed: boolean): Notify[] {
