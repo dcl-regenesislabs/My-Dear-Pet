@@ -409,7 +409,7 @@ let hatchRevealPos: Vector3 | null = null // where the pet emerges (the egg's sp
 let hatchAnimT = 0 // elapsed time since the Hatch clip started
 let hatchRevealed = false // pet already popped out this hatch?
 let hatchEggRemoved = false // egg entity already removed this hatch?
-let hatchCamRetargeted = false // camera already re-pointed from egg to pet?
+let hatchFocus: Entity | null = null // invisible, fixed point at the egg's spot the camera stays locked on
 
 // --- Carrying the egg home ------------------------------------------------
 // On adoption the egg is attached above the avatar; the player walks it home,
@@ -616,7 +616,6 @@ export function startHatch(species: string, name: string): void {
   hatchAnimT = 0
   hatchRevealed = false
   hatchEggRemoved = false
-  hatchCamRetargeted = false
 
   // Egg a bit in front of the player, framed by a dedicated camera.
   const pp = playerPos()
@@ -636,10 +635,16 @@ export function startHatch(species: string, name: string): void {
     ]
   })
 
+  // Invisible focus fixed at the egg's spot (raised to the pet's body). The
+  // camera locks onto THIS, not the egg — so when the egg is removed the shot
+  // stays put and you watch the pet appear right where the egg opened.
+  if (!hatchFocus) hatchFocus = engine.addEntity()
+  Transform.createOrReplace(hatchFocus, { position: Vector3.create(eggPos.x, eggPos.y + 0.4, eggPos.z) })
+
   const camPos = Vector3.create(eggPos.x, eggPos.y + 1.2, eggPos.z + 2.6)
   if (!petCam) petCam = engine.addEntity()
   Transform.createOrReplace(petCam, { position: camPos })
-  VirtualCamera.createOrReplace(petCam, { lookAtEntity: egg })
+  VirtualCamera.createOrReplace(petCam, { lookAtEntity: hatchFocus })
   MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: petCam })
   InputModifier.createOrReplace(engine.PlayerEntity, { mode: InputModifier.Mode.Standard({ disableAll: true }) })
 }
@@ -669,6 +674,10 @@ function finishHatch(): void {
   if (egg) {
     engine.removeEntity(egg)
     egg = null
+  }
+  if (hatchFocus) {
+    engine.removeEntity(hatchFocus)
+    hatchFocus = null
   }
   releasePettingView() // release camera + avatar (shared helper)
   hatchRevealPos = null
@@ -767,11 +776,7 @@ function updateLocalPet(dt: number): void {
     t.scale = Vector3.scale(full, f)
     if (hatchRevealPos) t.position = flat(hatchRevealPos)
     setClip(localPet, 'idle')
-    // Camera now follows the pet (was looking at the egg).
-    if (petCam && !hatchCamRetargeted) {
-      VirtualCamera.getMutable(petCam).lookAtEntity = localPet as number
-      hatchCamRetargeted = true
-    }
+    // Camera stays locked on hatchFocus (the egg's spot) — no retarget needed.
     if (localTag) updateTag(localTag, t.position, stageScaleFor(petH.size), petH.name, healthFrac(petH), petStage(petH.size))
     return
   }
