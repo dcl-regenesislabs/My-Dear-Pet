@@ -28,7 +28,11 @@ const uiState = {
   adoptName: '',
   // "Choose Location!" modal — opened on entry for RETURNING players only
   // (first-timers get the tutorial instead). Wired from setup.ts.
-  locationOpen: false
+  locationOpen: false,
+  // Fake "watch ad" overlay: shows the header image until this timestamp, then
+  // grants the (2x) daily reward and closes the panel. 0 = not showing.
+  adUntil: 0,
+  adClaim2x: false
 }
 
 export const ui = {
@@ -875,6 +879,11 @@ function MeteorRewardPanel() {
     }
     ui.close()
   }
+  // "Watch Ad" shows the header image for 2s, then AdOverlay grants the 2x reward.
+  const watchAd = () => {
+    uiState.adUntil = Date.now() + 2000
+    uiState.adClaim2x = true
+  }
   return (
     <LightModal title="Daily Rewards" width={S(920)} height={S(440)} onClose={() => ui.close()}>
       <Label value="Play every day to get better prizes!" fontSize={S(20)} color={LOC.body} textAlign="middle-center" uiTransform={{ width: '100%', height: S(28), margin: { bottom: S(6) } }} />
@@ -888,13 +897,44 @@ function MeteorRewardPanel() {
           <TactileButton id="daily_claim" label="Claim!" width={S(230)} height={S(70)} bg={LOC.green} textColor={LOC.white} fontSize={S(26)} radius={S(18)} pulse margin={{ right: S(10) }} onClick={() => claim(false)} />
         )}
         {claimable && (
-          <TactileButton id="daily_claim_2x" label="Watch Ad  ·  2x Reward" width={S(360)} height={S(70)} bg={LOC.violet} textColor={LOC.white} fontSize={S(22)} radius={S(18)} margin={{ left: S(10) }} onClick={() => claim(true)} />
+          <TactileButton id="daily_claim_2x" label="Watch Ad  ·  2x Reward" width={S(360)} height={S(70)} bg={LOC.violet} textColor={LOC.white} fontSize={S(22)} radius={S(18)} margin={{ left: S(10) }} onClick={() => watchAd()} />
         )}
         {!claimable && (
           <TactileButton id="daily_done" label="Come back tomorrow!" width={S(360)} height={S(70)} bg={LOC.neutral} textColor={LOC.body} fontSize={S(22)} radius={S(18)} disabled onClick={() => {}} />
         )}
       </UiEntity>
     </LightModal>
+  )
+}
+
+// Fake "watch ad" overlay: the header image centered for 2s, then it grants the
+// 2x daily reward and closes the panel. Rendered on top of everything.
+const AD_IMAGE = 'assets/images/header.png'
+function AdOverlay() {
+  if (uiState.adUntil <= 0) return <UiEntity />
+  if (Date.now() >= uiState.adUntil) {
+    // Ad finished (runs once — adUntil is cleared): grant the 2x reward + close.
+    const x2 = uiState.adClaim2x
+    uiState.adUntil = 0
+    uiState.adClaim2x = false
+    const r = claimStreak()
+    if (r) {
+      if (x2 && clientState.player) clientState.player.currency += r.currency
+      const total = x2 ? r.currency * 2 : r.currency
+      pushToast(`Daily reward: +${total} coins${r.spins ? ` +${r.spins} spins` : ''}!`)
+    }
+    ui.close()
+    return <UiEntity />
+  }
+  const w = S(760)
+  const h = Math.round(w / 2) // header.png is 768x384 (2:1)
+  return (
+    <UiEntity
+      uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
+      uiBackground={{ color: { r: 0, g: 0, b: 0, a: 0.6 } }}
+    >
+      <UiEntity uiTransform={{ width: w, height: h }} uiBackground={{ texture: { src: AD_IMAGE }, textureMode: 'stretch' }} />
+    </UiEntity>
   )
 }
 
@@ -1422,6 +1462,8 @@ const Root = () => {
     {/* Bubble + toasts render LAST so they sit on top of any open panel/modal. */}
     <SpeechBubble />
     <Toasts />
+    {/* The fake-ad overlay sits above even those. */}
+    <AdOverlay />
   </UiEntity>
   )
 }
