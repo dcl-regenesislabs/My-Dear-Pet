@@ -7,10 +7,8 @@
 
 import ReactEcs, { ReactEcsRenderer, Label, UiEntity, Input } from '@dcl/sdk/react-ecs'
 import { movePlayerTo } from '~system/RestrictedActions'
-import { EntityNames } from '../../assets/scene/entity-names'
 import * as Cfg from '../shared/config'
 import type { CareAction } from '../shared/types'
-import { objectPosition } from './objects'
 import { actions, clientState, discardHatchling, dismissBubble, keepHatchling, pushToast, serverConnected, showBubble, switchActivePet } from './state'
 import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry, startCarryPet, placePetAtStation, cancelCarryPet } from './pet'
 import { throwMeteor } from './play'
@@ -101,13 +99,19 @@ export const ui = {
   },
   /** Teleport the player to the middle of the home dome. */
   goHome(): void {
-    void movePlayerTo({ newRelativePosition: objectPosition(EntityNames.Dome01_glb) })
+    void movePlayerTo({ newRelativePosition: HOME_DOME })
   }
 }
 
 // Care Center spawn — the adoption area. Shared by the "Choose Location!" modal
 // and the tutorial's Adopt step.
 const CARE_CENTER = { x: 174.272, y: 0, z: 249.377 }
+// Home dome spawn (Dome01, from main.composite). Hardcoded like CARE_CENTER above
+// instead of objectPosition(EntityNames.Dome01_glb) — that reads the entity's live
+// Transform, which can still be Vector3.Zero() if the composite entity hasn't
+// resolved by name yet (the "Choose Location!" modal can open early, right on the
+// first server snapshot) — teleporting the player to scene origin.
+const HOME_DOME = { x: 205.75, y: 0, z: 247.5 }
 
 // ---------------------------------------------------------------------------
 // Top profile bar (Caretaker level + XP + coins) -> tap opens Goals
@@ -1297,7 +1301,7 @@ function LightModal(props: { title: string; width: number; height: number; onClo
   )
 }
 
-function LocationTile(props: { icon?: string; imageSrc?: string; label: string; color: Color; onClick: () => void }) {
+function LocationTile(props: { imageSrc: string; label: string; color: Color; onClick: () => void }) {
   const tileW = S(300)
   const iconH = S(210)
   const imageW = S(220)
@@ -1312,14 +1316,7 @@ function LocationTile(props: { icon?: string; imageSrc?: string; label: string; 
         uiTransform={{ width: tileW, height: iconH, alignItems: 'center', justifyContent: 'center', borderRadius: S(22) }}
         uiBackground={{ color: LOC.tile }}
       >
-        {props.imageSrc ? (
-          <UiEntity
-            uiTransform={{ width: imageW, height: imageH }}
-            uiBackground={{ texture: { src: props.imageSrc }, textureMode: 'stretch' }}
-          />
-        ) : (
-          <Label value={props.icon ?? ''} fontSize={S(120)} color={props.color} textAlign="middle-center" uiTransform={{ width: tileW, height: iconH }} />
-        )}
+        <UiEntity uiTransform={{ width: imageW, height: imageH }} uiBackground={{ texture: { src: props.imageSrc }, textureMode: 'stretch' }} />
       </UiEntity>
       {/* Colored label banner */}
       <UiEntity
@@ -1360,7 +1357,6 @@ function LocationPanel() {
         {/* Two options */}
         <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', margin: { top: S(20) } }}>
           <LocationTile
-            icon="🏥"
             imageSrc="assets/images/carecenter.png"
             label="ADOPTION CENTER"
             color={LOC.orange}
@@ -1370,7 +1366,6 @@ function LocationPanel() {
             }}
           />
           <LocationTile
-            icon="🏠"
             imageSrc="assets/images/dome.png"
             label="HOUSE"
             color={LOC.blue}

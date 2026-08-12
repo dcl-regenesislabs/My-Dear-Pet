@@ -1,9 +1,15 @@
-// Client bootstrap: seed a local player (so the HUD always renders), register
-// server handlers, run the local simulation, and request persisted state. The
-// server corrects us via snapshots when it answers; if it never does, the
-// client simulates the whole game locally.
+// Client bootstrap: seed a local player, register server handlers, run the
+// local simulation, and request persisted state.
+//
+// INTENTIONAL: this is NOT playable offline. The loading gate in ui.tsx
+// (Root, gated on clientState.serverReady) blocks all UI/input until the
+// FIRST stateSnapshot answers requestState() below. If the server never
+// answers, the player is stuck on "Loading server..." forever — there is no
+// local-only fallback anymore. seedLocalPlayer()/simTick() still run so the
+// data is ready the instant the gate lifts, but nothing is shown or usable
+// before that.
 
-import { engine } from '@dcl/sdk/ecs'
+import { engine, InputModifier } from '@dcl/sdk/ecs'
 import { room } from '../shared/messages'
 import type { PlayerSnapshot, PresenceEntry } from '../shared/types'
 import type { SpinReward } from '../shared/config'
@@ -127,6 +133,12 @@ export function setupClient(): void {
   setupPetSystems() // renders + simulates remote pets from server `presence`
   setupPlay() // Play action: throw an animated meteorite forward
 
+  // Freeze the player (movement + camera input) while the loading gate is up —
+  // ui.tsx only blocks pointer/UI, InputModifier is what stops the avatar from
+  // walking off before the server has answered.
+  InputModifier.createOrReplace(engine.PlayerEntity, { mode: InputModifier.Mode.Standard({ disableAll: true }) })
+  let inputFrozen = true
+
   // Try to load persisted state from the server (retry until it answers).
   let sinceReq = 99
   let elapsed = 0
@@ -134,6 +146,11 @@ export function setupClient(): void {
   engine.addSystem((dt: number) => {
     elapsed += dt
     simTick(dt) // local game simulation
+
+    if (inputFrozen && clientState.serverReady) {
+      inputFrozen = false
+      InputModifier.deleteFrom(engine.PlayerEntity)
+    }
 
     // Keep asking the server for our saved progress for a while.
     if (elapsed < 30) {
