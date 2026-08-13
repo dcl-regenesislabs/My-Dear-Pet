@@ -26,7 +26,8 @@ import {
   MainCamera,
   InputModifier,
   AvatarAttach,
-  AvatarAnchorPointType
+  AvatarAnchorPointType,
+  AvatarMask
 } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion, Color4 } from '@dcl/sdk/math'
 import * as C from '../shared/config'
@@ -34,13 +35,14 @@ import { modelForSpecies, petStage, scaleForSpecies, speciesLabel, stageScaleFor
 import { petCondition } from '../shared/breeding'
 import type { PetData } from '../shared/types'
 import { triggerSceneEmote } from '~system/RestrictedActions'
+import * as RestrictedActions from '~system/RestrictedActions'
 import { clientState, actions, adoptPet, openDialog, pushToast, switchActivePet, showHint, clearHint } from './state'
 import { applyCareLocal } from './sim'
 import { EntityNames } from '../../assets/scene/entity-names'
 import { objectPosition } from './objects'
 import { mobile } from './ui/theme'
 
-type Mode = 'follow' | 'goto' | 'interact' | 'wander'
+type Mode = 'follow' | 'goto' | 'interact' | 'wander' | 'bathhop'
 
 const ANIM_CLIPS = ['idle', 'walk', 'run', 'eat', 'dance', 'gesture-positive', 'gesture-negative']
 
@@ -52,6 +54,17 @@ let onArrive: (() => void) | null = null
 let interactTimer = 0
 let interactClip = 'idle'
 const curClip = new Map<Entity, string>()
+
+// Bath exit hop — placePetAtStation teleports the pet straight into the tub, which
+// sits above/inside walled geometry. Walking straight out afterward (normal 'follow'
+// stepToward) would clip through the tub's rim, so we set this flag to detour through
+// a short hop (horizontal step + vertical arc) instead of returning to follow/wander directly.
+let justBathed = false
+let bathHopT = 0 // seconds remaining in the hop; >0 while mode === 'bathhop'
+let bathHopFrom = Vector3.Zero()
+const BATH_HOP_DURATION = 0.45 // seconds
+const BATH_HOP_DISTANCE = 1.2 // metres covered horizontally while hopping out
+const BATH_HOP_HEIGHT = 0.6 // metres, peak arc height
 
 // Wander state (used while the pet is dismissed / told to stay).
 let wanderHome = Vector3.create(199.2, 0, 231.8)
@@ -159,7 +172,7 @@ function makeTag(): HealthTag {
 
 /** Reposition the tag over the pet, refresh its name + health fill + stage text. */
 function updateTag(tag: HealthTag, pos: Vector3, size: number, name: string, frac: number, stage: string): void {
-  Transform.getMutable(tag.root).position = Vector3.create(pos.x, TAG_HEIGHT + size, pos.z)
+  Transform.getMutable(tag.root).position = Vector3.create(pos.x, pos.y + TAG_HEIGHT + size, pos.z)
   if (name !== tag.name) {
     TextShape.getMutable(tag.label).text = name
     tag.name = name
@@ -250,7 +263,7 @@ export function getLocalPet(): Entity | null {
 
 /** True while the pet is walking to / performing a care action. */
 export function isBusy(): boolean {
-  return mode === 'goto' || mode === 'interact'
+  return mode === 'goto' || mode === 'interact' || mode === 'bathhop'
 }
 
 function ensureLocalPet(): void {
@@ -444,77 +457,133 @@ const EGG_HAND_SCALE = 0.6 // back to the previous size (looks big in hand, that
 // Rotation of the egg in hand (euler degrees). Tune to point the tip up (^).
 const EGG_HAND_ROTATION = Quaternion.fromEulerDegrees(90, 0, 0)
 // Looping "hold" emote played while carrying (poses the arms as if cradling the
-// egg). Movement cancels emotes, so we re-play it whenever the player stops.
+// egg). Masked to the upper body so the legs keep using normal walk/run
+// locomotion on clients that support the mask — the emote isn't cancelled by
+// movement there. NOT every client implements the mask yet (as of this writing
+// the mobile/Godot explorer ignores it and still cancels the emote on movement,
+// same as before masks existed), so carryPrevPos/carryMoving below re-apply the
+// pose whenever the player stops, exactly like the pre-mask fallback — a no-op
+// restart on clients where the mask already kept it playing.
 // Scene emotes must end in '_emote.glb' (Unity enforces this naming convention).
 const HOLD_EMOTE = 'models/hold_emote.glb'
 let carryPrevPos: Vector3 | null = null
 let carryMoving = false
 
 function playHoldEmote(): void {
-  void triggerSceneEmote({ src: HOLD_EMOTE, loop: true }).catch(() => {})
+  void triggerSceneEmote({ src: HOLD_EMOTE, loop: true, mask: AvatarMask.AM_UPPER_BODY }).catch(() => {})
+}
+
+/** Stop the current hold emote. Guarded: not every client implements stopEmote yet
+ *  (e.g. the mobile/Godot explorer's ~system/RestrictedActions shim has no
+ *  stopEmote export as of this writing) — calling an undefined import throws
+ *  synchronously, before .catch can attach, which would break whatever runs
+ *  right after this call. */
+function stopHoldEmote(): void {
+  if (typeof RestrictedActions.stopEmote === 'function') {
+    void RestrictedActions.stopEmote({}).catch(() => {})
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Holding the pet in hand — the pet is placed in WORLD space in front of the
-// player (NOT parented to the hand bone), so it stays upright and faces the same
-// way as the player. Used by the Bath flow: carry the pet to the tub and place
-// it. Tune the offsets (player's frame) below.
+// Holding the pet in hand — attached to the player's lower-spine bone
+// (AvatarAttach), same approach as the carried egg. A manually-computed world
+// position (read from the player's Transform each frame) lagged behind the
+// avatar and looked jittery/stuck at running speed; bone attachment is
+// resolved by the renderer every render frame, so it stays smooth. The name/
+// health tag is just hidden for the duration — its absolute world-unit size
+// reads huge up close on the player's chest, and there's no good spot for it
+// there. It reappears (at its normal position/scale) as soon as the pet is
+// back in world space. Tune the bone-local offset below (approximate — verify
+// against the actual rig in-world and nudge as needed).
 // ---------------------------------------------------------------------------
 const HOLD_PET_EMOTE = 'models/hold_pet_emote.glb'
-const PET_HOLD_FWD = 0.45 // metres in front of the player
-const PET_HOLD_UP = 1.0 // height off the ground (~chest)
-const PET_HOLD_RIGHT = 0.0 // sideways (+ = player's right)
+const PET_HOLD_OFFSET = Vector3.create(0, -0.15, 0.22) // local offset from the spine bone, out in front and down toward the belly
 const PET_HOLD_YAW = 0 // extra yaw if the model faces the wrong way (0/90/180/270)
 const PET_HAND_SCALE = 0.4
 const BATH_RADIUS = 3 // how close to the tub before the Bath button appears
 
+let carriedPetAnchor: Entity | null = null
+// Fallback for clients that don't support the upper-body mask yet (same as
+// carryPrevPos/carryMoving above) — re-apply the pose once the player stops.
 let carryPetPrevPos: Vector3 | null = null
 let carryPetMoving = false
 
-/** World pose for a pet held in front of the player (upright, facing forward). */
-function heldPetPose(species: string): { position: Vector3; rotation: Quaternion } | null {
-  const pt = Transform.getOrNull(engine.PlayerEntity)
-  if (!pt) return null
-  const fwd = Vector3.rotate(Vector3.create(0, 0, 1), pt.rotation)
-  const f = Vector3.normalize(Vector3.create(fwd.x, 0, fwd.z)) // player forward (flat)
-  const r = Vector3.create(f.z, 0, -f.x) // player right
-  const p = pt.position
-  const yaw = (Math.atan2(f.x, f.z) * 180) / Math.PI
-  return {
-    position: Vector3.create(p.x + f.x * PET_HOLD_FWD + r.x * PET_HOLD_RIGHT, p.y + PET_HOLD_UP, p.z + f.z * PET_HOLD_FWD + r.z * PET_HOLD_RIGHT),
-    rotation: Quaternion.fromEulerDegrees(0, yaw + yawOffsetForSpecies(species) + PET_HOLD_YAW, 0)
+function playHoldPetEmote(): void {
+  void triggerSceneEmote({ src: HOLD_PET_EMOTE, loop: true, mask: AvatarMask.AM_UPPER_BODY }).catch(() => {})
+}
+
+/** Parent the pet to the player's spine bone, offset out in front (carrying pose); hide its tag. */
+function attachPetToHands(species: string): void {
+  if (!localPet) return
+  if (!carriedPetAnchor) carriedPetAnchor = engine.addEntity()
+  Transform.createOrReplace(carriedPetAnchor, {})
+  AvatarAttach.createOrReplace(carriedPetAnchor, { anchorPointId: AvatarAnchorPointType.AAPT_SPINE })
+  const t = Transform.getMutable(localPet)
+  t.parent = carriedPetAnchor
+  t.position = PET_HOLD_OFFSET
+  t.rotation = Quaternion.fromEulerDegrees(0, yawOffsetForSpecies(species) + PET_HOLD_YAW, 0)
+  // Scale is re-applied every frame in the carryPet branch below — ensureLocalPet()
+  // runs first each tick and would otherwise snap it back to the grown size.
+  if (localTag) {
+    VisibilityComponent.createOrReplace(localTag.root, { visible: false, propagateToChildren: true })
+    // The bar's plane meshes (frame/track/fill) respect the propagated visibility, but
+    // TextShape doesn't — clear the text directly, and reset the cache so updateTag's
+    // diff-check (name !== tag.name) is forced to re-write it once the tag reappears.
+    TextShape.getMutable(localTag.label).text = ''
+    TextShape.getMutable(localTag.stageLabel).text = ''
+    localTag.name = ''
+    localTag.stage = ''
   }
 }
 
-function playHoldPetEmote(): void {
-  void triggerSceneEmote({ src: HOLD_PET_EMOTE, loop: true }).catch(() => {})
+/** Detach the pet back into world space (place at the tub, or cancel the carry); restore its tag. */
+function detachPetFromHands(): void {
+  if (localPet) Transform.getMutable(localPet).parent = engine.RootEntity
+  if (localTag) VisibilityComponent.createOrReplace(localTag.root, { visible: true, propagateToChildren: true })
+  if (carriedPetAnchor) AvatarAttach.deleteFrom(carriedPetAnchor) // stop riding the player's bone between baths
 }
 
 /** Bath step 1: pick the pet up into the player's hands to carry it to the tub. */
 export function startCarryPet(): void {
   if (!clientState.activePet || !localPet) return
   clientState.carryPet = { active: true, atStation: false }
+  attachPetToHands(clientState.activePet.species)
+  playHoldPetEmote()
+  showArrowTo(objectPosition(EntityNames.PetPool_glb))
   carryPetPrevPos = null
   carryPetMoving = false
-  playHoldPetEmote()
 }
 
 /** Cancel the bath carry (BACK): drop the flow, the pet just resumes following. */
 export function cancelCarryPet(): void {
   if (!clientState.carryPet.active) return
   clientState.carryPet = { active: false, atStation: false }
+  detachPetFromHands()
+  stopHoldEmote() // drop the hold pose, pet is no longer in hand
+  hideArrow()
 }
 
 /** Bath step 2: place the pet in the tub and run the clean action. */
 export function placePetAtStation(): void {
   if (!clientState.carryPet.active) return
   clientState.carryPet = { active: false, atStation: false }
+  detachPetFromHands()
+  stopHoldEmote() // drop the hold pose, pet is no longer in hand
+  hideArrow()
   if (localPet) {
     const t = Transform.getMutable(localPet)
     t.position = flat(objectPosition(EntityNames.PetPool_glb))
     t.rotation = Quaternion.Identity()
   }
-  petReact() // happy splash at the tub
+  // Force the happy-splash pose directly rather than via petReact() — its
+  // `mode === 'goto'` guard exists to avoid interrupting an unrelated in-progress
+  // walk, but here the pet was just hard-teleported into the tub, so any stale
+  // 'goto' (e.g. a queued care action that was mid-walk when the carry started)
+  // is no longer relevant and must not be left to swallow the bathhop transition.
+  mode = 'interact'
+  interactClip = 'gesture-positive'
+  interactTimer = 0.9
+  justBathed = true // hop out of the tub instead of walking straight through its rim
   applyCareLocal('clean', false) // optimistic local effect
   actions.care('clean', false) // server is authoritative
   pushToast('Bath time!  +Hygiene')
@@ -527,7 +596,7 @@ export function placePetAtStation(): void {
 // ---------------------------------------------------------------------------
 const ARROW_MODEL = 'models/arrow_indicator.glb'
 const ARROW_LEAD = 1 // metres ahead of the player, toward the target
-const ARROW_Y = C.PET_BASE_Y + 0.05 // just above the floor
+const ARROW_GROUND_CLEARANCE = 0.05 // desired world height above the floor (~player's feet at rest)
 const ARROW_YAW_OFFSET = 180 // model points backwards; flip it to point at the target
 const ARROW_SCALE = 1 // tune the arrow size
 let arrow: Entity | null = null
@@ -540,10 +609,17 @@ export function hideArrow(): void {
   arrowTarget = null
 }
 
+// Parented to the player (body-fixed, same trick as AvatarAttach) instead of
+// positioned each frame from a world-space read of the player's Transform — that
+// read lags behind the avatar's actual (render-smooth) movement and looked
+// jittery/stuck while running, same root cause the carried pet had before it was
+// switched to AvatarAttach. With native parenting the renderer supplies the
+// player's *current* position every render frame; we only ever compute the
+// (slowly-changing) bearing to the target, expressed as a small local offset/yaw.
 function updateArrow(): void {
   if (!arrow) {
     arrow = engine.addEntity()
-    Transform.create(arrow, { scale: Vector3.scale(Vector3.One(), ARROW_SCALE) })
+    Transform.create(arrow, { parent: engine.PlayerEntity, scale: Vector3.scale(Vector3.One(), ARROW_SCALE) })
     GltfContainer.create(arrow, { src: ARROW_MODEL })
     Animator.create(arrow, { states: [{ clip: 'flow', playing: true, loop: true }] })
     VisibilityComponent.create(arrow, { visible: false })
@@ -554,16 +630,30 @@ function updateArrow(): void {
     if (vis.visible) vis.visible = false
     return
   }
-  const pp = playerPos()
-  const dir = Vector3.subtract(flat(arrowTarget), flat(pp))
-  if (Vector3.lengthSquared(dir) < 0.01) {
+  const pt = Transform.getOrNull(engine.PlayerEntity)
+  if (!pt) return
+  const dx = arrowTarget.x - pt.position.x
+  const dz = arrowTarget.z - pt.position.z
+  if (dx * dx + dz * dz < 0.01) {
     if (vis.visible) vis.visible = false
     return
   }
-  const n = Vector3.normalize(dir)
+  // World bearing to the target, then the player's own current facing — both via
+  // atan2(x,z), DCL's yaw convention — so we can express the arrow's pose in the
+  // PLAYER's local frame (localYaw = worldYaw - playerYaw). Parented, that local
+  // pose combines with the renderer's own current (smooth) player transform.
+  const worldYaw = (Math.atan2(dx, dz) * 180) / Math.PI
+  const fwd = Vector3.rotate(Vector3.create(0, 0, 1), pt.rotation)
+  const playerYaw = (Math.atan2(fwd.x, fwd.z) * 180) / Math.PI
+  const localYaw = worldYaw - playerYaw
+  const rad = (localYaw * Math.PI) / 180
+  // Parenting fixes horizontal jitter, but a fixed local Y would ride up with the
+  // player during a jump (local space moves with the parent on every axis). Cancel
+  // the player's current height so the arrow stays near the actual ground instead.
+  const localY = ARROW_GROUND_CLEARANCE - pt.position.y
   const t = Transform.getMutable(arrow)
-  t.position = Vector3.create(pp.x + n.x * ARROW_LEAD, ARROW_Y, pp.z + n.z * ARROW_LEAD)
-  t.rotation = yawToward(pp, arrowTarget, ARROW_YAW_OFFSET)
+  t.position = Vector3.create(Math.sin(rad) * ARROW_LEAD, localY, Math.cos(rad) * ARROW_LEAD)
+  t.rotation = Quaternion.fromEulerDegrees(0, localYaw + ARROW_YAW_OFFSET, 0)
   t.scale = Vector3.scale(Vector3.One(), ARROW_SCALE)
   if (!vis.visible) vis.visible = true
 }
@@ -589,13 +679,13 @@ export function startCarryEgg(species: string, name: string): void {
   openDialog('Your Egg', ['Take it home and hatch it! Walk back to your house, then tap Hatch.'], 'Got it!')
 }
 
-/** Per-frame while carrying: flag whether the player is home (drives the button)
- *  and re-play the hold emote each time the player stops (movement cancels it). */
+/** Per-frame while carrying: flag whether the player is home (drives the button),
+ *  and re-apply the hold pose on clients that don't support the upper-body mask
+ *  and so still cancel it on movement. */
 function updateCarryEgg(): void {
   const st = clientState.carryEgg
   if (!st.active) {
     carryPrevPos = null
-    hideArrow()
     return
   }
   const pp = playerPos()
@@ -626,6 +716,8 @@ export function beginHatchFromCarry(): void {
     carriedEggAnchor = null
   }
   clientState.carryEgg = { active: false, species: '', name: '', atHome: false }
+  stopHoldEmote() // drop the hold pose, egg is no longer in hand
+  hideArrow() // stop guiding home, the egg is no longer being carried
   startHatch(species, name)
 }
 
@@ -817,27 +909,22 @@ function updateLocalPet(dt: number): void {
     return
   }
 
-  // Carrying the pet to the bath: hold it in the player's hands (upright, facing
-  // forward), flag when we're near the tub, and re-play the hold emote on stop.
+  // Carrying the pet to the bath: it's attached to the player's spine bone (see
+  // attachPetToHands), so its pose is handled by the renderer. Its tag is hidden
+  // for the duration (attachPetToHands/detachPetFromHands) — here we just flag
+  // proximity to the tub, and re-apply the hold pose on clients that don't
+  // support the upper-body mask yet and so still cancel it on movement.
   if (clientState.carryPet.active && clientState.activePet) {
-    const petC = clientState.activePet
-    const pose = heldPetPose(petC.species)
-    const t = Transform.getMutable(localPet)
-    if (pose) {
-      t.position = pose.position
-      t.rotation = pose.rotation
-    }
-    t.scale = Vector3.scale(Vector3.One(), PET_HAND_SCALE)
+    Transform.getMutable(localPet).scale = Vector3.scale(Vector3.One(), PET_HAND_SCALE)
     setClip(localPet, 'idle')
     const pp = playerPos()
     clientState.carryPet.atStation = distFlat(pp, objectPosition(EntityNames.PetPool_glb)) <= BATH_RADIUS
     if (carryPetPrevPos) {
       const moving = distFlat(pp, carryPetPrevPos) > 0.02
-      if (carryPetMoving && !moving) playHoldPetEmote() // stopped -> re-apply the hold pose
+      if (carryPetMoving && !moving) playHoldPetEmote() // just stopped -> re-apply the hold pose
       carryPetMoving = moving
     }
     carryPetPrevPos = Vector3.create(pp.x, pp.y, pp.z)
-    if (localTag) updateTag(localTag, t.position, stageScaleFor(petC.size), petC.name, healthFrac(petC), petStage(petC.size))
     return
   }
 
@@ -892,7 +979,30 @@ function updateLocalPet(dt: number): void {
     }
     case 'interact': {
       interactTimer -= dt
-      if (interactTimer <= 0) mode = clientState.followEnabled ? 'follow' : 'wander'
+      if (interactTimer <= 0) {
+        if (justBathed) {
+          justBathed = false
+          bathHopT = BATH_HOP_DURATION
+          bathHopFrom = Transform.get(localPet).position
+          mode = 'bathhop'
+        } else {
+          mode = clientState.followEnabled ? 'follow' : 'wander'
+        }
+      }
+      break
+    }
+    case 'bathhop': {
+      bathHopT -= dt
+      const hopT = Math.min(1, 1 - Math.max(0, bathHopT) / BATH_HOP_DURATION)
+      const toward = Vector3.subtract(flat(followTarget()), flat(bathHopFrom))
+      const away = Vector3.lengthSquared(toward) > 0.01 ? Vector3.normalize(toward) : Vector3.create(0, 0, 1)
+      const horizontal = Vector3.add(flat(bathHopFrom), Vector3.scale(away, BATH_HOP_DISTANCE * hopT))
+      const pt = Transform.getMutable(localPet)
+      pt.position = Vector3.create(horizontal.x, C.PET_BASE_Y + Math.sin(hopT * Math.PI) * BATH_HOP_HEIGHT, horizontal.z)
+      const awayYaw = (Math.atan2(away.x, away.z) * 180) / Math.PI
+      pt.rotation = Quaternion.fromEulerDegrees(0, awayYaw + yawOffsetForSpecies(clientState.activePet?.species ?? ''), 0)
+      moved = 1 // plays the walk clip below instead of idle
+      if (bathHopT <= 0) mode = clientState.followEnabled ? 'follow' : 'wander'
       break
     }
   }
