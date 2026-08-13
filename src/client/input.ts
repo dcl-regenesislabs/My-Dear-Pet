@@ -107,7 +107,7 @@ export function setupInput(): void {
   // Old play action (pet walks to the ball) is suspended — Play now throws a
   // meteorite forward (see play.ts, wired to the Play button in ui.tsx).
   // onClick(EntityNames.Ball, 'Play', () => triggerCare('play'))
-  onClick(EntityNames.Caretaker, 'Talk to Caretaker', () => ui.openCaretaker())
+  // Caretaker click is handled in caretaker.ts (click collider, not the raw GLTF).
   // Shop is suspended for now — the object stays in the scene but isn't clickable.
   setupCareQueue()
   setupDebugHotkeys()

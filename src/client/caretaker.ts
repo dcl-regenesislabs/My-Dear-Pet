@@ -1,23 +1,55 @@
-// Makes the Caretaker robot gently float — a continuous up/down bob around its
-// placed position, so it always looks like it's hovering.
+// Sets up the Caretaker: a click collider (a simple invisible box parented to
+// the model, same pattern used for NPCs elsewhere — the GLTF mesh's own
+// collision isn't reliable to click on) and Idle/Talk animation clip switching
+// based on whether its dialog is currently open.
 
-import { engine, Transform } from '@dcl/sdk/ecs'
+import { engine, Entity, Transform, Animator, MeshCollider, ColliderLayer, pointerEventsSystem, InputAction } from '@dcl/sdk/ecs'
 import { Vector3 } from '@dcl/sdk/math'
 import { EntityNames } from '../../assets/scene/entity-names'
+import { clientState } from './state'
+import { ui } from './ui'
 
-const FLOAT_AMPLITUDE = 0.15 // metres up/down from the base position
-const FLOAT_SPEED = 1.8 // radians/sec (period ≈ 3.5s)
+// Clip names as authored on the Caretaker.glb / auto-populated by the Creator
+// Hub's Animator (assets/scene/main.composite) — case-sensitive.
+const CLIP_IDLE = 'Idle'
+const CLIP_TALK = 'Talk'
 
-export function setupCaretakerFloat(): void {
-  let base: Vector3 | null = null // the Caretaker's placed position (captured once)
-  let t = 0
+let curClip: string | null = null
 
-  engine.addSystem((dt: number) => {
-    const e = engine.getEntityOrNullByName(EntityNames.Caretaker)
+function setClip(e: Entity, clip: string): void {
+  if (curClip === clip) return
+  curClip = clip
+  const a = Animator.getMutable(e)
+  for (const s of a.states) s.playing = s.clip === clip
+}
+
+let colliderSet = false
+
+/** Click collider — a plain invisible box parented to the Caretaker, same as the
+ *  NPC click-collider pattern (cozy-farm's npcSystem.ts). showHighlight is off:
+ *  the default hover outline follows this box's own shape (not the model), which
+ *  looked wrong, so it's disabled rather than styled. Tune position/scale once
+ *  you see the box against the actual model. */
+function ensureClickCollider(caretaker: Entity): void {
+  if (colliderSet) return
+  colliderSet = true
+  const collider = engine.addEntity()
+  Transform.create(collider, { parent: caretaker, position: Vector3.create(0, 1.0, 0), scale: Vector3.create(0.6, 2.0, 0.6) })
+  MeshCollider.setBox(collider, ColliderLayer.CL_POINTER)
+  pointerEventsSystem.onPointerDown(
+    { entity: collider, opts: { button: InputAction.IA_POINTER, hoverText: 'Talk to Caretaker', maxDistance: 16, showHighlight: false } },
+    () => ui.openCaretaker()
+  )
+}
+
+export function setupCaretaker(): void {
+  engine.addSystem(() => {
+    const e = engine.getEntityOrNullByName(EntityNames.Caretaker_glb)
     if (!e || !Transform.has(e)) return // not loaded yet
-    const tr = Transform.getMutable(e)
-    if (!base) base = Vector3.create(tr.position.x, tr.position.y, tr.position.z)
-    t += dt
-    tr.position = Vector3.create(base.x, base.y + Math.sin(t * FLOAT_SPEED) * FLOAT_AMPLITUDE, base.z)
+    ensureClickCollider(e)
+    if (Animator.has(e)) {
+      const talking = clientState.dialog.open && clientState.dialog.npcName === 'Caretaker'
+      setClip(e, talking ? CLIP_TALK : CLIP_IDLE)
+    }
   })
 }
