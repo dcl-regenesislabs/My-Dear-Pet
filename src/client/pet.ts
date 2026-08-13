@@ -1093,8 +1093,8 @@ function updateRemotePets(dt: number): void {
       remoteTags.set(addr, makeTag(false)) // another player's pet — name only
       const targetAddr = entry.address
       pointerEventsSystem.onPointerDown(
-        { entity: ent, opts: { button: InputAction.IA_POINTER, hoverText: 'Pet (give a treat)', maxDistance: 8 } },
-        () => actions.petOther(targetAddr)
+        { entity: ent, opts: { button: InputAction.IA_POINTER, hoverText: 'View', maxDistance: 8 } },
+        () => (clientState.viewingPetAddress = targetAddr)
       )
     }
     if (remoteSpecies.get(addr) !== entry.species) {
