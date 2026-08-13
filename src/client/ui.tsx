@@ -9,7 +9,7 @@ import ReactEcs, { ReactEcsRenderer, Label, UiEntity, Input } from '@dcl/sdk/rea
 import { movePlayerTo } from '~system/RestrictedActions'
 import * as Cfg from '../shared/config'
 import type { CareAction } from '../shared/types'
-import { actions, clientState, discardHatchling, dismissBubble, keepHatchling, pushToast, serverConnected, showBubble, switchActivePet } from './state'
+import { actions, clientState, discardHatchling, keepHatchling, pushToast, serverConnected, switchActivePet } from './state'
 import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry, startCarryPet, placePetAtStation, cancelCarryPet } from './pet'
 import { throwMeteor } from './play'
 import { triggerCare, careActive, queueLength } from './input'
@@ -101,7 +101,7 @@ export const ui = {
 
 // Care Center spawn — the adoption area. Shared by the "Choose Location!" modal
 // and the tutorial's Adopt step.
-const CARE_CENTER = { x: 174.272, y: 0, z: 249.377 }
+const CARE_CENTER = { x: 173.46, y: 4.493, z: 267.141 }
 
 // ---------------------------------------------------------------------------
 // Top profile bar (Caretaker level + XP + coins) -> tap opens Goals
@@ -312,17 +312,17 @@ function PetPanel() {
           pulse={unlocked}
           onClick={() => {
             if (!unlocked) {
-              showBubble('Grow your pet to Adult to unlock breeding!')
+              pushToast('Grow your pet to Adult to unlock breeding!')
               return
             }
             if (!partner) {
-              showBubble('You need a second pet to breed with.')
+              pushToast('You need a second pet to breed with.')
               return
             }
             // The server requires BOTH parents to be Adult — check the partner
             // here so a JUNIOR partner shows a hint instead of a server error.
             if (Cfg.petStage(partner.size) !== 'ADULT') {
-              showBubble(`${partner.name} must also grow to Adult to breed.`)
+              pushToast(`${partner.name} must also grow to Adult to breed.`)
               return
             }
             actions.breed(partner.id)
@@ -1047,39 +1047,19 @@ function Toasts() {
   )
 }
 
-// ---------------------------------------------------------------------------
-// Speech bubble — a cozy dialogue balloon for contextual hints (one at a time).
-// White balloon with a blue rim + a two-dot "thought" tail (UI can't rotate a
-// triangle, so the shrinking-circles tail is what reads as a speech bubble).
-// Tap it to dismiss; it also auto-expires. Rendered on top of everything.
-// ---------------------------------------------------------------------------
-function SpeechBubble() {
-  const b = clientState.bubble
-  if (!b || b.until <= Date.now()) {
-    if (b) clientState.bubble = null // expired: clear the stale entry
-    return <UiEntity />
-  }
-  const w = S(430)
-  // A blue-ringed white dot (outer blue circle + inner white circle).
-  const tail = (d: number, offsetRight: number) => (
-    <UiEntity uiTransform={{ width: d, height: d, borderRadius: d, margin: { top: S(4), right: offsetRight }, alignItems: 'center', justifyContent: 'center' }} uiBackground={{ color: LOC.blue }}>
-      <UiEntity uiTransform={{ width: d - S(5), height: d - S(5), borderRadius: d }} uiBackground={{ color: LOC.tile }} />
-    </UiEntity>
-  )
+// Contextual hint banner — persistent one-line guidance ("go explore the
+// meteorite", "click your pet", ...). Simple look for now (tune later): a rounded
+// pill near the top-center. Non-interactive; cleared when its action is done.
+function HintBanner() {
+  const h = clientState.hint
+  if (!h) return <UiEntity />
+  const w = S(620)
   return (
-    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: '24%', left: '50%' }, margin: { left: -w / 2 }, width: w, flexDirection: 'column', alignItems: 'center', pointerFilter: 'none' }}>
-      {/* Balloon: blue rim wrapping a white body. */}
-      <UiEntity
-        uiTransform={{ width: w, height: S(96), justifyContent: 'center', alignItems: 'center', borderRadius: S(26), pointerFilter: 'block' }}
-        uiBackground={{ color: LOC.blue }}
-        onMouseDown={() => dismissBubble()}
-      >
-        <UiEntity uiTransform={{ width: w - S(8), height: S(88), justifyContent: 'center', alignItems: 'center', borderRadius: S(22) }} uiBackground={{ color: LOC.tile }}>
-          <Label value={b.message} fontSize={S(20)} color={LOC.body} textAlign="middle-center" uiTransform={{ width: w - S(40), height: S(72) }} />
-        </UiEntity>
-      </UiEntity>
-      {tail(S(26), S(70))}
-      {tail(S(14), S(108))}
+    <UiEntity
+      uiTransform={{ positionType: 'absolute', position: { top: S(120), left: '50%' }, margin: { left: -w / 2 }, width: w, height: S(72), alignItems: 'center', justifyContent: 'center', borderRadius: S(20), pointerFilter: 'none' }}
+      uiBackground={{ color: { r: 0.12, g: 0.1, b: 0.09, a: 0.96 } }}
+    >
+      <Label value={`💡  ${h.message}`} fontSize={S(18)} color={C.text} textAlign="middle-center" uiTransform={{ width: w - S(28), height: S(56) }} />
     </UiEntity>
   )
 }
@@ -1459,8 +1439,8 @@ const Root = () => {
     {uiState.panel === 'daily' && <DailyRewardPanel />}
     <DialogBox />
     <LocationPanel />
-    {/* Bubble + toasts render LAST so they sit on top of any open panel/modal. */}
-    <SpeechBubble />
+    {/* Hints + toasts render LAST so they sit on top of any open panel/modal. */}
+    <HintBanner />
     <Toasts />
     {/* The fake-ad overlay sits above even those. */}
     <AdOverlay />

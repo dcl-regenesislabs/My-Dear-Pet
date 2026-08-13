@@ -34,7 +34,7 @@ import { modelForSpecies, petStage, scaleForSpecies, speciesLabel, stageScaleFor
 import { petCondition } from '../shared/breeding'
 import type { PetData } from '../shared/types'
 import { triggerSceneEmote } from '~system/RestrictedActions'
-import { clientState, actions, adoptPet, openDialog, pushToast, switchActivePet } from './state'
+import { clientState, actions, adoptPet, openDialog, pushToast, switchActivePet, showHint, clearHint } from './state'
 import { applyCareLocal } from './sim'
 import { EntityNames } from '../../assets/scene/entity-names'
 import { objectPosition } from './objects'
@@ -277,6 +277,12 @@ function ensureLocalPet(): void {
         // Clicking the pet opens its control panel. (The "pet for happiness"
         // action is suspended for now — was: actions.petSelf() + petReact().)
         clientState.petPanelOpen = true
+        clearHint('firstPet') // they did it
+        // Point them at the Breed button until the pet grows up.
+        const ap = clientState.activePet
+        if (ap && petStage(ap.size) !== 'ADULT') {
+          showHint('breed', 'Grow your pet to Adult in order to BREED amazing creatures!')
+        }
       }
     )
     localTag = makeTag()
@@ -1056,6 +1062,15 @@ function updateInactivePets(dt: number): void {
   }
 }
 
+/** Auto-clear hints whose action is done (the breed hint lives with the panel). */
+function updateHints(): void {
+  const h = clientState.hint
+  if (!h) return
+  if (h.id === 'breed' && !clientState.petPanelOpen) clearHint('breed')
+  // Safety: if the active pet reached Adult, the "grow to Adult" hint is moot.
+  if (h.id === 'breed' && clientState.activePet && petStage(clientState.activePet.size) === 'ADULT') clearHint('breed')
+}
+
 export function setupPetSystems(): void {
   engine.addSystem((dt: number) => {
     updateCarryEgg()
@@ -1065,5 +1080,6 @@ export function setupPetSystems(): void {
     updateLocalPet(dt)
     updateInactivePets(dt)
     updateRemotePets(dt)
+    updateHints()
   })
 }

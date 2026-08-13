@@ -47,7 +47,7 @@ export const CARETAKER_TIPS: string[] = [
 ]
 
 export function openCaretakerIntro(onDone?: () => void): void {
-  openDialog('Caretaker', caretakerIntro(), 'Adopt now!', onDone)
+  openDialog('Caretaker', caretakerIntro(), 'Adopt now!', onDone, true) // adopt CTA art
 }
 
 export function openCaretakerTips(): void {
@@ -106,12 +106,13 @@ export function DialogBox() {
           ))}
         </UiEntity>
 
-        {/* Next / final button (designer art, bigger) */}
+        {/* Next / final button (designer art, bigger). The "Adopt" art shows only
+            on the Caretaker intro's final page; every other dialog uses "Next". */}
         <TactileButton
           id="dialog_next"
           label={isLast ? d.finalLabel : 'Next'}
-          texture={isLast ? DLG.adopt : DLG.next}
-          width={isLast ? adoptW : nextW}
+          texture={isLast && d.adoptCta ? DLG.adopt : DLG.next}
+          width={isLast && d.adoptCta ? adoptW : nextW}
           height={btnH}
           onClick={() => advanceDialog()}
         />
