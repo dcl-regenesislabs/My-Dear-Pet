@@ -239,20 +239,18 @@ export function applyCareLocal(action: CareAction, onBed: boolean): void {
   const p = clientState.player
   const pet = clientState.activePet
   if (!p || !pet) return
-  // Sleep toggles the rest state; anything else wakes the pet and applies.
+  // Sleep toggles the rest state; it's not a completed care action, so it
+  // earns no XP/coins/careCount in either direction (matches the server —
+  // see careAction — otherwise its short toggle cooldown is farmable).
   if (action === 'sleep') {
-    if (pet.sleeping) {
-      pet.sleeping = false
-      return
-    }
-    pet.sleeping = true
-    pet.sleepOnBed = onBed
-  } else {
-    pet.sleeping = false
-    const effects = Cfg.ACTION_EFFECT[action]
-    for (const key of Object.keys(effects) as StatKey[]) {
-      pet[key] = clamp(pet[key] + effects[key]!)
-    }
+    pet.sleeping = !pet.sleeping
+    if (pet.sleeping) pet.sleepOnBed = onBed
+    return
+  }
+  pet.sleeping = false
+  const effects = Cfg.ACTION_EFFECT[action]
+  for (const key of Object.keys(effects) as StatKey[]) {
+    pet[key] = clamp(pet[key] + effects[key]!)
   }
   pet.careCount += 1
   pet.size = Cfg.sizeForCareCount(pet.careCount)

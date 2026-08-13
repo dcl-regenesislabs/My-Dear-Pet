@@ -225,7 +225,7 @@ export function rarityLabel(r: Rarity): string {
     ultraRare: 'Ultra Rare',
     legendary: 'Legendary'
   }
-  return labels[r]
+  return labels[r] ?? labels.common
 }
 /** Color per rarity tier (RGB 0-1), used for the pet's floating rarity label. */
 export const RARITY_COLOR: Record<Rarity, { r: number; g: number; b: number }> = {
