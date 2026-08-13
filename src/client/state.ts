@@ -37,6 +37,13 @@ export const clientState: {
   // Whether the pet control panel (stats + care) is open. Closed by default so
   // it doesn't cover the screen; opens by clicking the pet, closes with the X.
   petPanelOpen: boolean
+  // Read-only "passport" for another player's pet: address of whose pet is
+  // being viewed, or null when closed. Opened by clicking a remote pet.
+  viewingPetAddress: string | null
+  // ms timestamp of the last "Give a treat" click — the server silently drops
+  // petOther on cooldown (no notify), so this drives a local disable/toast
+  // instead of the button looking dead on a fast second click.
+  lastTreatSentAt: number
   // Hold-to-pet gesture: active while the overlay is up; progress 0..1 fills
   // while the pointer is held and ebbs back when released.
   petting: { active: boolean; progress: number }
@@ -81,6 +88,8 @@ export const clientState: {
   dialog: { open: false, npcName: '', pages: [], page: 0, finalLabel: 'Got it!', onDone: null, adoptCta: false },
   introShown: false,
   petPanelOpen: false,
+  viewingPetAddress: null,
+  lastTreatSentAt: 0,
   petting: { active: false, progress: 0 },
   carryEgg: { active: false, species: '', name: '', atHome: false },
   carryPet: { active: false, atStation: false },

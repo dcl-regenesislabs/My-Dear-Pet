@@ -8,7 +8,7 @@
 import ReactEcs, { ReactEcsRenderer, Label, UiEntity, Input } from '@dcl/sdk/react-ecs'
 import { movePlayerTo } from '~system/RestrictedActions'
 import * as Cfg from '../shared/config'
-import type { CareAction } from '../shared/types'
+import type { CareAction, Rarity } from '../shared/types'
 import { actions, clientState, discardHatchling, keepHatchling, pushToast, serverConnected, switchActivePet } from './state'
 import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry, startCarryPet, placePetAtStation, cancelCarryPet } from './pet'
 import { throwMeteor } from './play'
@@ -229,6 +229,29 @@ function StatRow(props: { label: string; value: number; color: Color; width: num
   )
 }
 
+// Snapshot + rarity + growth stage/size — shared by the owner's PetPanel and
+// the read-only RemotePetPanel so both "passports" look consistent.
+function PetIdentityRow(props: { species: string; rarity: Rarity; size: number; width: number }) {
+  const img = Cfg.speciesImage(props.species)
+  const stage = Cfg.petStage(props.size)
+  const rc = Cfg.RARITY_COLOR[props.rarity] ?? Cfg.RARITY_COLOR.common
+  const rarityColor: Color = { r: rc.r, g: rc.g, b: rc.b, a: 1 }
+  const discSize = S(84)
+  const textW = props.width - discSize - S(14)
+  return (
+    <UiEntity uiTransform={{ width: props.width, flexDirection: 'row', alignItems: 'center', margin: { bottom: S(10) } }}>
+      <UiEntity
+        uiTransform={{ width: discSize, height: discSize, borderRadius: discSize / 2, margin: { right: S(14) } }}
+        uiBackground={img ? { texture: { src: img }, textureMode: 'stretch' } : { color: speciesColor(props.species) }}
+      />
+      <UiEntity uiTransform={{ width: textW, flexDirection: 'column', justifyContent: 'center' }}>
+        <Label value={Cfg.rarityLabel(props.rarity).toUpperCase()} fontSize={S(18)} color={rarityColor} textAlign="middle-left" uiTransform={{ width: '100%', height: S(24) }} />
+        <Label value={`${stage} pet  ·  size ${props.size.toFixed(2)}`} fontSize={S(14)} color={LOC.dim} textAlign="middle-left" uiTransform={{ width: '100%', height: S(20), margin: { top: S(2) } }} />
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
 function PetPanel() {
   const pet = clientState.activePet
   if (!pet || !clientState.petPanelOpen) return <UiEntity />
@@ -241,7 +264,8 @@ function PetPanel() {
   const partner = clientState.player?.pets.find((x) => x.id !== pet.id)
 
   return (
-    <LightModal title={`${pet.name}  ·  Lv ${pet.petLevel}`} width={S(700)} height={S(560)} onClose={() => (clientState.petPanelOpen = false)}>
+    <LightModal title={`${pet.name}  ·  Lv ${pet.petLevel}`} width={S(700)} height={S(660)} onClose={() => (clientState.petPanelOpen = false)}>
+      <PetIdentityRow species={pet.species} rarity={pet.rarity} size={pet.size} width={contentW} />
       {careActive() && (
         <Label value={`Busy${queueLength() > 0 ? ` +${queueLength()}` : ''}`} fontSize={S(14)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(20), margin: { bottom: S(6) } }} />
       )}
@@ -339,6 +363,47 @@ function PetPanel() {
           }}
         />
       </UiEntity>
+    </LightModal>
+  )
+}
+
+// Read-only "passport" for another player's pet — opened by clicking their
+// pet in-world. Shows the same identity info as the owner's panel (snapshot,
+// rarity, size/stage) plus overall mood, but no care actions: the only thing
+// a non-owner can do here is give it a treat.
+function RemotePetPanel() {
+  const addr = clientState.viewingPetAddress
+  if (!addr) return <UiEntity />
+  const entry = clientState.presence.find((p) => p.address.toLowerCase() === addr.toLowerCase())
+  if (!entry) return <UiEntity />
+  const contentW = S(560) - S(30) * 2
+  return (
+    <LightModal title={`${entry.name}  ·  Lv ${entry.level}`} width={S(560)} height={S(400)} onClose={() => (clientState.viewingPetAddress = null)}>
+      <PetIdentityRow species={entry.species} rarity={entry.rarity} size={entry.size} width={contentW} />
+      <UiEntity uiTransform={{ width: contentW, flexDirection: 'column', margin: { top: S(4) } }}>
+        <StatRow label="Mood" value={entry.mood} color={C.happy} width={contentW} />
+      </UiEntity>
+      <TactileButton
+        id="give_treat"
+        label="Give a treat"
+        width={contentW}
+        height={S(56)}
+        bg={C.happy}
+        textColor={LOC.white}
+        fontSize={S(18)}
+        radius={S(16)}
+        margin={{ top: S(16) }}
+        onClick={() => {
+          // The server drops petOther silently while on cooldown (no notify),
+          // so a fast second click would otherwise look like nothing happened.
+          if (Date.now() - clientState.lastTreatSentAt < Cfg.PET_OTHER_COOLDOWN_MS) {
+            pushToast('Still settling down from the last treat...')
+            return
+          }
+          clientState.lastTreatSentAt = Date.now()
+          actions.petOther(entry.address)
+        }}
+      />
     </LightModal>
   )
 }
@@ -1501,6 +1566,7 @@ const Root = () => {
     <ProfileBar />
     <ColonyBar />
     <PetPanel />
+    <RemotePetPanel />
     <SideButtons />
     <BottomNav />
     <FetchOverlay />
