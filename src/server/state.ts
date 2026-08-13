@@ -402,7 +402,10 @@ export function careAction(p: PlayerData, action: CareAction, onBed: boolean): N
   }
   tickPlayer(p)
 
-  // Sleep is a toggle into/out of a state, not an instant refill.
+  // Sleep is a toggle into/out of a state, not a completed care action — it
+  // earns no XP/coins/careCount in either direction. Its cooldown is short
+  // ("responsive" toggle) so a payout here would let players farm currency
+  // and careCount-gated growth by flipping it on/off.
   if (action === 'sleep') {
     if (pet.sleeping) {
       pet.sleeping = false
@@ -410,22 +413,23 @@ export function careAction(p: PlayerData, action: CareAction, onBed: boolean): N
     }
     pet.sleeping = true
     pet.sleepOnBed = onBed
-    notes.push({
+    return [{
       kind: 'sleep',
       message: onBed ? `${pet.name} is asleep in bed.` : `${pet.name} dozed off — not in bed, so it rests slower.`
-    })
-  } else {
-    // Any other attention wakes the pet before it takes effect.
-    pet.sleeping = false
-    const effects = C.ACTION_EFFECT[action]
-    for (const key of Object.keys(effects) as StatKey[]) {
-      pet[key] = clamp(pet[key] + effects[key]!)
-    }
+    }]
+  }
+
+  // Any other attention wakes the pet before it takes effect.
+  pet.sleeping = false
+  const effects = C.ACTION_EFFECT[action]
+  for (const key of Object.keys(effects) as StatKey[]) {
+    pet[key] = clamp(pet[key] + effects[key]!)
   }
   pet.careCount += 1
   pet.size = C.sizeForCareCount(pet.careCount)
   grantPetXp(pet, C.PET_XP_PER_ACTION)
   grantCaretakerXp(p, C.CARETAKER_XP_PER_ACTION, notes)
+  p.currency += C.COINS_PER_ACTION
   bump(p, `${action}Count`)
   bump(p, 'careCount')
   checkAchievements(p, notes)
@@ -491,6 +495,7 @@ export function useItem(p: PlayerData, tier: number): Notify[] {
   pet.size = C.sizeForCareCount(pet.careCount)
   grantPetXp(pet, C.PET_XP_PER_ACTION)
   grantCaretakerXp(p, C.CARETAKER_XP_PER_ACTION, notes)
+  p.currency += C.COINS_PER_ACTION
   bump(p, 'feedCount')
   checkAchievements(p, notes)
   notes.push({ kind: 'feed', message: `Fed ${pet.name} ${item.label}` })
@@ -572,6 +577,7 @@ export function presenceFor(p: PlayerData): PresenceEntry | null {
     address: p.address,
     species: pet.species,
     name: pet.name,
+    rarity: pet.rarity,
     size: pet.size,
     mood: deriveMood(pet),
     level: pet.petLevel,

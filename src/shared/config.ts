@@ -195,6 +195,9 @@ export const SLOT_PRICE = 250 // currency to buy an extra slot directly
 // ---------------------------------------------------------------------------
 export const PET_XP_PER_ACTION = 8
 export const PET_XP_PASSIVE_PER_SEC = 0.007 // scaled by happiness/100; ~2-3 days to reach the breeding unlock level
+// Flat coin reward for each care action (feed/bath/sleep/play), on top of the
+// passive happiness income. Instant, gamified payout so activities feel rewarding.
+export const COINS_PER_ACTION = 5
 
 // ---------------------------------------------------------------------------
 // Breeding rarity — the offspring's tier is a random d10 (the "surprise") plus a
@@ -212,6 +215,26 @@ export const BREEDING_RARITY_THRESHOLDS: [Rarity, number][] = [
   ['rare', 6],
   ['uncommon', 4]
 ]
+
+/** Display name for each rarity tier (shown on the pet, colored by RARITY_COLOR). */
+export function rarityLabel(r: Rarity): string {
+  const labels: Record<Rarity, string> = {
+    common: 'Common',
+    uncommon: 'Uncommon',
+    rare: 'Rare',
+    ultraRare: 'Ultra Rare',
+    legendary: 'Legendary'
+  }
+  return labels[r] ?? labels.common
+}
+/** Color per rarity tier (RGB 0-1), used for the pet's floating rarity label. */
+export const RARITY_COLOR: Record<Rarity, { r: number; g: number; b: number }> = {
+  common: { r: 0.95, g: 0.55, b: 0.72 }, // pink (pastel rose)
+  uncommon: { r: 0.4, g: 0.85, b: 0.45 }, // green
+  rare: { r: 0.35, g: 0.62, b: 0.98 }, // blue
+  ultraRare: { r: 0.72, g: 0.42, b: 0.95 }, // purple
+  legendary: { r: 1, g: 0.8, b: 0.2 } // gold
+}
 export const CARETAKER_XP_PER_ACTION = 5
 export const CARETAKER_XP_PER_GIVING = 3
 
