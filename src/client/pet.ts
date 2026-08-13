@@ -105,11 +105,24 @@ const MOOD_STATE_ROW_PX: [number, number][] = [
   [411, 619],
   [663, 880]
 ]
-const MOOD_ICON_SIZE = 0.22
+const MOOD_ICON_SIZE = 0.22 // fixed plane height; width is derived per crop (see moodIconScale) so nothing stretches
 const MOOD_ICON_STEP = 0.26
 const MOOD_ICON_Y = 0.42
 // Fixed roll: 90 left (counter-clockwise) plus another 180 on top.
 const MOOD_ICON_TILT_DEG = 270
+
+/**
+ * Plane scale reproducing the true width:height ratio of the [stat, state] crop
+ * at a fixed height, with a NEGATIVE width to mirror the art. A UV-coordinate
+ * swap was tried instead (avoids flipping mesh winding) but combined with the
+ * 270° roll it visibly rotated the icons wrong — confirmed on-device — so back
+ * to the negative-scale mirror, which was confirmed correct.
+ */
+function moodIconScale(stat: number, state: number): Vector3 {
+  const [x0, x1] = MOOD_STAT_COL_PX[stat]
+  const [y0, y1] = MOOD_STATE_ROW_PX[state]
+  return Vector3.create(-MOOD_ICON_SIZE * ((x1 - x0) / (y1 - y0)), MOOD_ICON_SIZE, 1)
+}
 
 /** UVs (front+back face, 8 vertex pairs) cropping the icon at [stat, state] of the mood spritesheet. */
 function moodUvs(stat: number, state: number): number[] {
@@ -195,8 +208,7 @@ function makeTag(showStats: boolean): HealthTag {
       const icon = engine.addEntity()
       Transform.create(icon, {
         position: Vector3.create((i - 1.5) * MOOD_ICON_STEP, MOOD_ICON_Y, 0),
-        // Negative X = a true mirror (flips the art), separate from the Z roll below.
-        scale: Vector3.create(-MOOD_ICON_SIZE, MOOD_ICON_SIZE, 1),
+        scale: moodIconScale(i, 1),
         rotation: Quaternion.fromEulerDegrees(0, 0, MOOD_ICON_TILT_DEG),
         parent: root
       })
@@ -227,6 +239,7 @@ function updateTag(tag: HealthTag, pos: Vector3, size: number, name: string, sta
     const col = moodCol(values[i])
     if (col !== tag.iconCol[i]) {
       MeshRenderer.setPlane(tag.icons[i], moodUvs(i, col))
+      Transform.getMutable(tag.icons[i]).scale = moodIconScale(i, col)
       tag.iconCol[i] = col
     }
   }
@@ -1130,6 +1143,9 @@ function updateRemotePets(dt: number): void {
         removeTag(tag)
         remoteTags.delete(addr)
       }
+      // Close their passport if it was open — otherwise it silently vanishes
+      // now but would re-pop back open on its own if they return.
+      if (clientState.viewingPetAddress?.toLowerCase() === addr) clientState.viewingPetAddress = null
     }
   }
 }

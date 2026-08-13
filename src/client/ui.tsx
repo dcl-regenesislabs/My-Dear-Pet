@@ -393,7 +393,16 @@ function RemotePetPanel() {
         fontSize={S(18)}
         radius={S(16)}
         margin={{ top: S(16) }}
-        onClick={() => actions.petOther(entry.address)}
+        onClick={() => {
+          // The server drops petOther silently while on cooldown (no notify),
+          // so a fast second click would otherwise look like nothing happened.
+          if (Date.now() - clientState.lastTreatSentAt < Cfg.PET_OTHER_COOLDOWN_MS) {
+            pushToast('Still settling down from the last treat...')
+            return
+          }
+          clientState.lastTreatSentAt = Date.now()
+          actions.petOther(entry.address)
+        }}
       />
     </LightModal>
   )
