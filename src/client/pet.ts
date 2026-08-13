@@ -15,6 +15,7 @@ import {
   Billboard,
   MeshRenderer,
   Material,
+  MaterialTransparencyMode,
   VisibilityComponent,
   pointerEventsSystem,
   inputSystem,
@@ -29,11 +30,10 @@ import {
   AvatarAnchorPointType,
   AvatarMask
 } from '@dcl/sdk/ecs'
-import { Vector3, Quaternion, Color4 } from '@dcl/sdk/math'
+import { Vector3, Quaternion } from '@dcl/sdk/math'
 import * as C from '../shared/config'
-import { modelForSpecies, petStage, RARITY_COLOR, rarityLabel, scaleForSpecies, speciesLabel, stageScaleFor, yawOffsetForSpecies } from '../shared/config'
-import { petCondition } from '../shared/breeding'
-import type { PetData, Rarity } from '../shared/types'
+import { modelForSpecies, petStage, scaleForSpecies, speciesLabel, stageScaleFor, yawOffsetForSpecies } from '../shared/config'
+import type { PetData } from '../shared/types'
 import { triggerSceneEmote } from '~system/RestrictedActions'
 import * as RestrictedActions from '~system/RestrictedActions'
 import { clientState, actions, adoptPet, openDialog, pushToast, switchActivePet, showHint, clearHint } from './state'
@@ -74,24 +74,64 @@ let wanderPause = 0
 const remotePets = new Map<string, Entity>()
 const remoteSpecies = new Map<string, string>()
 
-// Floating tag above each pet: name + a health bar whose celeste fill shows how
-// full the pet's condition is (dark track behind it = the empty part), with the
-// growth stage (JUNIOR / TEEN / ADULT) written across it. A billboard root
-// faces the camera. IMPORTANT: on a Billboard, local +Z points AWAY from the
-// camera, so nearer-camera = SMALLER z. The stack, front (camera) -> back:
-//   text (z<0)  >  fill (0)  >  track (>0)  >  frame (largest z).
+// Floating tag above each pet: just its name. A billboard root faces the
+// camera. The pet's OWNER additionally sees a row of 4 mood icons (hunger /
+// hygiene / energy / happiness) above the name — everyone else only sees the
+// name, so `makeTag(showStats)` skips creating the icon entities entirely for
+// tags that belong to other players' pets.
 // Tag height above the pet = a small base clearance + a term that scales with the
 // pet's size, so it hugs a JUNIOR (small) pet instead of floating way overhead.
 const TAG_HEIGHT = 1.0 // initial placeholder (updateTag recomputes per-frame)
 const TAG_MIN = 0.35
 const TAG_SIZE_MULT = 1.85
-const BAR_W = 1.0 // health-bar width (metres)
-const BAR_H = 0.24
-const BAR_Y = -0.16 // bar sits just below the name (kept tight to it)
-const FRAME_COLOR = Color4.create(0.06, 0.09, 0.13, 1) // dark border rim
-const TRACK_COLOR = Color4.create(0.16, 0.2, 0.26, 0.95) // empty-bar background
-const FILL_COLOR = Color4.create(0.45, 0.78, 0.98, 1) // celeste health fill
-type HealthTag = { root: Entity; label: Entity; rarityText: Entity; frame: Entity; track: Entity; fill: Entity; stageLabel: Entity; name: string; frac: number; stage: string; rarity: string }
+
+// Mood icons are cropped from a 4-column (hunger/hygiene/energy/happiness) x
+// 3-row (bad/mid/good) spritesheet. The icons are NOT evenly spaced quarters/
+// thirds of the sheet — these pixel bounds were measured from the image's
+// alpha channel so each crop is centered on its icon with no clipping.
+const MOOD_ICON_SRC = 'assets/images/petmoods.png'
+const MOOD_IMG_W = 1024
+const MOOD_IMG_H = 1024
+// [x0,x1] per stat column: hunger, hygiene, energy, happiness.
+const MOOD_STAT_COL_PX: [number, number][] = [
+  [16, 236],
+  [312, 484],
+  [574, 750],
+  [807, 1007]
+]
+// [y0,y1] per state row: bad (red), mid (yellow), good (green).
+const MOOD_STATE_ROW_PX: [number, number][] = [
+  [143, 369],
+  [411, 619],
+  [663, 880]
+]
+const MOOD_ICON_SIZE = 0.22
+const MOOD_ICON_STEP = 0.26
+const MOOD_ICON_Y = 0.42
+// Fixed roll: 90 left (counter-clockwise) plus another 180 on top.
+const MOOD_ICON_TILT_DEG = 270
+
+/** UVs (front+back face, 8 vertex pairs) cropping the icon at [stat, state] of the mood spritesheet. */
+function moodUvs(stat: number, state: number): number[] {
+  const [x0, x1] = MOOD_STAT_COL_PX[stat]
+  const [y0, y1] = MOOD_STATE_ROW_PX[state]
+  const uL = x0 / MOOD_IMG_W
+  const uR = x1 / MOOD_IMG_W
+  // V is bottom-up (GL convention) while our y0/y1 are top-down image pixels.
+  const vLo = 1 - y1 / MOOD_IMG_H
+  const vHi = 1 - y0 / MOOD_IMG_H
+  const face = [uL, vLo, uR, vLo, uR, vHi, uL, vHi]
+  return [...face, ...face]
+}
+
+/** 0 (bad/red) / 1 (mid/yellow) / 2 (good/green) column for a 0-100 stat value. */
+function moodCol(v: number): number {
+  if (v < 34) return 0
+  if (v < 67) return 1
+  return 2
+}
+
+type HealthTag = { root: Entity; label: Entity; icons: Entity[]; name: string; iconCol: number[] }
 
 // The player's NON-active stored pets roam the care area on their own.
 type Roamer = { entity: Entity; species: string; tag: HealthTag; home: Vector3; target: Vector3 | null; pause: number }
@@ -132,12 +172,8 @@ function homeSpawnPos(): Vector3 {
 let localTag: HealthTag | null = null
 const remoteTags = new Map<string, HealthTag>()
 
-/** Average of the four stats, normalized 0..1 (the pet's "health"). */
-function healthFrac(pet: PetData): number {
-  return Math.max(0, Math.min(1, petCondition(pet) / 100))
-}
-
-function makeTag(): HealthTag {
+/** @param showStats create the 4 owner-only mood icons (skip for other players' pets). */
+function makeTag(showStats: boolean): HealthTag {
   const root = engine.addEntity()
   Transform.create(root, { position: Vector3.create(0, TAG_HEIGHT, 0) })
   Billboard.create(root, {})
@@ -152,84 +188,53 @@ function makeTag(): HealthTag {
     outlineWidth: 0.25
   })
 
-  // Rarity label above the name (COMMON..LEGENDARY), colored per tier.
-  const rarityText = engine.addEntity()
-  Transform.create(rarityText, { position: Vector3.create(0, 0.38, 0), parent: root })
-  TextShape.create(rarityText, {
-    text: '',
-    fontSize: 1.5,
-    textColor: { r: 1, g: 1, b: 1, a: 1 },
-    outlineColor: { r: 0.06, g: 0.05, b: 0.04 },
-    outlineWidth: 0.3
-  })
+  const icons: Entity[] = []
+  const iconCol: number[] = []
+  if (showStats) {
+    for (let i = 0; i < 4; i++) {
+      const icon = engine.addEntity()
+      Transform.create(icon, {
+        position: Vector3.create((i - 1.5) * MOOD_ICON_STEP, MOOD_ICON_Y, 0),
+        // Negative X = a true mirror (flips the art), separate from the Z roll below.
+        scale: Vector3.create(-MOOD_ICON_SIZE, MOOD_ICON_SIZE, 1),
+        rotation: Quaternion.fromEulerDegrees(0, 0, MOOD_ICON_TILT_DEG),
+        parent: root
+      })
+      MeshRenderer.setPlane(icon, moodUvs(i, 1))
+      Material.setPbrMaterial(icon, {
+        texture: Material.Texture.Common({ src: MOOD_ICON_SRC }),
+        transparencyMode: MaterialTransparencyMode.MTM_ALPHA_BLEND
+      })
+      icons.push(icon)
+      iconCol.push(-1)
+    }
+  }
 
-  // Dark border rim (furthest from camera -> largest z).
-  const frame = engine.addEntity()
-  Transform.create(frame, { position: Vector3.create(0, BAR_Y, 0.03), scale: Vector3.create(BAR_W + 0.06, BAR_H + 0.06, 1), parent: root })
-  MeshRenderer.setPlane(frame)
-  Material.setPbrMaterial(frame, { albedoColor: FRAME_COLOR })
-
-  // Empty-bar background (the "not filled" part shows through here).
-  const track = engine.addEntity()
-  Transform.create(track, { position: Vector3.create(0, BAR_Y, 0.02), scale: Vector3.create(BAR_W, BAR_H, 1), parent: root })
-  MeshRenderer.setPlane(track)
-  Material.setPbrMaterial(track, { albedoColor: TRACK_COLOR })
-
-  // Celeste health fill (shrinks from the left as condition drops).
-  const fill = engine.addEntity()
-  Transform.create(fill, { position: Vector3.create(0, BAR_Y, 0.01), scale: Vector3.create(BAR_W, BAR_H, 1), parent: root })
-  MeshRenderer.setPlane(fill)
-  Material.setPbrMaterial(fill, { albedoColor: FILL_COLOR })
-
-  // Growth-stage text (JUNIOR / TEEN / ADULT) across the bar: white with a
-  // black outline. NEGATIVE z so it sits in FRONT of the bar (toward camera).
-  const stageLabel = engine.addEntity()
-  Transform.create(stageLabel, { position: Vector3.create(0, BAR_Y, -0.05), parent: root })
-  TextShape.create(stageLabel, {
-    text: '',
-    fontSize: 1.4,
-    textColor: { r: 1, g: 1, b: 1, a: 1 },
-    outlineColor: { r: 0, g: 0, b: 0 },
-    outlineWidth: 0.3
-  })
-
-  return { root, label, rarityText, frame, track, fill, stageLabel, name: '', frac: -1, stage: '', rarity: '' }
+  return { root, label, icons, name: '', iconCol }
 }
 
-/** Reposition the tag over the pet, refresh its name + health fill + stage + rarity. */
-function updateTag(tag: HealthTag, pos: Vector3, size: number, name: string, frac: number, stage: string, rarity: string): void {
+/** Reposition the tag over the pet, refresh its name, and (if owned) its mood icons. */
+function updateTag(tag: HealthTag, pos: Vector3, size: number, name: string, stats: PetData | null): void {
   Transform.getMutable(tag.root).position = Vector3.create(pos.x, pos.y + TAG_MIN + TAG_SIZE_MULT * size, pos.z)
   if (name !== tag.name) {
     TextShape.getMutable(tag.label).text = name
     tag.name = name
   }
-  if (rarity !== tag.rarity) {
-    const ts = TextShape.getMutable(tag.rarityText)
-    ts.text = rarityLabel(rarity as Rarity).toUpperCase()
-    const c = RARITY_COLOR[rarity as Rarity] ?? RARITY_COLOR.common
-    ts.textColor = { r: c.r, g: c.g, b: c.b, a: 1 }
-    tag.rarity = rarity
-  }
-  if (stage !== tag.stage) {
-    TextShape.getMutable(tag.stageLabel).text = stage
-    tag.stage = stage
-  }
-  const f = Math.max(0, Math.min(1, frac))
-  if (Math.abs(f - tag.frac) > 0.01) {
-    tag.frac = f
-    // Plane is centered, so anchor the fill to the left edge as it shrinks.
-    Transform.getMutable(tag.fill).scale = Vector3.create(BAR_W * f, BAR_H, 1)
-    Transform.getMutable(tag.fill).position = Vector3.create((-BAR_W * (1 - f)) / 2, BAR_Y, 0.01)
+  if (!stats || tag.icons.length === 0) return
+  // Row order: hunger, hygiene, energy, happiness (matches the spritesheet).
+  const values = [stats.hunger, stats.hygiene, stats.energy, stats.happiness]
+  for (let i = 0; i < tag.icons.length; i++) {
+    const col = moodCol(values[i])
+    if (col !== tag.iconCol[i]) {
+      MeshRenderer.setPlane(tag.icons[i], moodUvs(i, col))
+      tag.iconCol[i] = col
+    }
   }
 }
 
 /** Remove a tag and all its child entities. */
 function removeTag(tag: HealthTag): void {
-  engine.removeEntity(tag.stageLabel)
-  engine.removeEntity(tag.fill)
-  engine.removeEntity(tag.track)
-  engine.removeEntity(tag.frame)
-  engine.removeEntity(tag.rarityText)
+  for (const icon of tag.icons) engine.removeEntity(icon)
   engine.removeEntity(tag.label)
   engine.removeEntity(tag.root)
 }
@@ -332,7 +337,7 @@ function ensureLocalPet(): void {
         }
       }
     )
-    localTag = makeTag()
+    localTag = makeTag(true) // owner's own pet — show mood icons
   }
   if (localSpecies !== pet.species) {
     localSpecies = pet.species
@@ -560,13 +565,11 @@ function attachPetToHands(species: string): void {
   // runs first each tick and would otherwise snap it back to the grown size.
   if (localTag) {
     VisibilityComponent.createOrReplace(localTag.root, { visible: false, propagateToChildren: true })
-    // The bar's plane meshes (frame/track/fill) respect the propagated visibility, but
-    // TextShape doesn't — clear the text directly, and reset the cache so updateTag's
+    // The icons' plane meshes respect the propagated visibility, but TextShape
+    // doesn't — clear the text directly, and reset the cache so updateTag's
     // diff-check (name !== tag.name) is forced to re-write it once the tag reappears.
     TextShape.getMutable(localTag.label).text = ''
-    TextShape.getMutable(localTag.stageLabel).text = ''
     localTag.name = ''
-    localTag.stage = ''
   }
 }
 
@@ -922,7 +925,7 @@ function updateLocalPet(dt: number): void {
     // place (never fall back to slot 0, which another pet may already occupy).
     const moved = idx >= 0 ? stepToward(localPet, slotHome(idx), dt, yawOffsetForSpecies(petP.species)) : 0
     setClip(localPet, moved > 0.003 ? 'walk' : 'idle')
-    if (localTag) updateTag(localTag, Transform.get(localPet).position, stageScaleFor(petP.size), petP.name, healthFrac(petP), petStage(petP.size), petP.rarity)
+    if (localTag) updateTag(localTag, Transform.get(localPet).position, stageScaleFor(petP.size), petP.name, petP)
     return
   }
 
@@ -939,7 +942,7 @@ function updateLocalPet(dt: number): void {
     if (hatchRevealPos) t.position = flat(hatchRevealPos)
     setClip(localPet, 'idle')
     // Camera stays locked on hatchFocus (the egg's spot) — no retarget needed.
-    if (localTag) updateTag(localTag, t.position, stageScaleFor(petH.size), petH.name, healthFrac(petH), petStage(petH.size), petH.rarity)
+    if (localTag) updateTag(localTag, t.position, stageScaleFor(petH.size), petH.name, petH)
     return
   }
 
@@ -973,9 +976,7 @@ function updateLocalPet(dt: number): void {
         Transform.get(localPet).position,
         petT ? stageScaleFor(petT.size) : 0.55,
         petT ? petT.name : '',
-        petT ? healthFrac(petT) : 0,
-        petT ? petStage(petT.size) : '',
-        petT ? petT.rarity : 'common'
+        petT
       )
     }
     return
@@ -1055,9 +1056,7 @@ function updateLocalPet(dt: number): void {
       Transform.get(localPet).position,
       pet2 ? stageScaleFor(pet2.size) : 0.55,
       pet2 ? pet2.name : '',
-      pet2 ? healthFrac(pet2) : 0,
-      pet2 ? petStage(pet2.size) : '',
-      pet2 ? pet2.rarity : 'common'
+      pet2
     )
   }
 }
@@ -1091,7 +1090,7 @@ function updateRemotePets(dt: number): void {
       ent = engine.addEntity()
       Transform.create(ent, { position: Vector3.create(ownerPos.x - 2, C.PET_BASE_Y, ownerPos.z - 2), scale: petScale(entry.species, stageScaleFor(entry.size)) })
       remotePets.set(addr, ent)
-      remoteTags.set(addr, makeTag())
+      remoteTags.set(addr, makeTag(false)) // another player's pet — name only
       const targetAddr = entry.address
       pointerEventsSystem.onPointerDown(
         { entity: ent, opts: { button: InputAction.IA_POINTER, hoverText: 'Pet (give a treat)', maxDistance: 8 } },
@@ -1117,7 +1116,7 @@ function updateRemotePets(dt: number): void {
     setClip(ent, moved > 0.003 ? 'walk' : 'idle')
 
     const tag = remoteTags.get(addr)
-    if (tag) updateTag(tag, t.position, stageScaleFor(entry.size), entry.name, entry.mood / 100, petStage(entry.size), entry.rarity)
+    if (tag) updateTag(tag, t.position, stageScaleFor(entry.size), entry.name, null)
   }
 
   for (const [addr, ent] of remotePets) {
@@ -1164,7 +1163,7 @@ function updateInactivePets(dt: number): void {
           { entity: e, opts: { button: InputAction.IA_POINTER, hoverText: `Select ${pet.name}`, maxDistance: 8 } },
           () => switchActivePet(petId)
         )
-        st = { entity: e, species: pet.species, tag: makeTag(), home, target: null, pause: Math.random() * 2 }
+        st = { entity: e, species: pet.species, tag: makeTag(true), home, target: null, pause: Math.random() * 2 } // owner's own pet
         inactivePets.set(pet.id, st)
       }
       st.home = home // keep anchored to its slot even if the roster reorders
@@ -1194,7 +1193,7 @@ function updateInactivePets(dt: number): void {
       const t = Transform.getMutable(st.entity)
       const s = petScale(pet.species, stageScaleFor(pet.size))
       if (t.scale.x !== s.x) t.scale = s
-      updateTag(st.tag, t.position, stageScaleFor(pet.size), pet.name, healthFrac(pet), petStage(pet.size), pet.rarity)
+      updateTag(st.tag, t.position, stageScaleFor(pet.size), pet.name, pet)
     }
   }
 
