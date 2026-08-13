@@ -13,6 +13,9 @@ export type DialogState = {
   page: number
   finalLabel: string
   onDone: (() => void) | null
+  // Show the "Adopt" button art on the final page (only the Caretaker intro,
+  // whose CTA is adopting). Everything else uses the neutral "Next" art.
+  adoptCta: boolean
 }
 
 export const clientState: {
@@ -23,9 +26,9 @@ export const clientState: {
   // UI flags
   followEnabled: boolean
   toasts: { message: string; until: number }[]
-  // Speech-bubble hint (one at a time): a cozy dialogue balloon for contextual
-  // tips like "grow your pet to Adult to unlock breeding". null = nothing showing.
-  bubble: { message: string; until: number } | null
+  // Contextual guidance hint (one shown at a time), persistent until its action
+  // is done. See showHint/clearHint. null = nothing showing.
+  hint: { id: string; message: string } | null
   lastSpin: { reward: SpinReward; index: number; at: number } | null
   dialog: DialogState
   introShown: boolean
@@ -70,9 +73,9 @@ export const clientState: {
   presence: [],
   followEnabled: true,
   toasts: [],
-  bubble: null,
+  hint: null,
   lastSpin: null,
-  dialog: { open: false, npcName: '', pages: [], page: 0, finalLabel: 'Got it!', onDone: null },
+  dialog: { open: false, npcName: '', pages: [], page: 0, finalLabel: 'Got it!', onDone: null, adoptCta: false },
   introShown: false,
   petPanelOpen: false,
   petting: { active: false, progress: 0 },
@@ -103,8 +106,8 @@ export function serverConnected(): boolean {
 }
 
 /** Open a multi-page NPC dialog. Advancing past the last page closes it. */
-export function openDialog(npcName: string, pages: string[], finalLabel = 'Got it!', onDone?: () => void): void {
-  clientState.dialog = { open: true, npcName, pages, page: 0, finalLabel, onDone: onDone ?? null }
+export function openDialog(npcName: string, pages: string[], finalLabel = 'Got it!', onDone?: () => void, adoptCta = false): void {
+  clientState.dialog = { open: true, npcName, pages, page: 0, finalLabel, onDone: onDone ?? null, adoptCta }
 }
 
 export function advanceDialog(): void {
@@ -196,6 +199,8 @@ export function keepHatchling(): void {
   p.activePetId = pet.id
   clientState.activePet = pet
   clientState.pendingPet = null
+  // First pet ever born -> nudge the player to interact with it.
+  if (p.pets.length === 1) showHint('firstPet', 'Click on your pet to complete some necessities and gain XP and coins!')
   actions.keepPet()
 }
 
@@ -222,14 +227,22 @@ export function pushToast(message: string): void {
   if (clientState.toasts.length > 4) clientState.toasts.shift()
 }
 
-/** Show a speech-bubble hint for `ms` milliseconds (replaces any current one). */
-export function showBubble(message: string, ms = 5000): void {
-  clientState.bubble = { message, until: Date.now() + ms }
+// ---------------------------------------------------------------------------
+// Contextual hints — one-time guidance ("go explore the meteorite", "click your
+// pet", ...). Each id fires at most once, and stays up until its action clears
+// it. Kept separate from toasts (transient) since hints persist.
+// ---------------------------------------------------------------------------
+const shownHints = new Set<string>()
+export function showHint(id: string, message: string): void {
+  if (shownHints.has(id)) return
+  shownHints.add(id)
+  clientState.hint = { id, message }
 }
-
-/** Dismiss the speech bubble immediately (e.g. the player tapped it). */
-export function dismissBubble(): void {
-  clientState.bubble = null
+/** Clear the current hint (optionally only if it matches `id`). */
+export function clearHint(id?: string): void {
+  if (!clientState.hint) return
+  if (id && clientState.hint.id !== id) return
+  clientState.hint = null
 }
 
 export function resolveMyAddress(): string {

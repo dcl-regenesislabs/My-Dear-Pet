@@ -22,7 +22,6 @@ import { setupPetSystems } from './pet'
 import { setupPlay } from './play'
 import { setupMeteor } from './meteor'
 import { setupSkybox } from './skybox'
-import { setupPlane } from './plane'
 import { setupCaretakerFloat } from './caretaker'
 
 let introTriggered = false
@@ -123,7 +122,6 @@ export function setupClient(): void {
   resolveMyAddress()
   seedLocalPlayer() // HUD renders immediately, no waiting on the network
   setupSkybox() // Mars ground + boundary colliders
-  setupPlane() // placeholder plane in the middle of the scene (reposition later)
   setupCaretakerFloat() // Caretaker robot gently hovers up/down
   setupMeteor() // meteor reward drop (falls, settles, clickable)
   evaluateStreak() // advance / reset the 7-day login streak
