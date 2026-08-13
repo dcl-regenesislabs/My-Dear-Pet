@@ -22,7 +22,7 @@ import { setupPetSystems } from './pet'
 import { setupPlay } from './play'
 import { setupMeteor } from './meteor'
 import { setupSkybox } from './skybox'
-import { setupCaretakerFloat } from './caretaker'
+import { setupCaretaker } from './caretaker'
 
 let introTriggered = false
 let firstSnapshotSeen = false // decide the "Choose Location!" modal on the FIRST snapshot only
@@ -122,7 +122,7 @@ export function setupClient(): void {
   resolveMyAddress()
   seedLocalPlayer() // HUD renders immediately, no waiting on the network
   setupSkybox() // Mars ground + boundary colliders
-  setupCaretakerFloat() // Caretaker robot gently hovers up/down
+  setupCaretaker() // click collider + Idle/Talk animation
   setupMeteor() // meteor reward drop (falls, settles, clickable)
   evaluateStreak() // advance / reset the 7-day login streak
   registerHandlers()
