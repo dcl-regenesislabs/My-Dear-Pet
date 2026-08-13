@@ -29,6 +29,8 @@ export const clientState: {
   // Contextual guidance hint (one shown at a time), persistent until its action
   // is done. See showHint/clearHint. null = nothing showing.
   hint: { id: string; message: string } | null
+  // Gamified "+XP +coins" reward popup after a care action. Auto-expires.
+  reward: { xp: number; coins: number; until: number } | null
   lastSpin: { reward: SpinReward; index: number; at: number } | null
   dialog: DialogState
   introShown: boolean
@@ -74,6 +76,7 @@ export const clientState: {
   followEnabled: true,
   toasts: [],
   hint: null,
+  reward: null,
   lastSpin: null,
   dialog: { open: false, npcName: '', pages: [], page: 0, finalLabel: 'Got it!', onDone: null, adoptCta: false },
   introShown: false,
@@ -243,6 +246,11 @@ export function clearHint(id?: string): void {
   if (!clientState.hint) return
   if (id && clientState.hint.id !== id) return
   clientState.hint = null
+}
+
+/** Flash a gamified "+XP +coins" reward popup (after a care action). */
+export function showReward(xp: number, coins: number): void {
+  clientState.reward = { xp, coins, until: Date.now() + 1800 }
 }
 
 export function resolveMyAddress(): string {

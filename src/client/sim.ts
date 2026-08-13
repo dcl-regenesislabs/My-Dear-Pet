@@ -5,7 +5,7 @@
 
 import * as Cfg from '../shared/config'
 import type { CareAction, PlayerData, StatKey } from '../shared/types'
-import { clientState } from './state'
+import { clientState, showReward } from './state'
 
 const STAT_KEYS: StatKey[] = ['hunger', 'hygiene', 'energy', 'happiness']
 
@@ -125,13 +125,16 @@ export function claimStreak(): { currency: number; spins: number; day: number } 
   return { currency: r.currency, spins: r.spins, day }
 }
 
-function grantXp(p: PlayerData): void {
+/** Grant care XP locally; returns the pet XP gained (rounded) for the reward UI. */
+function grantXp(p: PlayerData): number {
   const pet = clientState.activePet
-  if (!pet) return
-  pet.petXp += Cfg.PET_XP_PER_ACTION * (0.5 + 0.5 * (pet.happiness / 100))
+  if (!pet) return 0
+  const gain = Cfg.PET_XP_PER_ACTION * (0.5 + 0.5 * (pet.happiness / 100))
+  pet.petXp += gain
   pet.petLevel = Cfg.levelForXp(pet.petXp)
   p.caretakerXp += Cfg.CARETAKER_XP_PER_ACTION
   p.caretakerLevel = Cfg.levelForXp(p.caretakerXp)
+  return Math.round(gain)
 }
 
 function bumpCounter(p: PlayerData, key: string): void {
@@ -170,6 +173,12 @@ export function useItemLocal(tier: number): boolean {
   else p.inventory.tier2 -= 1
   pet.hunger = clamp(pet.hunger + item.hunger)
   pet.happiness = clamp(pet.happiness + item.happiness)
+  // Mirror the server: feeding is a care action — grow, gain XP + coins, cheer it.
+  pet.careCount += 1
+  pet.size = Cfg.sizeForCareCount(pet.careCount)
+  const xpGain = grantXp(p)
+  p.currency += Cfg.COINS_PER_ACTION
+  showReward(xpGain, Cfg.COINS_PER_ACTION)
   return true
 }
 
@@ -247,7 +256,9 @@ export function applyCareLocal(action: CareAction, onBed: boolean): void {
   }
   pet.careCount += 1
   pet.size = Cfg.sizeForCareCount(pet.careCount)
-  grantXp(p)
+  const xpGain = grantXp(p)
+  p.currency += Cfg.COINS_PER_ACTION // instant coin reward (matches the server)
   bumpCounter(p, `${action}Count`)
   bumpCounter(p, 'careCount')
+  showReward(xpGain, Cfg.COINS_PER_ACTION) // gamified "+XP +coins" popup
 }

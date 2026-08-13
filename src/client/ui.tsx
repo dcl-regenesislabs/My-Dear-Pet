@@ -1074,6 +1074,30 @@ function HintBanner() {
   )
 }
 
+// Gamified reward popup — a quick "+XP  +coins" burst after a care action.
+// Two rounded pills (star XP + coin), center-screen, auto-expiring.
+function RewardPopup() {
+  const r = clientState.reward
+  if (!r || r.until <= Date.now()) {
+    if (r) clientState.reward = null // expired: clear it
+    return <UiEntity />
+  }
+  const pill = (icon: string, text: string, bg: Color) => (
+    <UiEntity
+      uiTransform={{ width: S(190), height: S(64), alignItems: 'center', justifyContent: 'center', borderRadius: S(32), margin: { left: S(8), right: S(8) } }}
+      uiBackground={{ color: bg }}
+    >
+      <Label value={`${icon} ${text}`} fontSize={S(26)} color={LOC.white} textAlign="middle-center" uiTransform={{ width: S(182), height: S(42) }} />
+    </UiEntity>
+  )
+  return (
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: '28%', left: '50%' }, margin: { left: -S(220) }, width: S(440), flexDirection: 'row', justifyContent: 'center', alignItems: 'center', pointerFilter: 'none' }}>
+      {pill('⭐', `+${r.xp} XP`, LOC.violet)}
+      {pill('🪙', `+${r.coins}`, LOC.orange)}
+    </UiEntity>
+  )
+}
+
 // Shared BACK button for full-screen action overlays (Petting / Fetch / Bath).
 // Top-left, inset from the corner, pushed further in on mobile so the app's own
 // corner UI doesn't cover it. One place so every action's BACK matches.
@@ -1492,8 +1516,9 @@ const Root = () => {
     {uiState.panel === 'daily' && <DailyRewardPanel />}
     <DialogBox />
     <LocationPanel />
-    {/* Hints + toasts render LAST so they sit on top of any open panel/modal. */}
+    {/* Hints + reward + toasts render LAST so they sit on top of any panel/modal. */}
     <HintBanner />
+    <RewardPopup />
     <Toasts />
     {/* The fake-ad overlay sits above even those. */}
     <AdOverlay />

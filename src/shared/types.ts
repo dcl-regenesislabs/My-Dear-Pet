@@ -65,6 +65,7 @@ export interface PresenceEntry {
   address: string
   species: string
   name: string
+  rarity: Rarity // cosmetic tier — synced so everyone sees the colored label
   size: number
   mood: number // 0-100 derived overall mood, drives sad/happy idle
   level: number
