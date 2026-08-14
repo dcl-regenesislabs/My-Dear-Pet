@@ -168,12 +168,13 @@ export function server(): void {
   room.onMessage('breed', async (data, ctx) => {
     if (!ctx) return
     const p = await S.loadPlayer(ctx.from)
-    const { notes, rarity } = S.breed(p, data.partnerPetId)
+    const { notes, rarity, species, name } = S.breed(p, data.partnerPetId, data.name)
     await S.savePlayer(ctx.from)
     forwardNotes(ctx.from, notes)
-    if (rarity) room.send('breedResult', { rarity }, { to: [ctx.from] })
+    // The offspring is an egg (hatchling) now — the client carries + hatches it,
+    // and it only joins the colony once kept (keepPet broadcasts then).
+    if (rarity) room.send('breedResult', { rarity, species: species ?? '', name: name ?? '' }, { to: [ctx.from] })
     pushSnapshot(p)
-    broadcastColony() // a new pet joined the colony
   })
 
   room.onMessage('debugGrowAdult', async (_data, ctx) => {

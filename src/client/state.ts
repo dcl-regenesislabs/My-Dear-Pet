@@ -172,6 +172,7 @@ function makeLocalPet(species: string, name: string): PetData {
     petLevel: 1,
     size: SIZE_BASE,
     careCount: 0,
+    generation: 0,
     sleeping: false,
     sleepOnBed: false,
     bornAt: t,
@@ -316,8 +317,8 @@ export const actions = {
   openMeteor(): void {
     room.send('openMeteor', {})
   },
-  breed(partnerPetId: string): void {
-    room.send('breed', { partnerPetId })
+  breed(partnerPetId: string, name = ''): void {
+    room.send('breed', { partnerPetId, name })
   },
   debugGrowAdult(): void {
     room.send('debugGrowAdult', {})

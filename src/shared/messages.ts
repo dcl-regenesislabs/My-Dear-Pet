@@ -33,7 +33,7 @@ export const Messages = {
   // Crack open the daily meteor (server rolls, applies and persists the reward).
   openMeteor: Schemas.Map({}),
   // Breed the active pet with a partner pet (owned, for now). Server rolls rarity.
-  breed: Schemas.Map({ partnerPetId: Schemas.String }),
+  breed: Schemas.Map({ partnerPetId: Schemas.String, name: Schemas.String }),
   // DEBUG/testing: instantly grow the active pet to Adult + level 5 (unlock breeding).
   debugGrowAdult: Schemas.Map({}),
   // Report my pet's follow state (Whistle/Stay) so the server can broadcast it
@@ -54,7 +54,7 @@ export const Messages = {
   // Daily meteor result (SpinReward JSON + index), mirrors spinResult.
   meteorResult: Schemas.Map({ json: Schemas.String, index: Schemas.Int }),
   // Breeding result — the offspring's rolled rarity, for the reveal UI.
-  breedResult: Schemas.Map({ rarity: Schemas.String })
+  breedResult: Schemas.Map({ rarity: Schemas.String, species: Schemas.String, name: Schemas.String })
 }
 
 export const room = registerMessages(Messages)
