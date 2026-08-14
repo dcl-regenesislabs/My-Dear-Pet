@@ -18,7 +18,7 @@ import { sway, startAnimSystem, attentionPulse } from './ui/anim'
 import { C, Color, mobile, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, TactileButton, useCompactCanvas } from './ui/theme'
 import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './ui/dialog'
 
-type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor'
+type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor' | 'breedName'
 
 const uiState = {
   panel: 'none' as Panel,
@@ -26,6 +26,10 @@ const uiState = {
   adoptStep: 'pick' as 'pick' | 'name',
   adoptSpecies: Cfg.SPECIES[0],
   adoptName: '',
+  // Breeding: partner pet chosen to cross with, and the name the player types for
+  // the offspring (the server prefixes it "Gen-N ").
+  breedPartnerId: '',
+  breedName: '',
   // "Choose Location!" modal — opened on entry for RETURNING players only
   // (first-timers get the tutorial instead). Wired from setup.ts.
   locationOpen: false,
@@ -359,8 +363,11 @@ function PetPanel() {
               pushToast(`${partner.name} must also grow to Adult to breed.`)
               return
             }
-            actions.breed(partner.id)
-            clientState.petPanelOpen = false // the offspring egg carry takes over
+            // Name the offspring first (like adoption), then breed on confirm.
+            uiState.breedPartnerId = partner.id
+            uiState.breedName = ''
+            uiState.panel = 'breedName'
+            clientState.petPanelOpen = false
           }}
         />
       </UiEntity>
@@ -596,6 +603,51 @@ function AdoptPanel() {
         ) : (
           <TactileButton id="adopt_buyslot" label={`Buy Slot ${Cfg.SLOT_PRICE}`} width={S(260)} height={S(66)} bg={LOC.orange} textColor={LOC.white} fontSize={S(22)} radius={S(18)} onClick={() => actions.buySlot()} />
         )}
+      </UiEntity>
+    </LightModal>
+  )
+}
+
+// Breeding: name the offspring before crossing. The species + rarity are the
+// server's surprise inside the egg; the name is prefixed "Gen-N" server-side.
+function BreedNamePanel() {
+  if (uiState.panel !== 'breedName') return <UiEntity />
+  return (
+    <LightModal title="Name your Offspring" width={S(680)} height={S(560)} onClose={() => ui.close()}>
+      <UiEntity uiTransform={{ width: '100%', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
+        <Label value="🥚" fontSize={S(90)} textAlign="middle-center" uiTransform={{ width: '100%', height: S(120), margin: { top: S(6) } }} />
+        <Label value="Cross your two Adults — the species and rarity are a surprise inside the egg!" fontSize={S(17)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: S(520), height: S(48) }} />
+        <Input
+          placeholder="Type a name..."
+          fontSize={S(20)}
+          color={LOC.body}
+          placeholderColor={LOC.dim}
+          uiTransform={{ width: S(440), height: S(60), margin: { top: S(14), bottom: S(6) } }}
+          uiBackground={{ color: LOC.tile }}
+          onChange={(v) => {
+            uiState.breedName = v
+          }}
+        />
+        <Label value="It hatches named  Gen-1  +  your name." fontSize={S(14)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(22) }} />
+      </UiEntity>
+      <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', justifyContent: 'center', margin: { top: S(6) } }}>
+        <TactileButton id="breed_back" label="< Back" width={S(160)} height={S(66)} bg={LOC.neutral} textColor={LOC.body} fontSize={S(20)} radius={S(18)} margin={{ right: S(12) }} onClick={() => ui.close()} />
+        <TactileButton
+          id="breed_confirm"
+          label="Breed!"
+          width={S(260)}
+          height={S(66)}
+          bg={LOC.green}
+          textColor={LOC.white}
+          fontSize={S(26)}
+          radius={S(18)}
+          pulse
+          onClick={() => {
+            actions.breed(uiState.breedPartnerId, uiState.breedName)
+            uiState.breedName = ''
+            ui.close()
+          }}
+        />
       </UiEntity>
     </LightModal>
   )
@@ -1575,6 +1627,7 @@ const Root = () => {
     <CarryHatchButton />
     <BathButton />
     {uiState.panel === 'adopt' && <AdoptPanel />}
+    {uiState.panel === 'breedName' && <BreedNamePanel />}
     {uiState.panel === 'shop' && <ShopPanel />}
     {uiState.panel === 'roster' && <RosterPanel />}
     {uiState.panel === 'inventory' && <InventoryPanel />}

@@ -54,6 +54,7 @@ function newPet(species: string, name: string): PetData {
     petLevel: 1,
     size: C.SIZE_BASE,
     careCount: 0,
+    generation: 0,
     sleeping: false,
     sleepOnBed: false,
     bornAt: t,
@@ -357,7 +358,7 @@ export function discardPet(p: PlayerData): Notify[] {
 // the follow-up. Offspring inherits a parent's species (random for now — real
 // genetics later) and starts fresh.
 // ---------------------------------------------------------------------------
-export function breed(p: PlayerData, partnerId: string): { notes: Notify[]; rarity: Rarity | null; species?: string; name?: string } {
+export function breed(p: PlayerData, partnerId: string, name = ''): { notes: Notify[]; rarity: Rarity | null; species?: string; name?: string } {
   tickPlayer(p)
   const a = activePet(p)
   if (!a) return { notes: [{ kind: 'error', message: 'No active pet' }], rarity: null }
@@ -375,8 +376,11 @@ export function breed(p: PlayerData, partnerId: string): { notes: Notify[]; rari
 
   const rarity = rollRarity(a, b)
   const species = Math.random() < 0.5 ? a.species : b.species // TODO: real genetics
-  const child = newPet(species, '')
+  const gen = Math.max(a.generation, b.generation) + 1 // Gen-1 for the first cross
+  const chosen = name.trim() || C.speciesLabel(species)
+  const child = newPet(species, `Gen-${gen} ${chosen}`)
   child.rarity = rarity
+  child.generation = gen
   // Offspring is delivered as an EGG: it becomes the hatchling (carried home and
   // hatched, then kept into a slot), exactly like a fresh adoption.
   p.hatchling = child

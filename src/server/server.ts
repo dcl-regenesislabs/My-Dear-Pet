@@ -168,7 +168,7 @@ export function server(): void {
   room.onMessage('breed', async (data, ctx) => {
     if (!ctx) return
     const p = await S.loadPlayer(ctx.from)
-    const { notes, rarity, species, name } = S.breed(p, data.partnerPetId)
+    const { notes, rarity, species, name } = S.breed(p, data.partnerPetId, data.name)
     await S.savePlayer(ctx.from)
     forwardNotes(ctx.from, notes)
     // The offspring is an egg (hatchling) now — the client carries + hatches it,
