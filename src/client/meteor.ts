@@ -16,7 +16,7 @@ import {
   InputAction
 } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion } from '@dcl/sdk/math'
-import { meteorAvailable, streakClaimable } from './sim'
+import { dailyClaimable, meteorAvailable } from './sim'
 import { showHint, clearHint } from './state'
 import { ui } from './ui'
 
@@ -42,7 +42,7 @@ export function setupMeteor(): void {
     // "player state is ready" signal, then gate the drop on the daily streak.
     if (meteorAvailable() === null) return
     engine.removeSystem(waitForState)
-    if (streakClaimable()) spawnMeteor()
+    if (dailyClaimable()) spawnMeteor()
   }
   engine.addSystem(waitForState)
 }

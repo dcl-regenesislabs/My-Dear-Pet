@@ -959,7 +959,7 @@
     "nearbyVoiceChat": "enabled"
   },
   "creator": "",
-  "skyboxConfig": {},
+  "skyboxConfig": { "fixedTime": 36000 },
   "source": {
     "origin": "creator-hub",
     "projectId": "b164c50b-c64a-49c2-8bc0-56bd94119716"
