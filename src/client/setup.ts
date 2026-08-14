@@ -23,6 +23,8 @@ import { setupPlay } from './play'
 import { setupMeteor } from './meteor'
 import { setupSkybox } from './skybox'
 import { setupFloor } from './floor'
+import { setupEggShake } from './eggShake'
+import { setupPlantSway } from './plantSway'
 import { setupCaretaker } from './caretaker'
 
 let introTriggered = false
@@ -124,6 +126,8 @@ export function setupClient(): void {
   seedLocalPlayer() // HUD renders immediately, no waiting on the network
   setupSkybox() // Mars ground + boundary colliders
   setupFloor() // tiled grass ground plane
+  setupEggShake() // subtle constant tremble on the placed decor eggs
+  setupPlantSway() // subtle wind sway on a random subset of the placed plants
   setupCaretaker() // click collider + Idle/Talk animation
   setupMeteor() // meteor reward drop (falls, settles, clickable)
   evaluateStreak() // advance / reset the 7-day login streak

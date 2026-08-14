@@ -5,6 +5,7 @@
  * Object containing all entity names in the scene for autocomplete support.
  */
 export enum EntityNames {
+  Amebita_glb = "Amebita.glb",
   CareCentreDome01_glb = "CareCentreDome01.glb",
   CarecenterMud_glb = "CarecenterMud.glb",
   Caretaker_glb = "Caretaker.glb",
@@ -56,11 +57,24 @@ export enum EntityNames {
   Plant07_glb_6 = "Plant07.glb_6",
   Plant07_glb_7 = "Plant07.glb_7",
   Plants = "Plants",
+  Sprout_glb = "Sprout.glb",
+  Sprout_glb_2 = "Sprout.glb_2",
+  Sprout_glb_3 = "Sprout.glb_3",
   WaterPool01_glb = "WaterPool01.glb",
   WaterPool01_glb_2 = "WaterPool01.glb_2",
+  egg_glb = "egg.glb",
+  egg_glb_2 = "egg.glb_2",
+  egg_glb_3 = "egg.glb_3",
+  egg_glb_4 = "egg.glb_4",
+  egg_glb_5 = "egg.glb_5",
+  egg_glb_6 = "egg.glb_6",
+  egg_glb_7 = "egg.glb_7",
+  egg_glb_8 = "egg.glb_8",
   meteorite_animated = "meteorite_animated",
   mountain01_glb = "mountain01.glb",
   mountain01_glb_2 = "mountain01.glb_2",
   mountain01_glb_3 = "mountain01.glb_3",
   mountain01_glb_4 = "mountain01.glb_4",
+  nest_glb = "nest.glb",
+  nest_glb_2 = "nest.glb_2",
 } 
