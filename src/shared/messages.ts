@@ -54,7 +54,7 @@ export const Messages = {
   // Daily meteor result (SpinReward JSON + index), mirrors spinResult.
   meteorResult: Schemas.Map({ json: Schemas.String, index: Schemas.Int }),
   // Breeding result — the offspring's rolled rarity, for the reveal UI.
-  breedResult: Schemas.Map({ rarity: Schemas.String })
+  breedResult: Schemas.Map({ rarity: Schemas.String, species: Schemas.String, name: Schemas.String })
 }
 
 export const room = registerMessages(Messages)

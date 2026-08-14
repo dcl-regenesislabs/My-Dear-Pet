@@ -360,6 +360,7 @@ function PetPanel() {
               return
             }
             actions.breed(partner.id)
+            clientState.petPanelOpen = false // the offspring egg carry takes over
           }}
         />
       </UiEntity>
@@ -414,8 +415,9 @@ function RemotePetPanel() {
 function BottomNav() {
   const p = clientState.player
   // Hidden while a dialog is open — the dialog sits where these buttons are.
-  // Also hidden in Fetch mode / while carrying an egg or the pet (they own the screen).
-  if (!p || clientState.dialog.open || clientState.fetch.active || clientState.carryEgg.active || clientState.carryPet.active) return <UiEntity />
+  // Also hidden in Fetch mode, while carrying an egg or the pet, and during the
+  // hatch animation (so Keep/Discard only appears once the newborn has emerged).
+  if (!p || clientState.dialog.open || clientState.fetch.active || clientState.carryEgg.active || clientState.carryPet.active || clientState.hatch.active) return <UiEntity />
   const bw = Sbtn(160)
   const bh = Sbtn(72)
 

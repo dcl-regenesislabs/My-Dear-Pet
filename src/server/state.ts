@@ -357,7 +357,7 @@ export function discardPet(p: PlayerData): Notify[] {
 // the follow-up. Offspring inherits a parent's species (random for now — real
 // genetics later) and starts fresh.
 // ---------------------------------------------------------------------------
-export function breed(p: PlayerData, partnerId: string): { notes: Notify[]; rarity: Rarity | null } {
+export function breed(p: PlayerData, partnerId: string): { notes: Notify[]; rarity: Rarity | null; species?: string; name?: string } {
   tickPlayer(p)
   const a = activePet(p)
   if (!a) return { notes: [{ kind: 'error', message: 'No active pet' }], rarity: null }
@@ -365,6 +365,9 @@ export function breed(p: PlayerData, partnerId: string): { notes: Notify[]; rari
   if (!b) return { notes: [{ kind: 'error', message: 'Pick a different pet to breed with' }], rarity: null }
   if (C.petStage(a.size) !== 'ADULT' || C.petStage(b.size) !== 'ADULT') {
     return { notes: [{ kind: 'error', message: 'Both pets must be Adult to breed' }], rarity: null }
+  }
+  if (p.hatchling) {
+    return { notes: [{ kind: 'error', message: 'Place or discard your current egg first' }], rarity: null }
   }
   if (p.pets.length >= p.petSlots) {
     return { notes: [{ kind: 'error', message: 'No free pet slots for the offspring' }], rarity: null }
@@ -374,10 +377,12 @@ export function breed(p: PlayerData, partnerId: string): { notes: Notify[]; rari
   const species = Math.random() < 0.5 ? a.species : b.species // TODO: real genetics
   const child = newPet(species, '')
   child.rarity = rarity
-  p.pets.push(child)
+  // Offspring is delivered as an EGG: it becomes the hatchling (carried home and
+  // hatched, then kept into a slot), exactly like a fresh adoption.
+  p.hatchling = child
   bump(p, 'breedCount')
 
-  return { notes: [{ kind: 'breed', message: `A ${rarity} ${child.name} was born!` }], rarity }
+  return { notes: [{ kind: 'breed', message: `You bred a ${rarity} egg — carry it home to hatch!` }], rarity, species: child.species, name: child.name }
 }
 
 /** DEBUG/testing: grow the active pet straight to Adult + level 5 so breeding

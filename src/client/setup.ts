@@ -18,7 +18,7 @@ import { evaluateStreak, seedLocalPlayer, simTick } from './sim'
 import { setupUi, ui } from './ui'
 import { openCaretakerIntro } from './ui/dialog'
 import { setupInput } from './input'
-import { setupPetSystems } from './pet'
+import { setupPetSystems, startCarryEgg } from './pet'
 import { setupPlay } from './play'
 import { setupMeteor } from './meteor'
 import { setupSkybox } from './skybox'
@@ -89,10 +89,12 @@ function registerHandlers(): void {
     pushToast(data.message)
   })
 
-  // Breeding result — the offspring's rolled rarity (reveal comes later).
+  // Breeding result — the offspring is an egg (server hatchling). Carry it home
+  // and hatch it, just like a fresh adoption; the rarity is the surprise inside.
   room.onMessage('breedResult', (data) => {
     markServerAlive()
-    pushToast(`Offspring rarity: ${data.rarity.toUpperCase()}!`)
+    pushToast(`You bred a ${data.rarity.toUpperCase()} egg — carry it home!`)
+    if (data.species) startCarryEgg(data.species, data.name, true)
   })
 
   // Daily meteor: the server rolled and persisted it — show what we got.
