@@ -78,3 +78,11 @@ export interface PlayerSnapshot {
   player: PlayerData
   activePet: PetData | null
 }
+
+/** A pending pet-swap offer, sent to the target so they can review + decide. */
+export interface SwapOfferPayload {
+  fromAddress: string
+  fromName: string // proposer's display name (falls back to a short address)
+  offeredPet: PetData // full profile of the pet being offered (name, rarity, stats…)
+  wantedPetName: string // the target's pet the proposer wants in return
+}

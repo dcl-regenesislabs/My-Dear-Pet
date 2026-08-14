@@ -203,6 +203,45 @@ export function server(): void {
     broadcastPresence() // push the new follow/stay state to everyone right away
   })
 
+  room.onMessage('proposeSwap', async (data, ctx) => {
+    if (!ctx) return
+    const from = await S.loadPlayer(ctx.from)
+    const target = S.getCached(data.targetAddress) ?? (await S.loadPlayer(data.targetAddress))
+    const { notes, offeredPet, wantedPet } = S.proposeSwap(from, target)
+    forwardNotes(ctx.from, notes)
+    if (offeredPet && wantedPet) {
+      const payload = {
+        fromAddress: from.address,
+        fromName: data.fromName || from.address.slice(0, 6),
+        offeredPet,
+        wantedPetName: wantedPet.name
+      }
+      room.send('swapOffer', { json: JSON.stringify(payload) }, { to: [target.address] })
+      forwardNotes(ctx.from, [{ kind: 'swap', message: `Offer sent — waiting for ${target.address.slice(0, 6)}…` }])
+    }
+  })
+
+  room.onMessage('respondSwap', async (data, ctx) => {
+    if (!ctx) return
+    const target = await S.loadPlayer(ctx.from)
+    const offer = S.getPendingSwap(ctx.from)
+    const proposer = offer ? S.getCached(offer.from) ?? (await S.loadPlayer(offer.from)) : null
+    const { notes, proposerNote, swapped } = S.respondSwap(target, proposer, data.accept)
+    forwardNotes(ctx.from, notes)
+    if (proposerNote && proposer) {
+      room.send('swapResult', { accepted: swapped, message: proposerNote.message }, { to: [proposer.address] })
+    }
+    if (swapped && proposer) {
+      await S.savePlayer(proposer.address)
+      await S.savePlayer(target.address)
+      pushSnapshot(proposer)
+      pushSnapshot(target)
+      broadcastPresence() // both active pets changed -> update the world render
+    } else {
+      pushSnapshot(target)
+    }
+  })
+
   // -- Periodic decay / persist / presence loop -----------------------------
   let tickAcc = 0
   let snapAcc = 0
