@@ -149,6 +149,10 @@ export const PET_SWIPE_EPS = 2 // min |screenDelta.x| (px) counted as swiping
 // the pet instead of swiping. Each tap adds this much (≈ 1/PET_TAP_FILL taps).
 export const PET_TAP_FILL = 0.16
 
+// Pet swaps — offering your active pet to another player for theirs. An offer
+// left unanswered this long expires, freeing the target to receive new offers.
+export const SWAP_OFFER_TTL_MS = 60000
+
 // Treating / petting other players' pets.
 export const PET_OTHER_HAPPINESS = 5
 export const PET_OTHER_GIVING_POINTS = 2

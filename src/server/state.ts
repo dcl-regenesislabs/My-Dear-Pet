@@ -478,6 +478,100 @@ export function petOther(giver: PlayerData, target: PlayerData): Notify[] {
   return notes
 }
 
+// ---------------------------------------------------------------------------
+// Pet swaps — a player offers their active pet to another player for that
+// player's active pet. One pending offer per target address; the target accepts
+// or declines. On accept the two pets change rosters intact (name/stats/rarity
+// preserved), each becoming the receiver's active pet.
+// ---------------------------------------------------------------------------
+export type SwapOffer = { from: string; fromPetId: string; to: string; toPetId: string; at: number }
+const pendingSwaps = new Map<string, SwapOffer>() // keyed by target (to) address, lowercased
+
+/** The active *slotted* pet (never a hatchling) a player would swap. */
+function slottedActivePet(p: PlayerData): PetData | null {
+  if (p.hatchling) return null
+  return p.pets.find((pet) => pet.id === p.activePetId) ?? null
+}
+
+export function getPendingSwap(targetAddress: string): SwapOffer | undefined {
+  const offer = pendingSwaps.get(targetAddress.toLowerCase())
+  if (offer && now() - offer.at >= C.SWAP_OFFER_TTL_MS) {
+    pendingSwaps.delete(targetAddress.toLowerCase())
+    return undefined
+  }
+  return offer
+}
+
+/** Propose swapping my active pet for the target's active pet. Returns the pets
+ *  (for the server to forward to the target) or notes on failure. */
+export function proposeSwap(
+  from: PlayerData,
+  target: PlayerData
+): { notes: Notify[]; offeredPet: PetData | null; wantedPet: PetData | null } {
+  if (from.address.toLowerCase() === target.address.toLowerCase()) {
+    return { notes: [{ kind: 'error', message: "You can't swap with yourself" }], offeredPet: null, wantedPet: null }
+  }
+  const mine = slottedActivePet(from)
+  if (!mine) return { notes: [{ kind: 'error', message: 'Select one of your pets to offer first' }], offeredPet: null, wantedPet: null }
+  const theirs = slottedActivePet(target)
+  if (!theirs) return { notes: [{ kind: 'error', message: 'That player has no pet to swap' }], offeredPet: null, wantedPet: null }
+  const key = target.address.toLowerCase()
+  if (getPendingSwap(key)) {
+    return { notes: [{ kind: 'error', message: 'That player is reviewing another offer — try again shortly' }], offeredPet: null, wantedPet: null }
+  }
+  pendingSwaps.set(key, { from: from.address, fromPetId: mine.id, to: target.address, toPetId: theirs.id, at: now() })
+  return { notes: [], offeredPet: mine, wantedPet: theirs }
+}
+
+/** Target answers the pending offer to them. Executes the swap on accept. */
+export function respondSwap(
+  target: PlayerData,
+  proposer: PlayerData | null,
+  accept: boolean
+): { notes: Notify[]; proposerNote: Notify | null; swapped: boolean } {
+  const key = target.address.toLowerCase()
+  const offer = pendingSwaps.get(key)
+  if (!offer) return { notes: [{ kind: 'error', message: 'No pending swap offer' }], proposerNote: null, swapped: false }
+  pendingSwaps.delete(key)
+
+  if (!accept) {
+    return { notes: [{ kind: 'swap', message: 'Swap declined.' }], proposerNote: { kind: 'swap', message: 'Your swap offer was declined.' }, swapped: false }
+  }
+  if (!proposer) {
+    return { notes: [{ kind: 'error', message: 'That player is no longer around' }], proposerNote: null, swapped: false }
+  }
+  tickPlayer(proposer)
+  tickPlayer(target)
+  const fromIdx = proposer.pets.findIndex((x) => x.id === offer.fromPetId)
+  const toIdx = target.pets.findIndex((x) => x.id === offer.toPetId)
+  if (fromIdx === -1 || toIdx === -1) {
+    return {
+      notes: [{ kind: 'error', message: 'The swap fell through — a pet was no longer available' }],
+      proposerNote: { kind: 'swap', message: 'The swap fell through — a pet was no longer available.' },
+      swapped: false
+    }
+  }
+  // Move the two pets between rosters, each becoming the receiver's active pet.
+  const fromPet = proposer.pets.splice(fromIdx, 1)[0]
+  const toPet = target.pets.splice(toIdx, 1)[0]
+  proposer.pets.push(toPet)
+  target.pets.push(fromPet)
+  proposer.activePetId = toPet.id
+  target.activePetId = fromPet.id
+  bump(proposer, 'swapCount')
+  bump(target, 'swapCount')
+  return {
+    notes: [{ kind: 'swap', message: `Swap complete — you got ${fromPet.name}!` }],
+    proposerNote: { kind: 'swap', message: `Swap accepted — you got ${toPet.name}!` },
+    swapped: true
+  }
+}
+
+/** Drop any pending offer addressed to this target (e.g. when they leave). */
+export function clearPendingSwap(targetAddress: string): void {
+  pendingSwaps.delete(targetAddress.toLowerCase())
+}
+
 export function buyItem(p: PlayerData, tier: number): Notify[] {
   const item = C.SHOP_ITEMS.find((i) => i.tier === tier)
   if (!item) return [{ kind: 'error', message: 'No such item' }]

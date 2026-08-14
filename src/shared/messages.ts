@@ -39,6 +39,10 @@ export const Messages = {
   // Report my pet's follow state (Whistle/Stay) so the server can broadcast it
   // in presence for everyone to mirror.
   setFollow: Schemas.Map({ following: Schemas.Boolean }),
+  // Pet swap: offer my active pet to `targetAddress` for their active pet.
+  proposeSwap: Schemas.Map({ targetAddress: Schemas.String, fromName: Schemas.String }),
+  // Target's answer to the pending swap offer addressed to them.
+  respondSwap: Schemas.Map({ accept: Schemas.Boolean }),
 
   // ---- Server -> Client ----
   // Full owner snapshot (PlayerSnapshot JSON) for the requesting client.
@@ -54,7 +58,11 @@ export const Messages = {
   // Daily meteor result (SpinReward JSON + index), mirrors spinResult.
   meteorResult: Schemas.Map({ json: Schemas.String, index: Schemas.Int }),
   // Breeding result — the offspring's rolled rarity, for the reveal UI.
-  breedResult: Schemas.Map({ rarity: Schemas.String, species: Schemas.String, name: Schemas.String })
+  breedResult: Schemas.Map({ rarity: Schemas.String, species: Schemas.String, name: Schemas.String }),
+  // Incoming swap offer for the target: JSON { fromAddress, fromName, offeredPet, wantedPetName }.
+  swapOffer: Schemas.Map({ json: Schemas.String }),
+  // Swap outcome forwarded to the proposer.
+  swapResult: Schemas.Map({ accepted: Schemas.Boolean, message: Schemas.String })
 }
 
 export const room = registerMessages(Messages)
