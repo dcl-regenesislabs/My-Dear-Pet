@@ -982,6 +982,237 @@
             "parent": 66050
           }
         },
+        "559": {
+          "json": {
+            "position": {
+              "x": 170.75,
+              "y": -1.0657836198806763,
+              "z": 307.5
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0,
+              "w": 1
+            },
+            "scale": {
+              "x": 4.300000190734863,
+              "y": 4.300000190734863,
+              "z": 4.300000190734863
+            },
+            "parent": 0
+          }
+        },
+        "560": {
+          "json": {
+            "position": {
+              "x": 254.75,
+              "y": -2.5,
+              "z": 272.75
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0.6391770839691162,
+              "z": 0,
+              "w": 0.7690595984458923
+            },
+            "scale": {
+              "x": 7.099999904632568,
+              "y": 7.099999904632568,
+              "z": 7.099999904632568
+            },
+            "parent": 0
+          }
+        },
+        "561": {
+          "json": {
+            "position": {
+              "x": 91.25,
+              "y": -5.811385631561279,
+              "z": 180
+            },
+            "rotation": {
+              "x": 0,
+              "y": -0.8897243738174438,
+              "z": 0,
+              "w": 0.4564981758594513
+            },
+            "scale": {
+              "x": 7.099999904632568,
+              "y": 8.979795455932617,
+              "z": 7.099999904632568
+            },
+            "parent": 0
+          }
+        },
+        "562": {
+          "json": {
+            "position": {
+              "x": 161.75,
+              "y": -5.75,
+              "z": 328
+            },
+            "rotation": {
+              "x": 0,
+              "y": -1,
+              "z": 0,
+              "w": 6.123234262925839e-17
+            },
+            "scale": {
+              "x": 9.5,
+              "y": 7.099999904632568,
+              "z": 7.099999904632568
+            },
+            "parent": 0
+          }
+        },
+        "563": {
+          "json": {
+            "position": {
+              "x": 79.75,
+              "y": -4.5,
+              "z": 283.25
+            },
+            "rotation": {
+              "x": 0,
+              "y": -0.5070487260818481,
+              "z": 0,
+              "w": 0.8619173765182495
+            },
+            "scale": {
+              "x": 12.399999618530273,
+              "y": 9.300000190734863,
+              "z": 9.300000190734863
+            },
+            "parent": 0
+          }
+        },
+        "564": {
+          "json": {
+            "position": {
+              "x": 128.75,
+              "y": 0,
+              "z": 171.25
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0.7071067690849304,
+              "z": 0,
+              "w": 0.7071067690849304
+            },
+            "scale": {
+              "x": 4.300000190734863,
+              "y": 3.9000000953674316,
+              "z": 6.900000095367432
+            },
+            "parent": 0
+          }
+        },
+        "565": {
+          "json": {
+            "position": {
+              "x": 191,
+              "y": -0.25,
+              "z": 293.5
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0.04421369731426239,
+              "z": 0,
+              "w": 0.9990220665931702
+            },
+            "scale": {
+              "x": 1.9607499837875366,
+              "y": 1.7999999523162842,
+              "z": 1.9607499837875366
+            },
+            "parent": 0
+          }
+        },
+        "566": {
+          "json": {
+            "position": {
+              "x": 187.3476104736328,
+              "y": 0.025149740278720856,
+              "z": 302.7766418457031
+            },
+            "rotation": {
+              "x": 0,
+              "y": -0.7933533191680908,
+              "z": 0,
+              "w": 0.6087614297866821
+            },
+            "scale": {
+              "x": 6.639163970947266,
+              "y": 3.645031213760376,
+              "z": 6.639163970947266
+            },
+            "parent": 66050
+          }
+        },
+        "567": {
+          "json": {
+            "position": {
+              "x": 186.5,
+              "y": 0,
+              "z": 299.5
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0.9659258127212524,
+              "z": 0,
+              "w": 0.258819043636322
+            },
+            "scale": {
+              "x": 2.9941327571868896,
+              "y": 2.9941327571868896,
+              "z": 2.9941327571868896
+            },
+            "parent": 66050
+          }
+        },
+        "568": {
+          "json": {
+            "position": {
+              "x": 189.62574768066406,
+              "y": -0.3002994656562805,
+              "z": 299.84759521484375
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0.6087614297866821,
+              "z": 0,
+              "w": 0.7933533191680908
+            },
+            "scale": {
+              "x": 3.2544922828674316,
+              "y": 1.692335844039917,
+              "z": 3.2544922828674316
+            },
+            "parent": 66050
+          }
+        },
+        "569": {
+          "json": {
+            "position": {
+              "x": 179,
+              "y": 0,
+              "z": 287.5
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0.27688491344451904,
+              "z": 0,
+              "w": 0.9609030485153198
+            },
+            "scale": {
+              "x": 2.799999952316284,
+              "y": 2.799999952316284,
+              "z": 3.299999952316284
+            },
+            "parent": 66050
+          }
+        },
         "66050": {
           "json": {
             "position": {
@@ -999,6 +1230,48 @@
               "y": 0,
               "z": 0,
               "w": 1
+            },
+            "parent": 0
+          }
+        },
+        "66059": {
+          "json": {
+            "position": {
+              "x": 196.77037048339844,
+              "y": -2.4091222286224365,
+              "z": 166.03956604003906
+            },
+            "rotation": {
+              "x": 0,
+              "y": -0.2027226835489273,
+              "z": 0,
+              "w": 0.9792361855506897
+            },
+            "scale": {
+              "x": 7.099999904632568,
+              "y": 7.099999904632568,
+              "z": 7.099999904632568
+            },
+            "parent": 0
+          }
+        },
+        "66094": {
+          "json": {
+            "position": {
+              "x": 257.5,
+              "y": -6.5,
+              "z": 210.75
+            },
+            "rotation": {
+              "x": 0,
+              "y": -0.3826834261417389,
+              "z": 0,
+              "w": 0.9238795042037964
+            },
+            "scale": {
+              "x": 9.300000190734863,
+              "y": 11.300000190734863,
+              "z": 9.300000190734863
             },
             "parent": 0
           }
@@ -1353,6 +1626,97 @@
             "visibleMeshesCollisionMask": 0,
             "invisibleMeshesCollisionMask": 3
           }
+        },
+        "559": {
+          "json": {
+            "src": "assets/Models/Mountain03/Mountain03.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 3
+          }
+        },
+        "560": {
+          "json": {
+            "src": "assets/Models/Mountain01/mountain01.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 3
+          }
+        },
+        "561": {
+          "json": {
+            "src": "assets/Models/Mountain01/mountain01.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 3
+          }
+        },
+        "562": {
+          "json": {
+            "src": "assets/Models/Mountain01/mountain01.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 3
+          }
+        },
+        "563": {
+          "json": {
+            "src": "assets/Models/Mountain02/Mountain02.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 3
+          }
+        },
+        "564": {
+          "json": {
+            "src": "assets/Models/Mountain03/Mountain03.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 3
+          }
+        },
+        "565": {
+          "json": {
+            "src": "assets/Models/WaterPool01/WaterPool01.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 3
+          }
+        },
+        "566": {
+          "json": {
+            "src": "assets/Models/Plant01/Plant01.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 3
+          }
+        },
+        "567": {
+          "json": {
+            "src": "assets/Models/Plant02/Plant02.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 3
+          }
+        },
+        "568": {
+          "json": {
+            "src": "assets/Models/Plant01/Plant01.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 3
+          }
+        },
+        "569": {
+          "json": {
+            "src": "assets/Models/Plant07/Plant07.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 3
+          }
+        },
+        "66059": {
+          "json": {
+            "src": "assets/Models/Mountain01/mountain01.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 3
+          }
+        },
+        "66094": {
+          "json": {
+            "src": "assets/Models/Mountain02/Mountain02.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 3
+          }
         }
       }
     },
@@ -1589,9 +1953,74 @@
             "value": "Plant01.glb_10"
           }
         },
+        "559": {
+          "json": {
+            "value": "Mountain03.glb"
+          }
+        },
+        "560": {
+          "json": {
+            "value": "mountain01.glb_2"
+          }
+        },
+        "561": {
+          "json": {
+            "value": "mountain01.glb_3"
+          }
+        },
+        "562": {
+          "json": {
+            "value": "mountain01.glb_4"
+          }
+        },
+        "563": {
+          "json": {
+            "value": "Mountain02.glb_2"
+          }
+        },
+        "564": {
+          "json": {
+            "value": "Mountain03.glb_2"
+          }
+        },
+        "565": {
+          "json": {
+            "value": "WaterPool01.glb_2"
+          }
+        },
+        "566": {
+          "json": {
+            "value": "Plant01.glb_11"
+          }
+        },
+        "567": {
+          "json": {
+            "value": "Plant02.glb_3"
+          }
+        },
+        "568": {
+          "json": {
+            "value": "Plant01.glb_12"
+          }
+        },
+        "569": {
+          "json": {
+            "value": "Plant07.glb_7"
+          }
+        },
         "66050": {
           "json": {
             "value": "Plants"
+          }
+        },
+        "66059": {
+          "json": {
+            "value": "mountain01.glb"
+          }
+        },
+        "66094": {
+          "json": {
+            "value": "Mountain02.glb"
           }
         }
       }
@@ -1638,14 +2067,9 @@
         "serializationType": "map"
       },
       "data": {
-        "535": {
+        "569": {
           "json": {
-            "gizmo": 1
-          }
-        },
-        "548": {
-          "json": {
-            "gizmo": 3
+            "gizmo": 2
           }
         }
       }
@@ -1708,7 +2132,16 @@
                   544,
                   552,
                   545,
-                  546
+                  546,
+                  565,
+                  66059,
+                  562,
+                  561,
+                  560,
+                  66094,
+                  563,
+                  559,
+                  564
                 ]
               },
               {
@@ -1758,6 +2191,9 @@
                   537,
                   547,
                   551,
+                  566,
+                  567,
+                  568,
                   538,
                   557,
                   556,
@@ -1766,6 +2202,7 @@
                   531,
                   549,
                   532,
+                  569,
                   529,
                   519,
                   539,
@@ -1932,6 +2369,58 @@
               {
                 "entity": 557,
                 "children": []
+              },
+              {
+                "entity": 66059,
+                "children": []
+              },
+              {
+                "entity": 66094,
+                "children": []
+              },
+              {
+                "entity": 559,
+                "children": []
+              },
+              {
+                "entity": 560,
+                "children": []
+              },
+              {
+                "entity": 561,
+                "children": []
+              },
+              {
+                "entity": 562,
+                "children": []
+              },
+              {
+                "entity": 563,
+                "children": []
+              },
+              {
+                "entity": 564,
+                "children": []
+              },
+              {
+                "entity": 565,
+                "children": []
+              },
+              {
+                "entity": 566,
+                "children": []
+              },
+              {
+                "entity": 567,
+                "children": []
+              },
+              {
+                "entity": 568,
+                "children": []
+              },
+              {
+                "entity": 569,
+                "children": []
               }
             ]
           }
@@ -2084,7 +2573,46 @@
         "557": {
           "json": {}
         },
+        "559": {
+          "json": {}
+        },
+        "560": {
+          "json": {}
+        },
+        "561": {
+          "json": {}
+        },
+        "562": {
+          "json": {}
+        },
+        "563": {
+          "json": {}
+        },
+        "564": {
+          "json": {}
+        },
+        "565": {
+          "json": {}
+        },
+        "566": {
+          "json": {}
+        },
+        "567": {
+          "json": {}
+        },
+        "568": {
+          "json": {}
+        },
+        "569": {
+          "json": {}
+        },
         "66050": {
+          "json": {}
+        },
+        "66059": {
+          "json": {}
+        },
+        "66094": {
           "json": {}
         }
       }
