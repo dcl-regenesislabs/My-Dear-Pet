@@ -1,8 +1,9 @@
 // Martian scene boundaries — ported from the `skybox-test` project.
 //
 // Everything here is created by code (not placed in the Creator Hub): the
-// "here" anchor marker and the 4 boundary planes. There is no custom ground —
-// gameplay objects now sit at y=0, flush with the scene's default terrain.
+// "here" anchor marker and the 4 boundary planes. Gameplay objects sit at
+// y=0. The visible ground is the tiled grass plane in `floor.ts`, sized to
+// match this same footprint.
 //
 // The gameplay area (Bowl/Bed/Ball/Pond/Caretaker/Shop) was moved in
 // `main.composite` to sit around the "here" anchor below — see `shared/config.ts`.

@@ -12,6 +12,15 @@ export const DAY_MS = 24 * 60 * 60 * 1000
  */
 export const SERVER_TIMEOUT_MS = 10000
 
+/**
+ * DEV ONLY: skip the "Loading server..." gate and unfreeze the player
+ * immediately, without waiting for the authoritative server's first snapshot.
+ * Lets you preview/edit 3D scene visuals without the server running. Gameplay
+ * state (pets, currency, etc.) won't load while this is on. Set back to
+ * `false` before testing real gameplay or multiplayer.
+ */
+export const DEV_SKIP_SERVER_GATE = false
+
 // ---------------------------------------------------------------------------
 // Colony — the shared Mars population everyone is building toward. Teaser for
 // now: the server counts pets across the players it knows about and broadcasts

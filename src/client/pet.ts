@@ -176,7 +176,7 @@ function activePetSlotIndex(): number {
 // entity hasn't resolved by name yet (objectPosition would return scene origin).
 const HOME_FALLBACK = Vector3.create(205.75, C.PET_BASE_Y, 247.5)
 function homeSpawnPos(): Vector3 {
-  const home = objectPosition(EntityNames.Dome01_glb)
+  const home = objectPosition(EntityNames.HomeDome01_glb)
   const resolved = home.x > 1 || home.z > 1 // not scene origin (0,0)
   const base = resolved ? home : HOME_FALLBACK
   return Vector3.create(base.x, C.PET_BASE_Y, base.z)
@@ -739,7 +739,7 @@ function updateCarryEgg(): void {
     return
   }
   const pp = playerPos()
-  const home = objectPosition(EntityNames.Dome01_glb)
+  const home = objectPosition(EntityNames.HomeDome01_glb)
   st.atHome = distFlat(pp, home) <= C.HOME_RADIUS
   // Guide arrow points home until you're there (where the Hatch button shows).
   if (st.atHome) hideArrow()
