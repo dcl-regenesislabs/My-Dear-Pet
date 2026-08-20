@@ -670,6 +670,32 @@ export function openMeteorReward(p: PlayerData): { notes: Notify[]; reward: C.Sp
   return { notes: [{ kind: 'meteor', message: `Meteor: ${reward.label}!` }], reward, index }
 }
 
+/** Which day of the 7-day daily-reward ladder the player is on (1..7). The day-7
+ *  step is the jackpot in STREAK_WEEK_REWARDS. */
+function dailyLadderDay(p: PlayerData): number {
+  return (((p.streakCount - 1) % 7) + 7) % 7 + 1
+}
+
+/** Claim today's fixed daily-reward ladder step. Gated by meteorDay (once per
+ *  day), server-authoritative so the coins actually persist. */
+export function claimDailyReward(p: PlayerData): { notes: Notify[]; currency: number; spins: number; day: number } {
+  const today = Math.floor(now() / C.DAY_MS)
+  if (p.meteorDay === today) {
+    return { notes: [{ kind: 'error', message: 'Daily reward already claimed today.' }], currency: 0, spins: 0, day: 0 }
+  }
+  p.meteorDay = today
+  const day = dailyLadderDay(p)
+  const r = C.STREAK_WEEK_REWARDS[day - 1]
+  p.currency += r.currency
+  p.spinTickets += r.spins
+  return {
+    notes: [{ kind: 'daily', message: `Daily reward: +${r.currency} coins${r.spins ? ` +${r.spins} spins` : ''}!` }],
+    currency: r.currency,
+    spins: r.spins,
+    day
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Presence (broadcast)
 // ---------------------------------------------------------------------------

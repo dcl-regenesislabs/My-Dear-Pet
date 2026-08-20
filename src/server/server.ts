@@ -187,6 +187,15 @@ export function server(): void {
     broadcastPresence() // its size/level changed — mirror it for everyone
   })
 
+  room.onMessage('claimDaily', async (_data, ctx) => {
+    if (!ctx) return
+    const p = await S.loadPlayer(ctx.from)
+    const { notes } = S.claimDailyReward(p)
+    await S.savePlayer(ctx.from)
+    forwardNotes(ctx.from, notes)
+    pushSnapshot(p)
+  })
+
   room.onMessage('openMeteor', async (_data, ctx) => {
     if (!ctx) return
     const p = await S.loadPlayer(ctx.from)

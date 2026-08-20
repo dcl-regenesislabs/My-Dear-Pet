@@ -327,6 +327,9 @@ export const actions = {
   openMeteor(): void {
     room.send('openMeteor', {})
   },
+  claimDaily(): void {
+    room.send('claimDaily', {})
+  },
   breed(partnerPetId: string, name = ''): void {
     room.send('breed', { partnerPetId, name })
   },

@@ -32,6 +32,8 @@ export const Messages = {
   spin: Schemas.Map({}),
   // Crack open the daily meteor (server rolls, applies and persists the reward).
   openMeteor: Schemas.Map({}),
+  // Claim today's fixed daily-reward ladder step (server grants + persists it).
+  claimDaily: Schemas.Map({}),
   // Breed the active pet with a partner pet (owned, for now). Server rolls rarity.
   breed: Schemas.Map({ partnerPetId: Schemas.String, name: Schemas.String }),
   // DEBUG/testing: instantly grow the active pet to Adult + level 5 (unlock breeding).

@@ -110,6 +110,20 @@ export function streakClaimable(): boolean {
   return clientState.streak.claimedDay !== todayIndex()
 }
 
+// --- Server-authoritative daily reward (the meteor ladder). Day + claimed state
+// come from the SERVER snapshot (streakCount + meteorDay), so claims persist.
+/** True if today's daily reward hasn't been claimed yet (server meteorDay gate). */
+export function dailyClaimable(): boolean {
+  const p = clientState.player
+  return !!p && p.meteorDay !== todayIndex()
+}
+/** Which day of the 6-day ladder the player is on (1..6), from server streakCount. */
+// 7-day ladder so the day-7 jackpot in STREAK_WEEK_REWARDS is actually reachable.
+export function dailyLadderDay(): number {
+  const c = clientState.player?.streakCount ?? 1
+  return (((c - 1) % 7) + 7) % 7 + 1
+}
+
 /** Claim today's reward. Returns the reward, or null if already claimed. */
 export function claimStreak(): { currency: number; spins: number; day: number } | null {
   if (!streakClaimable()) return null

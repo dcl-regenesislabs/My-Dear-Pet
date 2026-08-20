@@ -13,7 +13,7 @@ import { actions, clientState, discardHatchling, keepHatchling, pushToast, serve
 import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry, startCarryPet, placePetAtStation, cancelCarryPet } from './pet'
 import { throwMeteor } from './play'
 import { triggerCare, careActive, queueLength } from './input'
-import { buyItemLocal, buySlotLocal, claimStreak, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
+import { buyItemLocal, buySlotLocal, claimStreak, dailyClaimable, dailyLadderDay, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
 import { sway, startAnimSystem, attentionPulse } from './ui/anim'
 import { C, Color, mobile, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, TactileButton, useCompactCanvas } from './ui/theme'
 import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './ui/dialog'
@@ -32,11 +32,7 @@ const uiState = {
   breedName: '',
   // "Choose Location!" modal — opened on entry for RETURNING players only
   // (first-timers get the tutorial instead). Wired from setup.ts.
-  locationOpen: false,
-  // Fake "watch ad" overlay: shows the header image until this timestamp, then
-  // grants the (2x) daily reward and closes the panel. 0 = not showing.
-  adUntil: 0,
-  adClaim2x: false
+  locationOpen: false
 }
 
 export const ui = {
@@ -1029,7 +1025,7 @@ function DailyDayCard(props: { key?: string; day: number; state: 'claimed' | 'to
   const r = Cfg.STREAK_WEEK_REWARDS[props.day - 1]
   const today = props.state === 'today'
   const future = props.state === 'future'
-  const cardW = S(126)
+  const cardW = S(106) // sized so all 7 ladder days fit one row
   return (
     <UiEntity
       uiTransform={{ width: cardW, height: S(168), flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', margin: S(4), padding: S(8), borderRadius: S(16) }}
@@ -1047,28 +1043,14 @@ function DailyDayCard(props: { key?: string; day: number; state: 'claimed' | 'to
 }
 
 function MeteorRewardPanel() {
-  const weekDay = Math.min(6, streakWeekDay()) // this UI shows a 6-day ladder
-  const claimable = streakClaimable()
-  const days = [1, 2, 3, 4, 5, 6].map((d) => {
+  const weekDay = dailyLadderDay() // server-derived (from streakCount)
+  const claimable = dailyClaimable() // server-derived (meteorDay gate)
+  const days = [1, 2, 3, 4, 5, 6, 7].map((d) => {
     let state: 'claimed' | 'today' | 'future' = 'future'
     if (d < weekDay) state = 'claimed'
     else if (d === weekDay) state = claimable ? 'today' : 'claimed'
     return { d, state }
   })
-  const claim = (x2: boolean) => {
-    const r = claimStreak()
-    if (r) {
-      if (x2 && clientState.player) clientState.player.currency += r.currency // second helping = 2x
-      const total = x2 ? r.currency * 2 : r.currency
-      pushToast(`Daily reward: +${total} coins${r.spins ? ` +${r.spins} spins` : ''}!`)
-    }
-    ui.close()
-  }
-  // "Watch Ad" shows the header image for 2s, then AdOverlay grants the 2x reward.
-  const watchAd = () => {
-    uiState.adUntil = Date.now() + 2000
-    uiState.adClaim2x = true
-  }
   return (
     <LightModal title="Daily Rewards" width={S(920)} height={S(440)} onClose={() => ui.close()}>
       <Label value="Play every day to get better prizes!" fontSize={S(20)} color={LOC.body} textAlign="middle-center" uiTransform={{ width: '100%', height: S(28), margin: { bottom: S(6) } }} />
@@ -1078,48 +1060,27 @@ function MeteorRewardPanel() {
         ))}
       </UiEntity>
       <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', margin: { top: S(14) } }}>
-        {claimable && (
-          <TactileButton id="daily_claim" label="Claim!" width={S(230)} height={S(70)} bg={LOC.green} textColor={LOC.white} fontSize={S(26)} radius={S(18)} pulse margin={{ right: S(10) }} onClick={() => claim(false)} />
-        )}
-        {claimable && (
-          <TactileButton id="daily_claim_2x" label="Watch Ad  ·  2x Reward" width={S(360)} height={S(70)} bg={LOC.violet} textColor={LOC.white} fontSize={S(22)} radius={S(18)} margin={{ left: S(10) }} onClick={() => watchAd()} />
-        )}
-        {!claimable && (
+        {claimable ? (
+          <TactileButton
+            id="daily_claim"
+            label="Claim!"
+            width={S(300)}
+            height={S(70)}
+            bg={LOC.green}
+            textColor={LOC.white}
+            fontSize={S(26)}
+            radius={S(18)}
+            pulse
+            onClick={() => {
+              actions.claimDaily() // server grants + persists; toast comes back from it
+              ui.close()
+            }}
+          />
+        ) : (
           <TactileButton id="daily_done" label="Come back tomorrow!" width={S(360)} height={S(70)} bg={LOC.neutral} textColor={LOC.body} fontSize={S(22)} radius={S(18)} disabled onClick={() => {}} />
         )}
       </UiEntity>
     </LightModal>
-  )
-}
-
-// Fake "watch ad" overlay: the header image centered for 2s, then it grants the
-// 2x daily reward and closes the panel. Rendered on top of everything.
-const AD_IMAGE = 'assets/images/header.png'
-function AdOverlay() {
-  if (uiState.adUntil <= 0) return <UiEntity />
-  if (Date.now() >= uiState.adUntil) {
-    // Ad finished (runs once — adUntil is cleared): grant the 2x reward + close.
-    const x2 = uiState.adClaim2x
-    uiState.adUntil = 0
-    uiState.adClaim2x = false
-    const r = claimStreak()
-    if (r) {
-      if (x2 && clientState.player) clientState.player.currency += r.currency
-      const total = x2 ? r.currency * 2 : r.currency
-      pushToast(`Daily reward: +${total} coins${r.spins ? ` +${r.spins} spins` : ''}!`)
-    }
-    ui.close()
-    return <UiEntity />
-  }
-  const w = S(760)
-  const h = Math.round(w / 2) // header.png is 768x384 (2:1)
-  return (
-    <UiEntity
-      uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
-      uiBackground={{ color: { r: 0, g: 0, b: 0, a: 0.6 } }}
-    >
-      <UiEntity uiTransform={{ width: w, height: h }} uiBackground={{ texture: { src: AD_IMAGE }, textureMode: 'stretch' }} />
-    </UiEntity>
   )
 }
 
@@ -1698,8 +1659,6 @@ const Root = () => {
     <HintBanner />
     <RewardPopup />
     <Toasts />
-    {/* The fake-ad overlay sits above even those. */}
-    <AdOverlay />
   </UiEntity>
   )
 }

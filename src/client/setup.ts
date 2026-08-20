@@ -12,7 +12,7 @@
 import { engine, InputModifier } from '@dcl/sdk/ecs'
 import { room } from '../shared/messages'
 import type { PlayerSnapshot, PresenceEntry, SwapOfferPayload } from '../shared/types'
-import type { SpinReward } from '../shared/config'
+import { DEV_SKIP_SERVER_GATE, type SpinReward } from '../shared/config'
 import { actions, applyPresence, applySnapshot, clientState, markServerAlive, pushToast, resolveMyAddress } from './state'
 import { evaluateStreak, seedLocalPlayer, simTick } from './sim'
 import { setupUi, ui } from './ui'
@@ -22,6 +22,9 @@ import { setupPetSystems, startCarryEgg } from './pet'
 import { setupPlay } from './play'
 import { setupMeteor } from './meteor'
 import { setupSkybox } from './skybox'
+import { setupFloor } from './floor'
+import { setupEggShake } from './eggShake'
+import { setupPlantSway } from './plantSway'
 import { setupCaretaker } from './caretaker'
 
 let introTriggered = false
@@ -140,6 +143,9 @@ export function setupClient(): void {
   resolveMyAddress()
   seedLocalPlayer() // HUD renders immediately, no waiting on the network
   setupSkybox() // Mars ground + boundary colliders
+  setupFloor() // tiled grass ground plane
+  setupEggShake() // subtle constant tremble on the placed decor eggs
+  setupPlantSway() // subtle wind sway on a random subset of the placed plants
   setupCaretaker() // click collider + Idle/Talk animation
   setupMeteor() // meteor reward drop (falls, settles, clickable)
   evaluateStreak() // advance / reset the 7-day login streak
@@ -149,16 +155,23 @@ export function setupClient(): void {
   setupPetSystems() // renders + simulates remote pets from server `presence`
   setupPlay() // Play action: throw an animated meteorite forward
 
+  if (DEV_SKIP_SERVER_GATE) {
+    // Bypass the loading gate entirely — no InputModifier freeze, no wait.
+    clientState.serverReady = true
+  }
+
   // Freeze the player (movement + camera input) while the loading gate is up —
   // ui.tsx only blocks pointer/UI, InputModifier is what stops the avatar from
   // walking off before the server has answered.
-  InputModifier.createOrReplace(engine.PlayerEntity, { mode: InputModifier.Mode.Standard({ disableAll: true }) })
-  let inputFrozen = true
+  if (!DEV_SKIP_SERVER_GATE) {
+    InputModifier.createOrReplace(engine.PlayerEntity, { mode: InputModifier.Mode.Standard({ disableAll: true }) })
+  }
+  let inputFrozen = !DEV_SKIP_SERVER_GATE
 
   // Try to load persisted state from the server (retry until it answers).
   let sinceReq = 99
   let elapsed = 0
-  actions.requestState()
+  if (!DEV_SKIP_SERVER_GATE) actions.requestState()
   engine.addSystem((dt: number) => {
     elapsed += dt
     simTick(dt) // local game simulation
@@ -169,7 +182,7 @@ export function setupClient(): void {
     }
 
     // Keep asking the server for our saved progress for a while.
-    if (elapsed < 30) {
+    if (!DEV_SKIP_SERVER_GATE && elapsed < 30) {
       sinceReq += dt
       if (sinceReq >= 2) {
         sinceReq = 0
