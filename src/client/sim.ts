@@ -118,9 +118,10 @@ export function dailyClaimable(): boolean {
   return !!p && p.meteorDay !== todayIndex()
 }
 /** Which day of the 6-day ladder the player is on (1..6), from server streakCount. */
+// 7-day ladder so the day-7 jackpot in STREAK_WEEK_REWARDS is actually reachable.
 export function dailyLadderDay(): number {
   const c = clientState.player?.streakCount ?? 1
-  return (((c - 1) % 6) + 6) % 6 + 1
+  return (((c - 1) % 7) + 7) % 7 + 1
 }
 
 /** Claim today's reward. Returns the reward, or null if already claimed. */

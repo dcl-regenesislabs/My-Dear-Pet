@@ -1025,7 +1025,7 @@ function DailyDayCard(props: { key?: string; day: number; state: 'claimed' | 'to
   const r = Cfg.STREAK_WEEK_REWARDS[props.day - 1]
   const today = props.state === 'today'
   const future = props.state === 'future'
-  const cardW = S(126)
+  const cardW = S(106) // sized so all 7 ladder days fit one row
   return (
     <UiEntity
       uiTransform={{ width: cardW, height: S(168), flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', margin: S(4), padding: S(8), borderRadius: S(16) }}
@@ -1045,7 +1045,7 @@ function DailyDayCard(props: { key?: string; day: number; state: 'claimed' | 'to
 function MeteorRewardPanel() {
   const weekDay = dailyLadderDay() // server-derived (from streakCount)
   const claimable = dailyClaimable() // server-derived (meteorDay gate)
-  const days = [1, 2, 3, 4, 5, 6].map((d) => {
+  const days = [1, 2, 3, 4, 5, 6, 7].map((d) => {
     let state: 'claimed' | 'today' | 'future' = 'future'
     if (d < weekDay) state = 'claimed'
     else if (d === weekDay) state = claimable ? 'today' : 'claimed'

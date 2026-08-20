@@ -670,9 +670,10 @@ export function openMeteorReward(p: PlayerData): { notes: Notify[]; reward: C.Sp
   return { notes: [{ kind: 'meteor', message: `Meteor: ${reward.label}!` }], reward, index }
 }
 
-/** Which day of the 6-day daily-reward ladder the player is on (1..6). */
+/** Which day of the 7-day daily-reward ladder the player is on (1..7). The day-7
+ *  step is the jackpot in STREAK_WEEK_REWARDS. */
 function dailyLadderDay(p: PlayerData): number {
-  return (((p.streakCount - 1) % 6) + 6) % 6 + 1
+  return (((p.streakCount - 1) % 7) + 7) % 7 + 1
 }
 
 /** Claim today's fixed daily-reward ladder step. Gated by meteorDay (once per

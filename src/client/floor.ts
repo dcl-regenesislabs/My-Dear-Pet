@@ -8,7 +8,9 @@ import { Vector3, Quaternion } from '@dcl/sdk/math'
 const GRASS_TEXTURE_SRC = 'assets/images/grasstexture01.png'
 
 // Matches the boundary walls' footprint in skybox.ts: x 67.25..367.25, z 71.5..371.25.
-const FLOOR_CENTER = Vector3.create(217.25, 0.02, 221.375)
+// Kept just BELOW ground (-0.05) so it never z-fights with / hides the CareCenter
+// mud and water-pool decals that sit at y≈0 / slightly negative.
+const FLOOR_CENTER = Vector3.create(217.25, -0.05, 221.375)
 const FLOOR_SIZE = 300 // metres, square
 const FLOOR_TILE_METERS = 4 // grass texture repeats every N metres
 
