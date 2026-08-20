@@ -23,6 +23,7 @@ export interface PetData {
   petLevel: number
   size: number // visual scale multiplier (1.0 = base), grows with care milestones
   careCount: number // cumulative care actions, drives size growth
+  generation: number // 0 = adopted; a bred offspring is max(parents)+1 (Gen-1, Gen-2, ...)
   // Sleep — a state, not an instant top-up: energy refills over time while true.
   sleeping: boolean
   sleepOnBed: boolean // resting on the Bed refills at full rate, elsewhere slower
@@ -76,4 +77,12 @@ export interface PresenceEntry {
 export interface PlayerSnapshot {
   player: PlayerData
   activePet: PetData | null
+}
+
+/** A pending pet-swap offer, sent to the target so they can review + decide. */
+export interface SwapOfferPayload {
+  fromAddress: string
+  fromName: string // proposer's display name (falls back to a short address)
+  offeredPet: PetData // full profile of the pet being offered (name, rarity, stats…)
+  wantedPetName: string // the target's pet the proposer wants in return
 }

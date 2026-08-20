@@ -491,6 +491,9 @@ const HATCH_ADMIRE_SECONDS = 1.2 // camera lingers on the newborn before handing
 let egg: Entity | null = null
 let hatchSpecies = ''
 let hatchName = ''
+// Breed eggs vs adoption eggs: a breed offspring already exists on the server as
+// the hatchling (from the breed roll), so its reveal must NOT re-adopt.
+let carryIsBreed = false
 let hatchPopT = 0 // >0 while the freshly-hatched pet is popping in
 let hatchRevealPos: Vector3 | null = null // where the pet emerges (the egg's spot)
 let hatchAnimT = 0 // elapsed time since the Hatch clip started
@@ -709,7 +712,8 @@ function updateArrow(): void {
 }
 
 /** Adopt handoff: give the player an egg to carry home (held in the hand). */
-export function startCarryEgg(species: string, name: string): void {
+export function startCarryEgg(species: string, name: string, isBreed = false): void {
+  carryIsBreed = isBreed
   clientState.carryEgg = { active: true, species, name, atHome: false }
 
   // An empty follows the right hand; the egg is a child offset into the palm.
@@ -826,7 +830,9 @@ function startHatchAnim(): void {
 /** Reveal the pet (~when the egg opens): tell the server, pop it in at the egg. */
 function revealHatchedPet(): void {
   hatchRevealed = true
-  adoptPet(hatchSpecies, hatchName) // pet now exists + the server is told
+  // Adoption: create the pet now (optimistic + tell the server). Breeding: the
+  // offspring already exists as the server's hatchling, so just reveal it.
+  if (!carryIsBreed) adoptPet(hatchSpecies, hatchName)
   hatchPopT = HATCH_POP_SECONDS
   pushToast(`Your ${speciesLabel(hatchSpecies)} hatched!`)
 }
@@ -845,6 +851,7 @@ function finishHatch(): void {
   }
   releasePettingView() // release camera + avatar (shared helper)
   hatchRevealPos = null
+  carryIsBreed = false
 }
 
 /** Register a tap on the egg (mobile fill) — see petTap for the why. */
@@ -933,9 +940,17 @@ function updateLocalPet(dt: number): void {
   // spot in front of the player so the new pet won't spawn on top of this one.
   if ((clientState.carryEgg.active || (clientState.hatch.active && !hatchRevealed)) && clientState.activePet) {
     const petP = clientState.activePet
+    // A breed offspring already exists as the hatchling and IS the active pet —
+    // keep it hidden until it emerges from the egg, instead of it standing around.
+    const hatchlingId = clientState.player?.hatchling?.id
+    if (hatchlingId && petP.id === hatchlingId) {
+      VisibilityComponent.createOrReplace(localPet, { visible: false })
+      if (localTag) VisibilityComponent.createOrReplace(localTag.root, { visible: false, propagateToChildren: true })
+      return
+    }
+    // Otherwise (adoption) the CURRENT pet steps aside to its home slot so the
+    // hatch spot in front of the player is clear.
     const idx = activePetSlotIndex()
-    // Only walk to a slot if this pet actually has one; otherwise just idle in
-    // place (never fall back to slot 0, which another pet may already occupy).
     const moved = idx >= 0 ? stepToward(localPet, slotHome(idx), dt, yawOffsetForSpecies(petP.species)) : 0
     setClip(localPet, moved > 0.003 ? 'walk' : 'idle')
     if (localTag) updateTag(localTag, Transform.get(localPet).position, stageScaleFor(petP.size), petP.name, petP)
@@ -947,6 +962,9 @@ function updateLocalPet(dt: number): void {
   // no jump when the egg is removed. Normal behavior resumes once hatch ends.
   if (clientState.hatch.active && clientState.activePet) {
     const petH = clientState.activePet
+    // Undo any hide from the carry phase — the newborn is emerging now.
+    VisibilityComponent.createOrReplace(localPet, { visible: true })
+    if (localTag) VisibilityComponent.createOrReplace(localTag.root, { visible: true, propagateToChildren: true })
     const full = petScale(petH.species, stageScaleFor(petH.size))
     if (hatchPopT > 0) hatchPopT -= dt
     const f = hatchPopT > 0 ? Math.max(0.05, 1 - hatchPopT / HATCH_POP_SECONDS) : 1 // 0 -> 1

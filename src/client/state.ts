@@ -3,7 +3,7 @@
 
 import { getPlayer } from '@dcl/sdk/players'
 import { room } from '../shared/messages'
-import type { CareAction, PetData, PlayerData, PlayerSnapshot, PresenceEntry } from '../shared/types'
+import type { CareAction, PetData, PlayerData, PlayerSnapshot, PresenceEntry, SwapOfferPayload } from '../shared/types'
 import { levelForXp, SERVER_TIMEOUT_MS, SIZE_BASE, SIZE_MAX, SLOT_PRICE, speciesLabel, xpForLevel, type SpinReward } from '../shared/config'
 
 export type DialogState = {
@@ -40,6 +40,9 @@ export const clientState: {
   // Read-only "passport" for another player's pet: address of whose pet is
   // being viewed, or null when closed. Opened by clicking a remote pet.
   viewingPetAddress: string | null
+  // An incoming pet-swap offer awaiting our Accept/Decline, or null. Set by the
+  // `swapOffer` server message; drives the SwapOfferPanel modal.
+  incomingSwap: SwapOfferPayload | null
   // ms timestamp of the last "Give a treat" click — the server silently drops
   // petOther on cooldown (no notify), so this drives a local disable/toast
   // instead of the button looking dead on a fast second click.
@@ -89,6 +92,7 @@ export const clientState: {
   introShown: false,
   petPanelOpen: false,
   viewingPetAddress: null,
+  incomingSwap: null,
   lastTreatSentAt: 0,
   petting: { active: false, progress: 0 },
   carryEgg: { active: false, species: '', name: '', atHome: false },
@@ -172,6 +176,7 @@ function makeLocalPet(species: string, name: string): PetData {
     petLevel: 1,
     size: SIZE_BASE,
     careCount: 0,
+    generation: 0,
     sleeping: false,
     sleepOnBed: false,
     bornAt: t,
@@ -295,6 +300,12 @@ export const actions = {
   petOther(targetAddress: string): void {
     room.send('petOther', { targetAddress })
   },
+  proposeSwap(targetAddress: string, fromName: string): void {
+    room.send('proposeSwap', { targetAddress, fromName })
+  },
+  respondSwap(accept: boolean): void {
+    room.send('respondSwap', { accept })
+  },
   buyItem(tier: number): void {
     room.send('buyItem', { tier })
   },
@@ -319,8 +330,8 @@ export const actions = {
   claimDaily(): void {
     room.send('claimDaily', {})
   },
-  breed(partnerPetId: string): void {
-    room.send('breed', { partnerPetId })
+  breed(partnerPetId: string, name = ''): void {
+    room.send('breed', { partnerPetId, name })
   },
   debugGrowAdult(): void {
     room.send('debugGrowAdult', {})

@@ -11,14 +11,14 @@
 
 import { engine, InputModifier } from '@dcl/sdk/ecs'
 import { room } from '../shared/messages'
-import type { PlayerSnapshot, PresenceEntry } from '../shared/types'
+import type { PlayerSnapshot, PresenceEntry, SwapOfferPayload } from '../shared/types'
 import { DEV_SKIP_SERVER_GATE, type SpinReward } from '../shared/config'
 import { actions, applyPresence, applySnapshot, clientState, markServerAlive, pushToast, resolveMyAddress } from './state'
 import { evaluateStreak, seedLocalPlayer, simTick } from './sim'
 import { setupUi, ui } from './ui'
 import { openCaretakerIntro } from './ui/dialog'
 import { setupInput } from './input'
-import { setupPetSystems } from './pet'
+import { setupPetSystems, startCarryEgg } from './pet'
 import { setupPlay } from './play'
 import { setupMeteor } from './meteor'
 import { setupSkybox } from './skybox'
@@ -92,10 +92,28 @@ function registerHandlers(): void {
     pushToast(data.message)
   })
 
-  // Breeding result — the offspring's rolled rarity (reveal comes later).
+  // Breeding result — the offspring is an egg (server hatchling). Carry it home
+  // and hatch it, just like a fresh adoption; the rarity is the surprise inside.
   room.onMessage('breedResult', (data) => {
     markServerAlive()
-    pushToast(`Offspring rarity: ${data.rarity.toUpperCase()}!`)
+    pushToast(`You bred a ${data.rarity.toUpperCase()} egg — carry it home!`)
+    if (data.species) startCarryEgg(data.species, data.name, true)
+  })
+
+  // Incoming pet-swap offer — pop the Accept/Decline modal with the offered pet.
+  room.onMessage('swapOffer', (data) => {
+    markServerAlive()
+    try {
+      clientState.incomingSwap = JSON.parse(data.json) as SwapOfferPayload
+    } catch (e) {
+      console.log('[Client] bad swap offer', e)
+    }
+  })
+
+  // Outcome of a swap we proposed.
+  room.onMessage('swapResult', (data) => {
+    markServerAlive()
+    pushToast(data.message)
   })
 
   // Daily meteor: the server rolled and persisted it — show what we got.

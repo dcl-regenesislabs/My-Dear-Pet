@@ -18,7 +18,7 @@ import { sway, startAnimSystem, attentionPulse } from './ui/anim'
 import { C, Color, mobile, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, TactileButton, useCompactCanvas } from './ui/theme'
 import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './ui/dialog'
 
-type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor'
+type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor' | 'breedName'
 
 const uiState = {
   panel: 'none' as Panel,
@@ -26,6 +26,10 @@ const uiState = {
   adoptStep: 'pick' as 'pick' | 'name',
   adoptSpecies: Cfg.SPECIES[0],
   adoptName: '',
+  // Breeding: partner pet chosen to cross with, and the name the player types for
+  // the offspring (the server prefixes it "Gen-N ").
+  breedPartnerId: '',
+  breedName: '',
   // "Choose Location!" modal — opened on entry for RETURNING players only
   // (first-timers get the tutorial instead). Wired from setup.ts.
   locationOpen: false
@@ -355,7 +359,11 @@ function PetPanel() {
               pushToast(`${partner.name} must also grow to Adult to breed.`)
               return
             }
-            actions.breed(partner.id)
+            // Name the offspring first (like adoption), then breed on confirm.
+            uiState.breedPartnerId = partner.id
+            uiState.breedName = ''
+            uiState.panel = 'breedName'
+            clientState.petPanelOpen = false
           }}
         />
       </UiEntity>
@@ -374,7 +382,7 @@ function RemotePetPanel() {
   if (!entry) return <UiEntity />
   const contentW = S(560) - S(30) * 2
   return (
-    <LightModal title={`${entry.name}  ·  Lv ${entry.level}`} width={S(560)} height={S(400)} onClose={() => (clientState.viewingPetAddress = null)}>
+    <LightModal title={`${entry.name}  ·  Lv ${entry.level}`} width={S(560)} height={S(470)} onClose={() => (clientState.viewingPetAddress = null)}>
       <PetIdentityRow species={entry.species} rarity={entry.rarity} size={entry.size} width={contentW} />
       <UiEntity uiTransform={{ width: contentW, flexDirection: 'column', margin: { top: S(4) } }}>
         <StatRow label="Mood" value={entry.mood} color={C.happy} width={contentW} />
@@ -400,6 +408,62 @@ function RemotePetPanel() {
           actions.petOther(entry.address)
         }}
       />
+      <TactileButton
+        id="propose_swap"
+        label={`Propose Swap  ·  ${clientState.activePet ? clientState.activePet.name : '—'}`}
+        width={contentW}
+        height={S(56)}
+        bg={LOC.violet}
+        textColor={LOC.white}
+        fontSize={S(18)}
+        radius={S(16)}
+        margin={{ top: S(10) }}
+        onClick={() => {
+          // Offer YOUR active pet for theirs; the server forwards it for approval.
+          if (!clientState.activePet || clientState.player?.hatchling) {
+            pushToast('Select one of your pets first to offer it.')
+            return
+          }
+          actions.proposeSwap(entry.address, playerName())
+          clientState.viewingPetAddress = null
+        }}
+      />
+    </LightModal>
+  )
+}
+
+// Incoming pet-swap offer — another player wants to trade their pet for yours.
+// Shows the offered pet's full profile; Accept swaps both rosters, Decline drops it.
+function SwapOfferPanel() {
+  const offer = clientState.incomingSwap
+  if (!offer) return <UiEntity />
+  const contentW = S(600) - S(30) * 2
+  const p = offer.offeredPet
+  const respond = (accept: boolean) => {
+    actions.respondSwap(accept)
+    clientState.incomingSwap = null
+  }
+  return (
+    <LightModal title="Swap Offer!" width={S(600)} height={S(560)} onClose={() => respond(false)}>
+      <Label
+        value={`${offer.fromName} offers their pet for your ${offer.wantedPetName}`}
+        fontSize={S(17)}
+        color={LOC.dim}
+        textAlign="middle-center"
+        uiTransform={{ width: contentW, height: S(44), margin: { bottom: S(6) } }}
+      />
+      <OutlineLabel value={p.name} fontSize={S(24)} color={LOC.title} outlineColor={LOC.titleOutline} width={contentW} height={S(32)} textAlign="middle-center" />
+      <PetIdentityRow species={p.species} rarity={p.rarity} size={p.size} width={contentW} />
+      <UiEntity uiTransform={{ width: contentW, flexDirection: 'column' }}>
+        <StatRow label="Hunger" value={p.hunger} color={C.hunger} width={contentW} />
+        <StatRow label="Hygiene" value={p.hygiene} color={C.hygiene} width={contentW} />
+        <StatRow label="Energy" value={p.energy} color={C.energy} width={contentW} />
+        <StatRow label="Happy" value={p.happiness} color={C.happy} width={contentW} />
+      </UiEntity>
+      <UiEntity uiTransform={{ width: contentW, flexDirection: 'row', justifyContent: 'center', margin: { top: S(14) } }}>
+        <TactileButton id="swap_decline" label="Decline" width={S(200)} height={S(64)} bg={LOC.rose} textColor={LOC.white} fontSize={S(22)} radius={S(18)} margin={{ right: S(10) }} onClick={() => respond(false)} />
+        <TactileButton id="swap_accept" label="Accept" width={S(200)} height={S(64)} bg={LOC.green} textColor={LOC.white} fontSize={S(22)} radius={S(18)} pulse margin={{ left: S(10) }} onClick={() => respond(true)} />
+      </UiEntity>
     </LightModal>
   )
 }
@@ -410,8 +474,9 @@ function RemotePetPanel() {
 function BottomNav() {
   const p = clientState.player
   // Hidden while a dialog is open — the dialog sits where these buttons are.
-  // Also hidden in Fetch mode / while carrying an egg or the pet (they own the screen).
-  if (!p || clientState.dialog.open || clientState.fetch.active || clientState.carryEgg.active || clientState.carryPet.active) return <UiEntity />
+  // Also hidden in Fetch mode, while carrying an egg or the pet, and during the
+  // hatch animation (so Keep/Discard only appears once the newborn has emerged).
+  if (!p || clientState.dialog.open || clientState.fetch.active || clientState.carryEgg.active || clientState.carryPet.active || clientState.hatch.active) return <UiEntity />
   const bw = Sbtn(160)
   const bh = Sbtn(72)
 
@@ -590,6 +655,51 @@ function AdoptPanel() {
         ) : (
           <TactileButton id="adopt_buyslot" label={`Buy Slot ${Cfg.SLOT_PRICE}`} width={S(260)} height={S(66)} bg={LOC.orange} textColor={LOC.white} fontSize={S(22)} radius={S(18)} onClick={() => actions.buySlot()} />
         )}
+      </UiEntity>
+    </LightModal>
+  )
+}
+
+// Breeding: name the offspring before crossing. The species + rarity are the
+// server's surprise inside the egg; the name is prefixed "Gen-N" server-side.
+function BreedNamePanel() {
+  if (uiState.panel !== 'breedName') return <UiEntity />
+  return (
+    <LightModal title="Name your Offspring" width={S(680)} height={S(560)} onClose={() => ui.close()}>
+      <UiEntity uiTransform={{ width: '100%', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
+        <Label value="🥚" fontSize={S(90)} textAlign="middle-center" uiTransform={{ width: '100%', height: S(120), margin: { top: S(6) } }} />
+        <Label value="Cross your two Adults — the species and rarity are a surprise inside the egg!" fontSize={S(17)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: S(520), height: S(48) }} />
+        <Input
+          placeholder="Type a name..."
+          fontSize={S(20)}
+          color={LOC.body}
+          placeholderColor={LOC.dim}
+          uiTransform={{ width: S(440), height: S(60), margin: { top: S(14), bottom: S(6) } }}
+          uiBackground={{ color: LOC.tile }}
+          onChange={(v) => {
+            uiState.breedName = v
+          }}
+        />
+        <Label value="It hatches named  Gen-1  +  your name." fontSize={S(14)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(22) }} />
+      </UiEntity>
+      <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', justifyContent: 'center', margin: { top: S(6) } }}>
+        <TactileButton id="breed_back" label="< Back" width={S(160)} height={S(66)} bg={LOC.neutral} textColor={LOC.body} fontSize={S(20)} radius={S(18)} margin={{ right: S(12) }} onClick={() => ui.close()} />
+        <TactileButton
+          id="breed_confirm"
+          label="Breed!"
+          width={S(260)}
+          height={S(66)}
+          bg={LOC.green}
+          textColor={LOC.white}
+          fontSize={S(26)}
+          radius={S(18)}
+          pulse
+          onClick={() => {
+            actions.breed(uiState.breedPartnerId, uiState.breedName)
+            uiState.breedName = ''
+            ui.close()
+          }}
+        />
       </UiEntity>
     </LightModal>
   )
@@ -1528,12 +1638,14 @@ const Root = () => {
     <ColonyBar />
     <PetPanel />
     <RemotePetPanel />
+    <SwapOfferPanel />
     <SideButtons />
     <BottomNav />
     <FetchOverlay />
     <CarryHatchButton />
     <BathButton />
     {uiState.panel === 'adopt' && <AdoptPanel />}
+    {uiState.panel === 'breedName' && <BreedNamePanel />}
     {uiState.panel === 'shop' && <ShopPanel />}
     {uiState.panel === 'roster' && <RosterPanel />}
     {uiState.panel === 'inventory' && <InventoryPanel />}
