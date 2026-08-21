@@ -9,6 +9,7 @@ import type { CareAction } from '../shared/types'
 import { actionObjectPosition } from './objects'
 import { isBusy, sendPetTo } from './pet'
 import { applyCareLocal } from './sim'
+import { startFeedTask } from './feed'
 import { actions, clientState, debugGrowAdultLocal, pushToast } from './state'
 import { ui } from './ui'
 
@@ -101,7 +102,9 @@ function onClick(name: string, hoverText: string, cb: () => void): void {
 }
 
 export function setupInput(): void {
-  onClick(EntityNames.PetFeeder_glb, 'Feed', () => triggerCare('feed'))
+  // Feed is no longer a walk-to-the-bowl care action — it starts the tree errand
+  // (client/feed.ts): arrow to the tree, click it there, then the feeding game.
+  onClick(EntityNames.PetFeeder_glb, 'Feed', () => startFeedTask())
   onClick(EntityNames.PetPool_glb, 'Bath', () => triggerCare('clean'))
   onClick(EntityNames.PetBed_glb, 'Sleep', () => triggerCare('sleep'))
   // Old play action (pet walks to the ball) is suspended — Play now throws a
