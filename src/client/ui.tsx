@@ -13,6 +13,7 @@ import { actions, clientState, discardHatchling, keepHatchling, pushToast, serve
 import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry, startCarryPet, placePetAtStation, cancelCarryPet } from './pet'
 import { throwMeteor } from './play'
 import { triggerCare, careActive, queueLength } from './input'
+import { startFeedTask } from './feed'
 import { buyItemLocal, buySlotLocal, claimStreak, dailyClaimable, dailyLadderDay, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
 import { sway, startAnimSystem, attentionPulse } from './ui/anim'
 import { C, Color, mobile, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, TactileButton, useCompactCanvas } from './ui/theme'
@@ -278,7 +279,7 @@ function PetPanel() {
       </UiEntity>
       {/* Care actions (flat, colored per stat) */}
       <UiEntity uiTransform={{ width: contentW, flexDirection: 'row', justifyContent: 'center', margin: { top: S(12) } }}>
-        <TactileButton id="care_feed" label="Feed" width={chipW} height={chipH} bg={C.hunger} textColor={C.outline} fontSize={S(16)} radius={S(14)} margin={{ left: S(3), right: S(3) }} onClick={() => care('feed')} />
+        <TactileButton id="care_feed" label="Feed" width={chipW} height={chipH} bg={C.hunger} textColor={C.outline} fontSize={S(16)} radius={S(14)} margin={{ left: S(3), right: S(3) }} onClick={() => startFeedTask()} />
         <TactileButton
           id="care_bath"
           label="Bath"

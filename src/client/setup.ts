@@ -26,6 +26,7 @@ import { setupFloor } from './floor'
 import { setupEggShake } from './eggShake'
 import { setupPlantSway } from './plantSway'
 import { setupCaretaker } from './caretaker'
+import { setupFeedTask } from './feed'
 
 let introTriggered = false
 let firstSnapshotSeen = false // decide the "Choose Location!" modal on the FIRST snapshot only
@@ -154,6 +155,7 @@ export function setupClient(): void {
   setupInput()
   setupPetSystems() // renders + simulates remote pets from server `presence`
   setupPlay() // Play action: throw an animated meteorite forward
+  setupFeedTask() // Feed action: guide arrow to the tree, click it to start the feeding game
 
   if (DEV_SKIP_SERVER_GATE) {
     // Bypass the loading gate entirely — no InputModifier freeze, no wait.

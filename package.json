@@ -12,6 +12,7 @@
     "server-logs": "sdk-commands sdk-server-logs"
   },
   "devDependencies": {
+    "@dcl/asset-packs": "^2.17.3",
     "@dcl/js-runtime": "7.25.1-30310486734.commit-5ffe873",
     "@dcl/sdk": "7.25.1-30310486734.commit-5ffe873"
   },
@@ -24,5 +25,8 @@
     "singleQuote": true,
     "printWidth": 120,
     "trailingComma": "none"
+  },
+  "overrides": {
+    "@dcl/ecs": "7.25.1-30310486734.commit-5ffe873"
   }
 }
