@@ -4,27 +4,18 @@
 // standing at it the tree becomes clickable, and clicking it clears the arrow
 // and hands off to the feeding mini-game.
 
-import { engine, Entity, Transform, pointerEventsSystem, InputAction } from '@dcl/sdk/ecs'
+import { engine, Transform, pointerEventsSystem, InputAction } from '@dcl/sdk/ecs'
 import { Vector3 } from '@dcl/sdk/math'
-import { hideArrow, showArrowTo } from './pet'
+import { hideArrow, showArrowTo, isBusy } from './pet'
+import { getTree } from './tree'
 import { clientState, pushToast } from './state'
 import { ui } from './ui'
 
-// Placed in the editor (models/tree.glb). Not read from EntityNames because that
-// enum is regenerated from the composite and this entity is newer than the copy
-// on disk — the Name in the hierarchy is the contract either way.
-const TREE_NAME = 'tree'
 const TREE_RADIUS = 12 // metres: how close you must be for the tree to accept a click
 const TREE_CLICK_DISTANCE = TREE_RADIUS + 4 // pointer maxDistance, slightly looser than the gate
 
 let active = false
 let clickable = false
-
-function treeEntity(): Entity | null {
-  const e = engine.getEntityOrNullByName(TREE_NAME)
-  if (!e || !Transform.has(e)) return null
-  return e
-}
 
 function playerPos(): Vector3 {
   const t = Transform.getOrNull(engine.PlayerEntity)
@@ -44,13 +35,17 @@ export function startFeedTask(): void {
     ui.openAdopt()
     return
   }
+  if (isBusy()) {
+    pushToast('Your pet is busy — wait a moment!')
+    return
+  }
   if (active) {
     pushToast('Head to the tree — follow the arrow!')
     return
   }
-  const tree = treeEntity()
+  const tree = getTree()
   if (!tree) {
-    console.log('[Client] feed task: tree not found in scene:', TREE_NAME)
+    console.log('[Client] feed task: tree not spawned yet')
     return
   }
   active = true
@@ -75,7 +70,7 @@ export function feedTaskActive(): boolean {
  *  standing at it — otherwise its hover text would show at all times. */
 function setClickable(on: boolean): void {
   if (on === clickable) return
-  const tree = treeEntity()
+  const tree = getTree()
   if (!tree) return
   clickable = on
   if (on) {
@@ -102,7 +97,14 @@ export function startFeedingGame(mascotaId: string): void {
 export function setupFeedTask(): void {
   engine.addSystem(() => {
     if (!active) return
-    const tree = treeEntity()
+    // Yield the shared guide arrow to a carry flow (egg / bath): those also drive
+    // pet.ts's arrow, so if the player starts Feed then Bath, the errand must bow
+    // out instead of fighting to keep the arrow pointed at the tree.
+    if (clientState.carryEgg.active || clientState.carryPet.active) {
+      cancelFeedTask()
+      return
+    }
+    const tree = getTree()
     if (!tree) return
     const pos = Transform.get(tree).position
     showArrowTo(pos) // re-assert each frame, same as the egg carry does
