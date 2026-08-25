@@ -1391,22 +1391,34 @@ function FetchOverlay() {
 }
 
 // ---------------------------------------------------------------------------
-// Feed tree minigame overlay (fruitGame.ts): a "Get ready" beat during the
-// intro cinematic, then a fruit counter + countdown while catching. BACK bails
-// early, submitting whatever was caught so far (same as a natural timeout).
+// Feed tree minigame overlay (fruitGame.ts): "how to play" + arrows during
+// arrival/intro (before the player can move freely to catch anything), then a
+// fruit counter + countdown while catching. BACK bails early, submitting
+// whatever was caught so far (same as a natural timeout).
 // ---------------------------------------------------------------------------
 function FeedGameOverlay() {
   const st = clientState.feedGame
   if (!st.active) return <UiEntity />
   const catching = st.phase === 'catching'
   // Brief pop on the counter each time a fruit lands — works on every client,
-  // unlike the particle burst in fruitGame.ts (Unity desktop only).
+  // unlike a particle effect would (Unity desktop only, so it's not used here).
   const flashing = Date.now() < st.catchFlashUntil
+  const arrowNudge = Math.round(sway() * S(10))
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'none' }}>
       <BackButton onClick={() => cancelFruitGame()} />
       <UiEntity
-        uiTransform={{ positionType: 'absolute', position: { top: S(90), left: '50%' }, margin: { left: -S(190) }, width: S(380), height: S(70), alignItems: 'center', justifyContent: 'center', borderRadius: S(20), pointerFilter: 'none' }}
+        uiTransform={{
+          positionType: 'absolute',
+          position: { top: S(90), left: '50%' },
+          margin: { left: catching ? -S(190) : -S(220) },
+          width: catching ? S(380) : S(440),
+          height: catching ? S(70) : S(120),
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: S(20),
+          pointerFilter: 'none'
+        }}
         uiBackground={{ color: C.panelBg }}
       >
         {catching ? (
@@ -1418,7 +1430,18 @@ function FeedGameOverlay() {
             uiTransform={{ width: '100%', height: S(36) }}
           />
         ) : (
-          <Label value="Get ready!" fontSize={S(28)} color={C.text} textAlign="middle-center" uiTransform={{ width: '100%', height: S(36) }} />
+          <UiEntity uiTransform={{ width: '100%', height: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+            <Label value="◀" fontSize={S(36)} color={C.gold} textAlign="middle-center" uiTransform={{ width: S(50), height: S(50), margin: { left: -arrowNudge } }} />
+            <Label
+              value="Move left and right to catch the food falling from the tree!"
+              fontSize={S(22)}
+              color={C.text}
+              textAlign="middle-center"
+              textWrap="wrap"
+              uiTransform={{ width: S(320), height: S(100) }}
+            />
+            <Label value="▶" fontSize={S(36)} color={C.gold} textAlign="middle-center" uiTransform={{ width: S(50), height: S(50), margin: { left: arrowNudge } }} />
+          </UiEntity>
         )}
       </UiEntity>
     </UiEntity>

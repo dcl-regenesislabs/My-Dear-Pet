@@ -59,11 +59,12 @@ export const clientState: {
   // Hatch gesture: rubbing/tapping the egg fills this progress, then it hatches.
   // Reuses the petting gesture input.
   hatch: { active: boolean; progress: number }
-  // Feed tree minigame (fruitGame.ts): 'intro' is the freeze+emote cinematic
-  // beat, 'catching' is the timed fruit-catching phase the HUD counter/timer
-  // reads from. catchFlashUntil (Date.now() ms) briefly pulses the counter
-  // each time a fruit is caught.
-  feedGame: { active: boolean; phase: 'intro' | 'catching'; caught: number; timeLeft: number; catchFlashUntil: number }
+  // Feed tree minigame (fruitGame.ts): 'arrival' tracks the player walking the
+  // last stretch in under a cinematic cam (still free to move), 'intro' is the
+  // freeze+emote reveal beat, 'catching' is the timed fruit-catching phase the
+  // HUD counter/timer reads from. catchFlashUntil (Date.now() ms) briefly
+  // pulses the counter each time a fruit is caught.
+  feedGame: { active: boolean; phase: 'arrival' | 'intro' | 'catching'; caught: number; timeLeft: number; catchFlashUntil: number }
   // Fetch (Play) mode: `active` shows the centered Fetch button and hides the
   // panel; `busy` is true from the moment the ball is thrown until the pet drops
   // it back (the Fetch button is disabled while busy).
@@ -103,7 +104,7 @@ export const clientState: {
   carryEgg: { active: false, species: '', name: '', atHome: false },
   carryPet: { active: false, atStation: false },
   hatch: { active: false, progress: 0 },
-  feedGame: { active: false, phase: 'intro', caught: 0, timeLeft: 0, catchFlashUntil: 0 },
+  feedGame: { active: false, phase: 'arrival', caught: 0, timeLeft: 0, catchFlashUntil: 0 },
   fetch: { active: false, busy: false },
   pendingPet: null,
   pendingUntil: 0,

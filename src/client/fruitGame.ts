@@ -13,6 +13,7 @@ import {
   ColliderLayer,
   VisibilityComponent,
   Tween,
+  TweenSequence,
   tweenSystem,
   EasingFunction,
   VirtualCamera,
@@ -59,11 +60,34 @@ const RESPAWN_DELAY_S = 0.8
 const CATCH_RADIUS = 1.1 // metres, flat XZ
 const CATCH_MIN_Y = 0.2 // above ground
 const CATCH_MAX_Y = 2.4
+// Fruit01-05's pivots all sit well above their base (measured ~0.24-0.36m) —
+// landing them exactly at groundY buries most of the model, leaving only the
+// stem poking out. Lift the resting height so they actually sit ON the ground.
+const FRUIT_GROUND_OFFSET = 0.3
+
+// Missed fruit don't just vanish — they get a small bounce+spin (see
+// playLandBounce) and stay lying on the ground as clutter until the round
+// ends. These are SEPARATE decorative entities from the catchable fruit pool
+// (which keeps respawning on its own timer as before) — otherwise a few early
+// misses would permanently eat into the limited number of drops for the rest
+// of the round.
+const GROUND_CLUTTER_COUNT = 8
+const LAND_BOUNCE_HEIGHT = 0.22
+const LAND_BOUNCE_UP_MS = 180
+const LAND_BOUNCE_DOWN_MS = 220
 
 // Freeze -> emote -> release timeline (seconds since the intro began). Copied
 // from the prototype's tuned pacing.
 const INTRO_EMOTE_AT_S = 0.9
 const INTRO_RELEASE_AT_S = 3.1
+
+// Arrival: we can't script the avatar's own walking (its Transform is
+// engine-controlled), so rather than wait for the player to walk closer, the
+// teleport/freeze happen immediately on hand-off and this is just a brief
+// establishing shot (cinematic_point looking at the now-arrived avatar)
+// before cutting, with a transition, to the game camera.
+const ARRIVAL_HOLD_S = 0.7
+const CAM_TRANSITION_SPEED = 2.5
 
 // Geometry: invisible marker entities placed in the Creator Hub composite
 // (next to the tree) drive all of this — no geometry is derived from the
@@ -105,13 +129,16 @@ interface FruitRuntime {
   resolvedAt: number
 }
 
-type Phase = 'idle' | 'intro' | 'catching'
+type Phase = 'idle' | 'arrival' | 'intro' | 'catching'
 let phase: Phase = 'idle'
 let phaseAt = 0
 let clock = 0
 let introEmotePlayed = false
 
 const fruits: FruitRuntime[] = []
+const groundClutter: Entity[] = [] // decorative fallen fruit — see GROUND_CLUTTER_COUNT
+let clutterIndex = 0
+let arrivalCam: Entity | null = null
 let gameCam: Entity | null = null
 let drawerAnchor: Entity | null = null
 let drawerEntity: Entity | null = null
@@ -121,6 +148,10 @@ let canopyCenter = Vector3.Zero()
 let canopyHalfWidth = 4.0 // overwritten from the lane_3/lane_4 gap each game
 let localRight = Vector3.create(1, 0, 0)
 let localForward = Vector3.create(0, 0, 1)
+
+// Cached each game start, consumed when 'arrival' hands off to 'intro'.
+let pendingCamPos = Vector3.Zero()
+let pendingLookTarget = Vector3.Zero()
 
 // Movement-tolerant re-apply for the masked "hold" emote — some clients cancel
 // a masked emote on movement with no lifecycle event to detect it. Same fix
@@ -181,7 +212,7 @@ function armFruit(f: FruitRuntime): void {
 
 function startFall(f: FruitRuntime): void {
   const start = Transform.get(f.entity).position
-  const end = Vector3.create(start.x, groundY, start.z)
+  const end = Vector3.create(start.x, groundY + FRUIT_GROUND_OFFSET, start.z)
   Tween.createOrReplace(f.entity, {
     mode: Tween.Mode.Move({ start, end }),
     duration: FALL_DURATION_MS,
@@ -190,12 +221,55 @@ function startFall(f: FruitRuntime): void {
   f.phase = 'falling'
 }
 
+/** Small scripted bounce-and-settle for a fruit that hit the ground uncaught:
+ *  up + spin, then down + spin further, then it just sits there. */
+function playLandBounce(entity: Entity, groundPos: Vector3): void {
+  const apex = Vector3.create(groundPos.x, groundPos.y + LAND_BOUNCE_HEIGHT, groundPos.z)
+  const rest0 = Quaternion.fromEulerDegrees(0, 0, 0)
+  const rest1 = Quaternion.fromEulerDegrees(0, Math.random() * 360, (Math.random() * 2 - 1) * 20)
+  const rest2 = Quaternion.fromEulerDegrees(0, Math.random() * 360, (Math.random() * 2 - 1) * 20)
+  Tween.createOrReplace(entity, {
+    mode: Tween.Mode.MoveRotateScale({
+      position: { start: groundPos, end: apex },
+      rotation: { start: rest0, end: rest1 }
+    }),
+    duration: LAND_BOUNCE_UP_MS,
+    easingFunction: EasingFunction.EF_EASEOUTQUAD
+  })
+  TweenSequence.createOrReplace(entity, {
+    sequence: [
+      {
+        mode: Tween.Mode.MoveRotateScale({
+          position: { start: apex, end: groundPos },
+          rotation: { start: rest1, end: rest2 }
+        }),
+        duration: LAND_BOUNCE_DOWN_MS,
+        easingFunction: EasingFunction.EF_EASEINQUAD
+      }
+    ]
+  })
+}
+
+/** Leave a fallen fruit lying on the ground as clutter until the round ends —
+ *  a separate pool from the catchable fruit, so misses don't eat into drops. */
+function dropGroundClutter(pos: Vector3, model: string): void {
+  const entity = groundClutter[clutterIndex]
+  clutterIndex = (clutterIndex + 1) % groundClutter.length
+  GltfContainer.createOrReplace(entity, { src: model, ...NO_COLLISION })
+  Transform.createOrReplace(entity, { position: pos })
+  VisibilityComponent.createOrReplace(entity, { visible: true })
+  playLandBounce(entity, pos)
+}
+
 function resolveFruit(f: FruitRuntime, caught: boolean): void {
+  const pos = Transform.get(f.entity).position
   Tween.deleteFrom(f.entity)
   VisibilityComponent.createOrReplace(f.entity, { visible: false })
   if (caught) {
     clientState.feedGame.caught += 1
     clientState.feedGame.catchFlashUntil = Date.now() + 350
+  } else {
+    dropGroundClutter(pos, GltfContainer.get(f.entity).src)
   }
   f.phase = 'resolved'
   f.resolvedAt = clock
@@ -237,10 +311,30 @@ function updateHoldPose(): void {
   carryPrevPos = Vector3.create(pp.x, pp.y, pp.z)
 }
 
+/** Arrival: a brief establishing shot (the player is already teleported +
+ *  frozen by now — see startFruitGame) before cutting, with a transition, to
+ *  the game camera. Time-based, not distance-based: we can't script the
+ *  avatar's own walk, so this doesn't wait on player movement. */
+function arrivalTick(): void {
+  if (clock - phaseAt < ARRIVAL_HOLD_S) return
+
+  if (!gameCam) gameCam = engine.addEntity()
+  Transform.createOrReplace(gameCam, { position: pendingCamPos, rotation: Quaternion.fromLookAt(pendingCamPos, pendingLookTarget) })
+  VirtualCamera.createOrReplace(gameCam, {
+    defaultTransition: { transitionMode: VirtualCamera.Transition.Speed(CAM_TRANSITION_SPEED) }
+  })
+  MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: gameCam })
+
+  phase = 'intro'
+  phaseAt = clock
+  clientState.feedGame.phase = 'intro'
+}
+
 function introTick(): void {
   const elapsed = clock - phaseAt
   if (!introEmotePlayed && elapsed >= INTRO_EMOTE_AT_S) {
     playHoldEmote()
+    if (drawerEntity) VisibilityComponent.getMutable(drawerEntity).visible = true // crate appears once the hands are up
     introEmotePlayed = true
   }
   if (elapsed >= INTRO_RELEASE_AT_S) {
@@ -269,6 +363,11 @@ function endFruitGame(): void {
     VisibilityComponent.createOrReplace(f.entity, { visible: false })
     f.phase = 'idle'
   }
+  for (const e of groundClutter) {
+    Tween.deleteFrom(e)
+    if (TweenSequence.has(e)) TweenSequence.deleteFrom(e)
+    VisibilityComponent.createOrReplace(e, { visible: false })
+  }
   clientState.feedGame.active = false
   phase = 'idle'
   carryPrevPos = null
@@ -288,7 +387,9 @@ export function cancelFruitGame(): void {
 
 function tick(dt: number): void {
   clock += dt
-  if (phase === 'intro') {
+  if (phase === 'arrival') {
+    arrivalTick()
+  } else if (phase === 'intro') {
     introTick()
   } else if (phase === 'catching') {
     fruitTick()
@@ -307,6 +408,14 @@ export function setupFruitGame(): void {
     GltfContainer.create(entity, { src: FRUIT_MODELS[i % FRUIT_MODELS.length], ...NO_COLLISION })
     VisibilityComponent.create(entity, { visible: false })
     fruits.push({ entity, phase: 'idle', nextDropAt: 0, resolvedAt: 0 })
+  }
+
+  for (let i = 0; i < GROUND_CLUTTER_COUNT; i++) {
+    const entity = engine.addEntity()
+    Transform.create(entity, { position: Vector3.Zero() })
+    GltfContainer.create(entity, { src: FRUIT_MODELS[i % FRUIT_MODELS.length], ...NO_COLLISION })
+    VisibilityComponent.create(entity, { visible: false })
+    groundClutter.push(entity)
   }
 
   drawerAnchor = engine.addEntity()
@@ -374,20 +483,18 @@ export function startFruitGame(mascotaId: string): void {
     (p3.z + p4.z) / 2
   )
 
-  // Snap the player to the spawnpoint and face them at cinematic_point (so
-  // their front — not their back — is what the camera sees).
-  void movePlayerTo({ newRelativePosition: spawnPos, cameraTarget: camPos })
-
-  if (!gameCam) gameCam = engine.addEntity()
+  // Cached for arrivalTick's cut to the game camera.
+  pendingCamPos = camPos
   // Look toward the play area (avatar + catch zone), not straight down at
   // ground level — but not all the way up at the fruit's hang height either.
-  const lookTarget = Vector3.create(spawnPos.x, groundY + CAMERA_LOOK_HEIGHT, spawnPos.z)
-  Transform.createOrReplace(gameCam, { position: camPos, rotation: Quaternion.fromLookAt(camPos, lookTarget) })
-  VirtualCamera.createOrReplace(gameCam, {})
-  MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: gameCam })
+  pendingLookTarget = Vector3.create(spawnPos.x, groundY + CAMERA_LOOK_HEIGHT, spawnPos.z)
+
+  // Snap the player into place and face them at cinematic_point right away —
+  // we can't script their own walk-in, so there's no point waiting for it.
+  void movePlayerTo({ newRelativePosition: spawnPos, cameraTarget: camPos })
 
   // Movement-only lock, NOT disableAll: disableAll also blocks scene-triggered
-  // emotes, which would silently no-op the hold_emote reveal below.
+  // emotes, which would silently no-op the hold_emote reveal in introTick.
   InputModifier.createOrReplace(engine.PlayerEntity, {
     mode: InputModifier.Mode.Standard({
       disableWalk: true,
@@ -399,7 +506,15 @@ export function startFruitGame(mascotaId: string): void {
     })
   })
 
-  if (drawerEntity) VisibilityComponent.getMutable(drawerEntity).visible = true
+  // Arrival camera: a brief establishing shot of the now-arrived avatar from
+  // cinematic_point, before arrivalTick cuts to the closer game framing.
+  if (!arrivalCam) arrivalCam = engine.addEntity()
+  Transform.createOrReplace(arrivalCam, { position: camPos })
+  VirtualCamera.createOrReplace(arrivalCam, {
+    lookAtEntity: engine.PlayerEntity,
+    defaultTransition: { transitionMode: VirtualCamera.Transition.Speed(CAM_TRANSITION_SPEED) }
+  })
+  MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: arrivalCam })
 
   for (const f of fruits) {
     Tween.deleteFrom(f.entity)
@@ -409,8 +524,8 @@ export function startFruitGame(mascotaId: string): void {
     f.phase = 'idle'
   }
 
-  clientState.feedGame = { active: true, phase: 'intro', caught: 0, timeLeft: GAME_DURATION_S, catchFlashUntil: 0 }
+  clientState.feedGame = { active: true, phase: 'arrival', caught: 0, timeLeft: GAME_DURATION_S, catchFlashUntil: 0 }
   introEmotePlayed = false
-  phase = 'intro'
+  phase = 'arrival'
   phaseAt = clock
 }

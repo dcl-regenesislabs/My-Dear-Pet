@@ -13,7 +13,7 @@ import { clientState, pushToast } from './state'
 import { ui } from './ui'
 import { startFruitGame } from './fruitGame'
 
-const TREE_RADIUS = 4 // metres: how close you must be before the minigame auto-starts
+const TREE_RADIUS = 9 // metres: how close you must be before the minigame auto-starts (fruitGame.ts's own arrival cam covers the last few metres of the walk-in)
 
 let active = false
 
