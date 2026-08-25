@@ -77,17 +77,28 @@ const LAND_BOUNCE_UP_MS = 180
 const LAND_BOUNCE_DOWN_MS = 220
 
 // Freeze -> emote -> release timeline (seconds since the intro began). Copied
-// from the prototype's tuned pacing.
+// from the prototype's tuned pacing. The crate reveal is delayed a little
+// past the emote trigger so it pops in once the arms have actually reached
+// the holding pose, instead of appearing mid-swing and looking like it jumps
+// into place once the pose catches up.
 const INTRO_EMOTE_AT_S = 0.9
+const DRAWER_REVEAL_DELAY_S = 0.35
 const INTRO_RELEASE_AT_S = 3.1
 
 // Arrival: we can't script the avatar's own walking (its Transform is
 // engine-controlled), so rather than wait for the player to walk closer, the
-// teleport/freeze happen immediately on hand-off and this is just a brief
-// establishing shot (cinematic_point looking at the now-arrived avatar)
-// before cutting, with a transition, to the game camera.
-const ARRIVAL_HOLD_S = 0.7
-const CAM_TRANSITION_SPEED = 2.5
+// teleport/freeze happen immediately on hand-off. There's only ONE camera
+// entity for the whole cinematic (cinCam) — it never gets swapped for a
+// different one, it's just re-Tweened, so there's no camera-switch moment
+// that could pop instead of pan:
+//  1. cinCam starts at a snapshot of wherever the player's native follow-cam
+//     was actually looking (so activating it is an invisible cut), then Tweens
+//     to the cinematic_point framing (looking at the now-arrived avatar).
+//  2. Once that settles, a second Tween swings the SAME camera's rotation
+//     (it doesn't move) from looking at the avatar to looking at the canopy.
+const ARRIVAL_PAN_MS = 1100
+const ARRIVAL_HOLD_S = 1.4
+const GAME_CAM_PAN_MS = 800
 
 // Geometry: invisible marker entities placed in the Creator Hub composite
 // (next to the tree) drive all of this — no geometry is derived from the
@@ -134,12 +145,12 @@ let phase: Phase = 'idle'
 let phaseAt = 0
 let clock = 0
 let introEmotePlayed = false
+let drawerRevealed = false
 
 const fruits: FruitRuntime[] = []
 const groundClutter: Entity[] = [] // decorative fallen fruit — see GROUND_CLUTTER_COUNT
 let clutterIndex = 0
-let arrivalCam: Entity | null = null
-let gameCam: Entity | null = null
+let cinCam: Entity | null = null // the one cinematic camera, re-Tweened rather than swapped
 let drawerAnchor: Entity | null = null
 let drawerEntity: Entity | null = null
 
@@ -311,19 +322,25 @@ function updateHoldPose(): void {
   carryPrevPos = Vector3.create(pp.x, pp.y, pp.z)
 }
 
-/** Arrival: a brief establishing shot (the player is already teleported +
- *  frozen by now — see startFruitGame) before cutting, with a transition, to
- *  the game camera. Time-based, not distance-based: we can't script the
- *  avatar's own walk, so this doesn't wait on player movement. */
+/** Arrival: once the establishing pan (started in startFruitGame) has settled,
+ *  swing the SAME camera's rotation over to the game framing — no camera
+ *  swap, so there's nothing that could pop instead of pan. Time-based, not
+ *  distance-based: we can't script the avatar's own walk, so this doesn't
+ *  wait on player movement. */
 function arrivalTick(): void {
   if (clock - phaseAt < ARRIVAL_HOLD_S) return
+  if (!cinCam) return
 
-  if (!gameCam) gameCam = engine.addEntity()
-  Transform.createOrReplace(gameCam, { position: pendingCamPos, rotation: Quaternion.fromLookAt(pendingCamPos, pendingLookTarget) })
-  VirtualCamera.createOrReplace(gameCam, {
-    defaultTransition: { transitionMode: VirtualCamera.Transition.Speed(CAM_TRANSITION_SPEED) }
+  const cur = Transform.get(cinCam)
+  const gameRot = Quaternion.fromLookAt(pendingCamPos, pendingLookTarget)
+  Tween.createOrReplace(cinCam, {
+    mode: Tween.Mode.MoveRotateScale({
+      position: { start: cur.position, end: pendingCamPos },
+      rotation: { start: cur.rotation, end: gameRot }
+    }),
+    duration: GAME_CAM_PAN_MS,
+    easingFunction: EasingFunction.EF_EASEQUAD
   })
-  MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: gameCam })
 
   phase = 'intro'
   phaseAt = clock
@@ -334,8 +351,13 @@ function introTick(): void {
   const elapsed = clock - phaseAt
   if (!introEmotePlayed && elapsed >= INTRO_EMOTE_AT_S) {
     playHoldEmote()
-    if (drawerEntity) VisibilityComponent.getMutable(drawerEntity).visible = true // crate appears once the hands are up
     introEmotePlayed = true
+  }
+  if (!drawerRevealed && elapsed >= INTRO_EMOTE_AT_S + DRAWER_REVEAL_DELAY_S) {
+    // Delayed past the emote trigger so the crate pops in once the arms have
+    // actually reached the holding pose, not mid-swing.
+    if (drawerEntity) VisibilityComponent.getMutable(drawerEntity).visible = true
+    drawerRevealed = true
   }
   if (elapsed >= INTRO_RELEASE_AT_S) {
     // Swap the full freeze for a lighter lock: free to walk/run the lane, but
@@ -506,15 +528,27 @@ export function startFruitGame(mascotaId: string): void {
     })
   })
 
-  // Arrival camera: a brief establishing shot of the now-arrived avatar from
-  // cinematic_point, before arrivalTick cuts to the closer game framing.
-  if (!arrivalCam) arrivalCam = engine.addEntity()
-  Transform.createOrReplace(arrivalCam, { position: camPos })
-  VirtualCamera.createOrReplace(arrivalCam, {
-    lookAtEntity: engine.PlayerEntity,
-    defaultTransition: { transitionMode: VirtualCamera.Transition.Speed(CAM_TRANSITION_SPEED) }
+  // Arrival camera: start it at a snapshot of wherever the player's native
+  // follow-cam actually was — switching MainCamera to it is then an invisible
+  // cut — then Tween it over to the cinematic_point framing for a real pan
+  // ("you're walking" -> "you turn around with the crate"), not a jump.
+  const liveCam = Transform.getOrNull(engine.CameraEntity)
+  const panStartPos = liveCam ? liveCam.position : camPos
+  const panStartRot = liveCam ? liveCam.rotation : Quaternion.fromEulerDegrees(0, 0, 0)
+  const panEndRot = Quaternion.fromLookAt(camPos, spawnPos)
+
+  if (!cinCam) cinCam = engine.addEntity()
+  Transform.createOrReplace(cinCam, { position: panStartPos, rotation: panStartRot })
+  VirtualCamera.createOrReplace(cinCam, {})
+  MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: cinCam })
+  Tween.createOrReplace(cinCam, {
+    mode: Tween.Mode.MoveRotateScale({
+      position: { start: panStartPos, end: camPos },
+      rotation: { start: panStartRot, end: panEndRot }
+    }),
+    duration: ARRIVAL_PAN_MS,
+    easingFunction: EasingFunction.EF_EASEQUAD
   })
-  MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: arrivalCam })
 
   for (const f of fruits) {
     Tween.deleteFrom(f.entity)
@@ -526,6 +560,7 @@ export function startFruitGame(mascotaId: string): void {
 
   clientState.feedGame = { active: true, phase: 'arrival', caught: 0, timeLeft: GAME_DURATION_S, catchFlashUntil: 0 }
   introEmotePlayed = false
+  drawerRevealed = false
   phase = 'arrival'
   phaseAt = clock
 }
