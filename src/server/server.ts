@@ -99,6 +99,15 @@ export function server(): void {
     pushSnapshot(p)
   })
 
+  room.onMessage('feedResult', async (data, ctx) => {
+    if (!ctx) return
+    const p = await S.loadPlayer(ctx.from)
+    const notes = S.feedFromMinigame(p, data.caught)
+    await S.savePlayer(ctx.from)
+    forwardNotes(ctx.from, notes)
+    pushSnapshot(p)
+  })
+
   room.onMessage('petSelf', async (_data, ctx) => {
     if (!ctx) return
     const p = await S.loadPlayer(ctx.from)

@@ -1,21 +1,26 @@
 // Feed task (new flow). Feeding no longer sends the pet walking to the bowl:
 // pressing Feed starts a small errand for the PLAYER. The same ground arrow the
-// egg carry uses (pet.ts showArrowTo/hideArrow) points at the tree; once you're
-// standing at it the tree becomes clickable, and clicking it clears the arrow
-// and hands off to the feeding mini-game.
+// egg carry uses (pet.ts showArrowTo/hideArrow) points at the tree placed in the
+// Creator Hub composite (assets/scene/main.composite, entity "tree.glb"); walking
+// within range of it hands off straight to the feeding mini-game (fruitGame.ts) —
+// no click needed, it triggers on arrival.
 
-import { engine, Transform, pointerEventsSystem, InputAction } from '@dcl/sdk/ecs'
+import { engine, Entity, Transform } from '@dcl/sdk/ecs'
 import { Vector3 } from '@dcl/sdk/math'
 import { hideArrow, showArrowTo, isBusy } from './pet'
-import { getTree } from './tree'
+import { EntityNames } from '../../assets/scene/entity-names'
 import { clientState, pushToast } from './state'
 import { ui } from './ui'
+import { startFruitGame } from './fruitGame'
 
-const TREE_RADIUS = 12 // metres: how close you must be for the tree to accept a click
-const TREE_CLICK_DISTANCE = TREE_RADIUS + 4 // pointer maxDistance, slightly looser than the gate
+const TREE_RADIUS = 4 // metres: how close you must be before the minigame auto-starts
 
 let active = false
-let clickable = false
+
+/** The tree as placed in the composite — not a duplicate spawned in code. */
+function getTree(): Entity | null {
+  return engine.getEntityOrNullByName(EntityNames.tree_glb)
+}
 
 function playerPos(): Vector3 {
   const t = Transform.getOrNull(engine.PlayerEntity)
@@ -45,7 +50,7 @@ export function startFeedTask(): void {
   }
   const tree = getTree()
   if (!tree) {
-    console.log('[Client] feed task: tree not spawned yet')
+    console.log('[Client] feed task: tree not found in scene')
     return
   }
   active = true
@@ -54,44 +59,15 @@ export function startFeedTask(): void {
   pushToast('Follow the arrow to the tree!')
 }
 
-/** Drop the errand (arrow off, tree no longer clickable). */
+/** Drop the errand (arrow off). */
 export function cancelFeedTask(): void {
   if (!active) return
   active = false
-  setClickable(false)
   hideArrow()
 }
 
 export function feedTaskActive(): boolean {
   return active
-}
-
-/** The tree only carries a pointer handler while the errand is live AND you're
- *  standing at it — otherwise its hover text would show at all times. */
-function setClickable(on: boolean): void {
-  if (on === clickable) return
-  const tree = getTree()
-  if (!tree) return
-  clickable = on
-  if (on) {
-    pointerEventsSystem.onPointerDown({ entity: tree, opts: { button: InputAction.IA_POINTER, hoverText: 'Collect fruits!', maxDistance: TREE_CLICK_DISTANCE } }, onTreeClicked)
-  } else {
-    pointerEventsSystem.removeOnPointerDown(tree)
-  }
-}
-
-function onTreeClicked(): void {
-  if (!active) return
-  const petId = clientState.activePet ? clientState.activePet.id : ''
-  active = false
-  setClickable(false)
-  hideArrow() // errand done — the indicator goes away on the click
-  startFeedingGame(petId)
-}
-
-/** Hand-off point for the feeding mini-game (not built yet). */
-export function startFeedingGame(mascotaId: string): void {
-  console.log(`feed game started for ${mascotaId}`)
 }
 
 export function setupFeedTask(): void {
@@ -108,6 +84,11 @@ export function setupFeedTask(): void {
     if (!tree) return
     const pos = Transform.get(tree).position
     showArrowTo(pos) // re-assert each frame, same as the egg carry does
-    setClickable(distFlat(playerPos(), pos) <= TREE_RADIUS)
+    if (distFlat(playerPos(), pos) <= TREE_RADIUS) {
+      const petId = clientState.activePet ? clientState.activePet.id : ''
+      active = false
+      hideArrow() // errand done — the cinematic takes over from here
+      startFruitGame(petId)
+    }
   })
 }

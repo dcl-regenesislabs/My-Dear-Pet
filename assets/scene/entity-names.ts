@@ -62,6 +62,9 @@ export enum EntityNames {
   Sprout_glb_3 = "Sprout.glb_3",
   WaterPool01_glb = "WaterPool01.glb",
   WaterPool01_glb_2 = "WaterPool01.glb_2",
+  cinematic_play_spawnpoint = "cinematic_play_spawnpoint",
+  cinematic_play_spawnpoint_2 = "cinematic_play_spawnpoint_2",
+  cinematic_point = "cinematic_point",
   egg_glb = "egg.glb",
   egg_glb_2 = "egg.glb_2",
   egg_glb_3 = "egg.glb_3",
@@ -77,4 +80,5 @@ export enum EntityNames {
   mountain01_glb_4 = "mountain01.glb_4",
   nest_glb = "nest.glb",
   nest_glb_2 = "nest.glb_2",
+  tree_glb = "tree.glb",
 } 

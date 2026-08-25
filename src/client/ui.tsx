@@ -14,6 +14,7 @@ import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg
 import { throwMeteor } from './play'
 import { triggerCare, careActive, queueLength } from './input'
 import { startFeedTask } from './feed'
+import { cancelFruitGame } from './fruitGame'
 import { buyItemLocal, buySlotLocal, claimStreak, dailyClaimable, dailyLadderDay, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
 import { sway, startAnimSystem, attentionPulse } from './ui/anim'
 import { C, Color, mobile, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, TactileButton, useCompactCanvas } from './ui/theme'
@@ -1390,6 +1391,32 @@ function FetchOverlay() {
 }
 
 // ---------------------------------------------------------------------------
+// Feed tree minigame overlay (fruitGame.ts): a "Get ready" beat during the
+// intro cinematic, then a fruit counter + countdown while catching. BACK bails
+// early, submitting whatever was caught so far (same as a natural timeout).
+// ---------------------------------------------------------------------------
+function FeedGameOverlay() {
+  const st = clientState.feedGame
+  if (!st.active) return <UiEntity />
+  const catching = st.phase === 'catching'
+  return (
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'none' }}>
+      <BackButton onClick={() => cancelFruitGame()} />
+      <UiEntity
+        uiTransform={{ positionType: 'absolute', position: { top: S(90), left: '50%' }, margin: { left: -S(190) }, width: S(380), height: S(70), alignItems: 'center', justifyContent: 'center', borderRadius: S(20), pointerFilter: 'none' }}
+        uiBackground={{ color: C.panelBg }}
+      >
+        {catching ? (
+          <Label value={`Fruits: ${st.caught}   ${Math.ceil(st.timeLeft)}s`} fontSize={S(28)} color={C.hunger} textAlign="middle-center" uiTransform={{ width: '100%', height: S(36) }} />
+        ) : (
+          <Label value="Get ready!" fontSize={S(28)} color={C.text} textAlign="middle-center" uiTransform={{ width: '100%', height: S(36) }} />
+        )}
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // "Choose Location!" modal — shown on scene entry (Adopt-Me style). Two options:
 // Adoption Center (adopt a pet) and House (care for your pet). Centered, rounded,
 // mobile-first. Uses its own bright palette to match the reference look.
@@ -1629,6 +1656,14 @@ const Root = () => {
     return (
       <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
         <HatchOverlay />
+      </UiEntity>
+    )
+  }
+  // Feed tree minigame also owns the whole screen (cinematic camera under the tree).
+  if (clientState.feedGame.active) {
+    return (
+      <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
+        <FeedGameOverlay />
       </UiEntity>
     )
   }

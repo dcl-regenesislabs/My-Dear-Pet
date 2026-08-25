@@ -59,6 +59,10 @@ export const clientState: {
   // Hatch gesture: rubbing/tapping the egg fills this progress, then it hatches.
   // Reuses the petting gesture input.
   hatch: { active: boolean; progress: number }
+  // Feed tree minigame (fruitGame.ts): 'intro' is the freeze+emote cinematic
+  // beat, 'catching' is the timed fruit-catching phase the HUD counter/timer
+  // reads from.
+  feedGame: { active: boolean; phase: 'intro' | 'catching'; caught: number; timeLeft: number }
   // Fetch (Play) mode: `active` shows the centered Fetch button and hides the
   // panel; `busy` is true from the moment the ball is thrown until the pet drops
   // it back (the Fetch button is disabled while busy).
@@ -98,6 +102,7 @@ export const clientState: {
   carryEgg: { active: false, species: '', name: '', atHome: false },
   carryPet: { active: false, atStation: false },
   hatch: { active: false, progress: 0 },
+  feedGame: { active: false, phase: 'intro', caught: 0, timeLeft: 0 },
   fetch: { active: false, busy: false },
   pendingPet: null,
   pendingUntil: 0,
@@ -287,6 +292,9 @@ export const actions = {
   },
   care(action: CareAction, onBed = false): void {
     room.send('careAction', { action, onBed })
+  },
+  feedResult(caught: number): void {
+    room.send('feedResult', { caught })
   },
   keepPet(): void {
     room.send('keepPet', {})
