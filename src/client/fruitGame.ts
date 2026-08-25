@@ -10,6 +10,7 @@ import {
   Entity,
   Transform,
   GltfContainer,
+  ColliderLayer,
   VisibilityComponent,
   Tween,
   tweenSystem,
@@ -17,7 +18,9 @@ import {
   VirtualCamera,
   MainCamera,
   InputModifier,
-  AvatarMask
+  AvatarMask,
+  AvatarAttach,
+  AvatarAnchorPointType
 } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion } from '@dcl/sdk/math'
 import { movePlayerTo, triggerSceneEmote } from '~system/RestrictedActions'
@@ -35,6 +38,19 @@ const FRUIT_MODELS = [
 ]
 const NUM_FRUIT_SLOTS = 5
 
+// Invisible walls placed in the composite (assets/asset-packs/invisible_wall)
+// penning the player into the catch lane: lane_1/lane_2 are the long front/back
+// walls (block wandering toward/away from the camera), lane_3/lane_4 are the
+// short end-caps (block wandering past the left/right extremes). They ship
+// with collision off in the composite — toggled on only while catching.
+const LANE_ENTITY_NAMES = [EntityNames.lane_1, EntityNames.lane_2, EntityNames.lane_3, EntityNames.lane_4]
+
+// GltfContainer defaults to CL_POINTER | CL_PHYSICS when unset — without this,
+// every fruit (and the held drawer, which follows the player everywhere) is a
+// solid physics body, which for the drawer means a collider wall glued to the
+// avatar that blocks its own movement.
+const NO_COLLISION = { visibleMeshesCollisionMask: ColliderLayer.CL_NONE, invisibleMeshesCollisionMask: ColliderLayer.CL_NONE }
+
 const GAME_DURATION_S = 30
 const FALL_DURATION_MS = 1800
 const MIN_HANG_S = 1.2
@@ -49,27 +65,37 @@ const CATCH_MAX_Y = 2.4
 const INTRO_EMOTE_AT_S = 0.9
 const INTRO_RELEASE_AT_S = 3.1
 
-// Geometry: two invisible marker entities placed in the Creator Hub composite
+// Geometry: invisible marker entities placed in the Creator Hub composite
 // (next to the tree) drive all of this — no geometry is derived from the
 // tree's own transform/rotation:
 //  - "cinematic_point": the camera's fixed position.
 //  - "cinematic_play_spawnpoint": where the player is snapped to stand, and
 //    the ground anchor the fruit canopy is centered above (NOT the tree's
 //    trunk — the canopy follows the spawnpoint).
+//  - "lane_3"/"lane_4": the lane's short end-cap walls — the line between
+//    them IS the true walkable width, so the canopy's left/right span and
+//    center are measured directly from their real positions instead of a
+//    guessed constant (a fixed guess kept landing fruit outside the actual
+//    lane on one side).
 // The player is turned to face cinematic_point on arrival (movePlayerTo's
 // cameraTarget); the camera looks up at the canopy area above the spawnpoint,
 // not at ground level, so both the avatar and the falling fruit stay framed.
-// left/right for the canopy spread is derived from the camera's own view
-// direction (not any entity's authored rotation), so it always matches what
-// actually reads as "left/right" on screen.
 const CANOPY_HEIGHT = 8.75 // above the spawnpoint — where fruit hangs/falls from
 const CAMERA_LOOK_HEIGHT = 4.2 // above the spawnpoint — independent of CANOPY_HEIGHT, so raising the drop height doesn't tilt the shot up too
-const CANOPY_SPREAD = 1.3 // half-width, left/right as framed by the camera
+const LANE_END_MARGIN = 1.0 // metres inset from each end-cap wall, so fruit don't spawn right against them
 const CANOPY_DEPTH = 0.6 // half-depth, narrow so it reads as one lane
 
-// Same "hold" pose/asset pet.ts uses for carrying the egg — this project's
-// existing "hands up, ready" clip.
-const HOLD_EMOTE = 'models/hold_emote.glb'
+// Same "hold" pose/asset pet.ts uses for carrying the pet to the bath — a
+// two-handed cradling pose, better suited to holding the drawer than the
+// egg-carry emote.
+const HOLD_EMOTE = 'models/hold_pet_emote.glb'
+
+// Crate held in both hands for the round, same AvatarAttach approach pet.ts
+// uses for carrying the pet (a two-handed object cradled at the belly). Offset
+// and scale are eyeballed — nudge against the actual rig in-world as needed.
+const DRAWER_MODEL = 'assets/asset-packs/drawer_2/Drawer 2.glb'
+const DRAWER_HOLD_OFFSET = Vector3.create(0.22, 0, 0.2)
+const DRAWER_HOLD_SCALE = 0.9
 
 type FruitPhase = 'idle' | 'falling' | 'resolved'
 interface FruitRuntime {
@@ -87,9 +113,12 @@ let introEmotePlayed = false
 
 const fruits: FruitRuntime[] = []
 let gameCam: Entity | null = null
+let drawerAnchor: Entity | null = null
+let drawerEntity: Entity | null = null
 
 let groundY = 0
 let canopyCenter = Vector3.Zero()
+let canopyHalfWidth = 4.0 // overwritten from the lane_3/lane_4 gap each game
 let localRight = Vector3.create(1, 0, 0)
 let localForward = Vector3.create(0, 0, 1)
 
@@ -122,12 +151,21 @@ function stopHoldEmote(): void {
   }
 }
 
+/** Turn the lane's invisible walls solid (catching) or back off (everywhere else). */
+function setLaneColliders(on: boolean): void {
+  for (const name of LANE_ENTITY_NAMES) {
+    const e = engine.getEntityOrNullByName(name)
+    if (!e || !GltfContainer.has(e)) continue
+    GltfContainer.getMutable(e).visibleMeshesCollisionMask = on ? ColliderLayer.CL_PHYSICS : ColliderLayer.CL_NONE
+  }
+}
+
 function randomFruitModel(): string {
   return FRUIT_MODELS[Math.floor(Math.random() * FRUIT_MODELS.length)]
 }
 
 function randomCanopySpot(): Vector3 {
-  const rightOff = (Math.random() * 2 - 1) * CANOPY_SPREAD
+  const rightOff = (Math.random() * 2 - 1) * canopyHalfWidth
   const fwdOff = (Math.random() * 2 - 1) * CANOPY_DEPTH
   return Vector3.create(
     canopyCenter.x + localRight.x * rightOff + localForward.x * fwdOff,
@@ -155,7 +193,10 @@ function startFall(f: FruitRuntime): void {
 function resolveFruit(f: FruitRuntime, caught: boolean): void {
   Tween.deleteFrom(f.entity)
   VisibilityComponent.createOrReplace(f.entity, { visible: false })
-  if (caught) clientState.feedGame.caught += 1
+  if (caught) {
+    clientState.feedGame.caught += 1
+    clientState.feedGame.catchFlashUntil = Date.now() + 350
+  }
   f.phase = 'resolved'
   f.resolvedAt = clock
 }
@@ -179,7 +220,7 @@ function fruitTick(): void {
     }
     if (f.phase === 'resolved' && clock - f.resolvedAt >= RESPAWN_DELAY_S) {
       Transform.getMutable(f.entity).position = randomCanopySpot()
-      GltfContainer.createOrReplace(f.entity, { src: randomFruitModel() })
+      GltfContainer.createOrReplace(f.entity, { src: randomFruitModel(), ...NO_COLLISION })
       VisibilityComponent.createOrReplace(f.entity, { visible: true })
       armFruit(f)
     }
@@ -203,7 +244,12 @@ function introTick(): void {
     introEmotePlayed = true
   }
   if (elapsed >= INTRO_RELEASE_AT_S) {
-    InputModifier.deleteFrom(engine.PlayerEntity)
+    // Swap the full freeze for a lighter lock: free to walk/run the lane, but
+    // no jumping or gliding out of it.
+    InputModifier.createOrReplace(engine.PlayerEntity, {
+      mode: InputModifier.Mode.Standard({ disableJump: true, disableDoubleJump: true, disableGliding: true })
+    })
+    setLaneColliders(true) // pen the player into the catch lane now that they can move
     for (const f of fruits) armFruit(f)
     phase = 'catching'
     phaseAt = clock
@@ -216,6 +262,8 @@ function endFruitGame(): void {
   if (MainCamera.has(engine.CameraEntity)) MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: undefined })
   if (InputModifier.has(engine.PlayerEntity)) InputModifier.deleteFrom(engine.PlayerEntity)
   stopHoldEmote()
+  setLaneColliders(false)
+  if (drawerEntity) VisibilityComponent.getMutable(drawerEntity).visible = false
   for (const f of fruits) {
     Tween.deleteFrom(f.entity)
     VisibilityComponent.createOrReplace(f.entity, { visible: false })
@@ -256,10 +304,19 @@ export function setupFruitGame(): void {
   for (let i = 0; i < NUM_FRUIT_SLOTS; i++) {
     const entity = engine.addEntity()
     Transform.create(entity, { position: Vector3.Zero() })
-    GltfContainer.create(entity, { src: FRUIT_MODELS[i % FRUIT_MODELS.length] })
+    GltfContainer.create(entity, { src: FRUIT_MODELS[i % FRUIT_MODELS.length], ...NO_COLLISION })
     VisibilityComponent.create(entity, { visible: false })
     fruits.push({ entity, phase: 'idle', nextDropAt: 0, resolvedAt: 0 })
   }
+
+  drawerAnchor = engine.addEntity()
+  Transform.create(drawerAnchor, {})
+  AvatarAttach.create(drawerAnchor, { anchorPointId: AvatarAnchorPointType.AAPT_SPINE })
+  drawerEntity = engine.addEntity()
+  Transform.create(drawerEntity, { parent: drawerAnchor, position: DRAWER_HOLD_OFFSET, scale: Vector3.scale(Vector3.One(), DRAWER_HOLD_SCALE) })
+  GltfContainer.create(drawerEntity, { src: DRAWER_MODEL, ...NO_COLLISION })
+  VisibilityComponent.create(drawerEntity, { visible: false })
+
   engine.addSystem(tick)
 }
 
@@ -276,25 +333,46 @@ export function startFruitGame(mascotaId: string): void {
     console.log('[Client] fruit game: cinematic_point not found in scene')
     return
   }
-  // Where the player stands and the fruit canopy is centered.
+  // Where the player stands; the canopy's depth-center follows this too.
   const spawnPoint = engine.getEntityOrNullByName(EntityNames.cinematic_play_spawnpoint)
   if (!spawnPoint || !Transform.has(spawnPoint)) {
     console.log('[Client] fruit game: cinematic_play_spawnpoint not found in scene')
+    return
+  }
+  // The lane's end-cap walls — the real, measured left/right bounds.
+  const lane3 = engine.getEntityOrNullByName(EntityNames.lane_3)
+  const lane4 = engine.getEntityOrNullByName(EntityNames.lane_4)
+  if (!lane3 || !lane4 || !Transform.has(lane3) || !Transform.has(lane4)) {
+    console.log('[Client] fruit game: lane end-cap markers not found in scene')
     return
   }
   console.log('[Client] fruit game started for', mascotaId)
 
   const camPos = Transform.get(cinePoint).position
   const spawnPos = Transform.get(spawnPoint).position
+  const p3 = Transform.get(lane3).position
+  const p4 = Transform.get(lane4).position
   groundY = spawnPos.y
-  canopyCenter = Vector3.create(spawnPos.x, groundY + CANOPY_HEIGHT, spawnPos.z)
 
-  // Left/right for the canopy spread comes from the camera's own view
-  // direction (camera -> spawnpoint), not any entity's authored rotation —
-  // that's what actually reads as "left/right" on screen.
+  // "Forward" (the narrow depth axis) still comes from the camera's own view
+  // direction — that's what reads as "toward/away from camera" on screen.
+  // "Right" (the wide axis fruit actually spread along) comes from the real
+  // line between the two end-cap walls, so the canopy's width and center are
+  // measured, not guessed.
   const viewDir = Vector3.normalize(Vector3.create(spawnPos.x - camPos.x, 0, spawnPos.z - camPos.z))
   localForward = viewDir
-  localRight = Vector3.create(-viewDir.z, 0, viewDir.x)
+  const rightRef = Vector3.create(-viewDir.z, 0, viewDir.x)
+  let laneSpan = Vector3.create(p4.x - p3.x, 0, p4.z - p3.z)
+  if (Vector3.dot(laneSpan, rightRef) < 0) laneSpan = Vector3.create(-laneSpan.x, 0, -laneSpan.z)
+  const laneWidth = Vector3.length(laneSpan)
+  localRight = Vector3.normalize(laneSpan)
+  canopyHalfWidth = Math.max(0.5, laneWidth / 2 - LANE_END_MARGIN)
+
+  canopyCenter = Vector3.create(
+    (p3.x + p4.x) / 2,
+    groundY + CANOPY_HEIGHT,
+    (p3.z + p4.z) / 2
+  )
 
   // Snap the player to the spawnpoint and face them at cinematic_point (so
   // their front — not their back — is what the camera sees).
@@ -321,15 +399,17 @@ export function startFruitGame(mascotaId: string): void {
     })
   })
 
+  if (drawerEntity) VisibilityComponent.getMutable(drawerEntity).visible = true
+
   for (const f of fruits) {
     Tween.deleteFrom(f.entity)
-    GltfContainer.createOrReplace(f.entity, { src: randomFruitModel() })
+    GltfContainer.createOrReplace(f.entity, { src: randomFruitModel(), ...NO_COLLISION })
     Transform.getMutable(f.entity).position = randomCanopySpot()
     VisibilityComponent.createOrReplace(f.entity, { visible: true })
     f.phase = 'idle'
   }
 
-  clientState.feedGame = { active: true, phase: 'intro', caught: 0, timeLeft: GAME_DURATION_S }
+  clientState.feedGame = { active: true, phase: 'intro', caught: 0, timeLeft: GAME_DURATION_S, catchFlashUntil: 0 }
   introEmotePlayed = false
   phase = 'intro'
   phaseAt = clock

@@ -1399,6 +1399,9 @@ function FeedGameOverlay() {
   const st = clientState.feedGame
   if (!st.active) return <UiEntity />
   const catching = st.phase === 'catching'
+  // Brief pop on the counter each time a fruit lands — works on every client,
+  // unlike the particle burst in fruitGame.ts (Unity desktop only).
+  const flashing = Date.now() < st.catchFlashUntil
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'none' }}>
       <BackButton onClick={() => cancelFruitGame()} />
@@ -1407,7 +1410,13 @@ function FeedGameOverlay() {
         uiBackground={{ color: C.panelBg }}
       >
         {catching ? (
-          <Label value={`Fruits: ${st.caught}   ${Math.ceil(st.timeLeft)}s`} fontSize={S(28)} color={C.hunger} textAlign="middle-center" uiTransform={{ width: '100%', height: S(36) }} />
+          <Label
+            value={`Fruits: ${st.caught}   ${Math.ceil(st.timeLeft)}s`}
+            fontSize={flashing ? S(34) : S(28)}
+            color={flashing ? C.gold : C.hunger}
+            textAlign="middle-center"
+            uiTransform={{ width: '100%', height: S(36) }}
+          />
         ) : (
           <Label value="Get ready!" fontSize={S(28)} color={C.text} textAlign="middle-center" uiTransform={{ width: '100%', height: S(36) }} />
         )}

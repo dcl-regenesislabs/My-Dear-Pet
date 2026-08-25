@@ -1514,6 +1514,27 @@
               "y": 3.75,
               "z": 263.5
             },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0,
+              "w": 1
+            },
+            "parent": 0
+          }
+        },
+        "586": {
+          "json": {
+            "position": {
+              "x": 190.75,
+              "y": 0,
+              "z": 271.25
+            },
             "rotation": {
               "x": 0,
               "y": 0,
@@ -1528,23 +1549,86 @@
             "parent": 0
           }
         },
-        "586": {
+        "587": {
           "json": {
             "position": {
-              "x": 191.5,
+              "x": 189.5,
               "y": 0,
-              "z": 271.5
+              "z": 271.75
             },
             "rotation": {
               "x": 0,
-              "y": 0,
+              "y": 0.3826834261417389,
               "z": 0,
-              "w": 1
+              "w": 0.9238795042037964
+            },
+            "scale": {
+              "x": 10,
+              "y": 3,
+              "z": 0.10000000149011612
+            },
+            "parent": 0
+          }
+        },
+        "588": {
+          "json": {
+            "position": {
+              "x": 190.25,
+              "y": 0,
+              "z": 272.25
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0.3826834261417389,
+              "z": 0,
+              "w": 0.9238795042037964
+            },
+            "scale": {
+              "x": 10,
+              "y": 3,
+              "z": 0.10000000149011612
+            },
+            "parent": 0
+          }
+        },
+        "589": {
+          "json": {
+            "position": {
+              "x": 186.5,
+              "y": 0,
+              "z": 275.5
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0.258819043636322,
+              "z": 0,
+              "w": -0.9659258127212524
             },
             "scale": {
               "x": 1,
-              "y": 1,
-              "z": 1
+              "y": 3,
+              "z": 0.10000000149011612
+            },
+            "parent": 0
+          }
+        },
+        "590": {
+          "json": {
+            "position": {
+              "x": 193.25,
+              "y": 0,
+              "z": 268.5
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0.258819043636322,
+              "z": 0,
+              "w": -0.9659258127212524
+            },
+            "scale": {
+              "x": 1,
+              "y": 3,
+              "z": 0.10000000149011612
             },
             "parent": 0
           }
@@ -1662,6 +1746,30 @@
           "json": {
             "networkId": 0,
             "entityId": 8003
+          }
+        },
+        "587": {
+          "json": {
+            "networkId": 0,
+            "entityId": 8004
+          }
+        },
+        "588": {
+          "json": {
+            "networkId": 0,
+            "entityId": 8005
+          }
+        },
+        "589": {
+          "json": {
+            "networkId": 0,
+            "entityId": 8006
+          }
+        },
+        "590": {
+          "json": {
+            "networkId": 0,
+            "entityId": 8007
           }
         }
       }
@@ -1914,35 +2022,35 @@
         "517": {
           "json": {
             "src": "assets/Models/Plant01/Plant01.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "518": {
           "json": {
             "src": "assets/Models/Plant02/Plant02.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "519": {
           "json": {
             "src": "assets/Models/Plant03/Plant03.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "520": {
           "json": {
             "src": "assets/Models/Plant04/Plant04.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "521": {
           "json": {
             "src": "assets/Models/Plant05/Plant05.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
@@ -1956,7 +2064,7 @@
         "524": {
           "json": {
             "src": "assets/Models/Plant06/Plant06.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
@@ -1970,7 +2078,7 @@
         "526": {
           "json": {
             "src": "assets/Models/Plant07/Plant07.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
@@ -1984,189 +2092,189 @@
         "528": {
           "json": {
             "src": "assets/Models/Plant01/Plant01.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "529": {
           "json": {
             "src": "assets/Models/Plant07/Plant07.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "530": {
           "json": {
             "src": "assets/Models/Plant01/Plant01.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "531": {
           "json": {
             "src": "assets/Models/Plant07/Plant07.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "532": {
           "json": {
             "src": "assets/Models/Plant07/Plant07.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "533": {
           "json": {
             "src": "assets/Models/Plant03/Plant03.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "534": {
           "json": {
             "src": "assets/Models/Plant06/Plant06.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "535": {
           "json": {
             "src": "assets/Models/Plant03/Plant03.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "536": {
           "json": {
             "src": "assets/Models/Plant01/Plant01.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "537": {
           "json": {
             "src": "assets/Models/Plant01/Plant01.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "538": {
           "json": {
             "src": "assets/Models/Plant01/Plant01.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "539": {
           "json": {
             "src": "assets/Models/Plant03/Plant03.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "540": {
           "json": {
             "src": "assets/Models/Plant03/Plant03.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "541": {
           "json": {
             "src": "assets/Models/Plant07/Plant07.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "542": {
           "json": {
             "src": "assets/Models/CareCenterMud/CarecenterMud.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "543": {
           "json": {
             "src": "assets/Models/Plant03/Plant03.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "544": {
           "json": {
             "src": "assets/Models/Grassmound01/Grassmound01.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "545": {
           "json": {
             "src": "assets/Models/Grassmound01/Grassmound01.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "546": {
           "json": {
             "src": "assets/Models/WaterPool01/WaterPool01.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "547": {
           "json": {
             "src": "assets/Models/Plant01/Plant01.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "548": {
           "json": {
             "src": "assets/Models/Plant05/Plant05.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "549": {
           "json": {
             "src": "assets/Models/Plant07/Plant07.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "550": {
           "json": {
             "src": "assets/Models/Plant02/Plant02.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "551": {
           "json": {
             "src": "assets/Models/Plant01/Plant01.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "552": {
           "json": {
             "src": "assets/Models/Grassmound01/Grassmound01.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "553": {
           "json": {
             "src": "assets/Models/Plant04/Plant04.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "554": {
           "json": {
             "src": "assets/Models/Plant03/Plant03.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
@@ -2180,14 +2288,14 @@
         "556": {
           "json": {
             "src": "assets/Models/Plant01/Plant01.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "557": {
           "json": {
             "src": "assets/Models/Plant01/Plant01.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
@@ -2236,112 +2344,112 @@
         "565": {
           "json": {
             "src": "assets/Models/WaterPool01/WaterPool01.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "566": {
           "json": {
             "src": "assets/Models/Plant01/Plant01.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "567": {
           "json": {
             "src": "assets/Models/Plant02/Plant02.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "568": {
           "json": {
             "src": "assets/Models/Plant01/Plant01.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "569": {
           "json": {
             "src": "assets/Models/Plant07/Plant07.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "570": {
           "json": {
             "src": "assets/Models/Nest/nest.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "571": {
           "json": {
             "src": "assets/Models/Nest/nest.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "572": {
           "json": {
             "src": "assets/Models/Egg/egg.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "573": {
           "json": {
             "src": "assets/Models/Egg/egg.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "574": {
           "json": {
             "src": "assets/Models/Egg/egg.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "575": {
           "json": {
             "src": "assets/Models/Egg/egg.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "576": {
           "json": {
             "src": "assets/Models/Egg/egg.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "577": {
           "json": {
             "src": "assets/Models/Egg/egg.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "578": {
           "json": {
             "src": "assets/Models/Egg/egg.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "579": {
           "json": {
             "src": "assets/Models/Egg/egg.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
         "580": {
           "json": {
             "src": "assets/Models/Amebita/Amebita.glb",
-            "visibleMeshesCollisionMask": 0,
+            "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 3
           }
         },
@@ -2374,6 +2482,34 @@
           }
         },
         "586": {
+          "json": {
+            "src": "assets/asset-packs/invisible_wall/invisible_box.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 0
+          }
+        },
+        "587": {
+          "json": {
+            "src": "assets/asset-packs/invisible_wall/invisible_box.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 0
+          }
+        },
+        "588": {
+          "json": {
+            "src": "assets/asset-packs/invisible_wall/invisible_box.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 0
+          }
+        },
+        "589": {
+          "json": {
+            "src": "assets/asset-packs/invisible_wall/invisible_box.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 0
+          }
+        },
+        "590": {
           "json": {
             "src": "assets/asset-packs/invisible_wall/invisible_box.glb",
             "visibleMeshesCollisionMask": 0,
@@ -2771,6 +2907,26 @@
             "value": "cinematic_play_spawnpoint"
           }
         },
+        "587": {
+          "json": {
+            "value": "lane_1"
+          }
+        },
+        "588": {
+          "json": {
+            "value": "lane_2"
+          }
+        },
+        "589": {
+          "json": {
+            "value": "lane_3"
+          }
+        },
+        "590": {
+          "json": {
+            "value": "lane_4"
+          }
+        },
         "66050": {
           "json": {
             "value": "Plants"
@@ -2823,6 +2979,34 @@
               1041
             ]
           }
+        },
+        "587": {
+          "json": {
+            "componentIds": [
+              1041
+            ]
+          }
+        },
+        "588": {
+          "json": {
+            "componentIds": [
+              1041
+            ]
+          }
+        },
+        "589": {
+          "json": {
+            "componentIds": [
+              1041
+            ]
+          }
+        },
+        "590": {
+          "json": {
+            "componentIds": [
+              1041
+            ]
+          }
         }
       }
     },
@@ -2841,6 +3025,26 @@
           }
         },
         "586": {
+          "json": {
+            "visible": false
+          }
+        },
+        "587": {
+          "json": {
+            "visible": false
+          }
+        },
+        "588": {
+          "json": {
+            "visible": false
+          }
+        },
+        "589": {
+          "json": {
+            "visible": false
+          }
+        },
+        "590": {
           "json": {
             "visible": false
           }
@@ -2889,7 +3093,7 @@
         "serializationType": "map"
       },
       "data": {
-        "0": {
+        "587": {
           "json": {
             "gizmo": 1
           }
@@ -2980,7 +3184,11 @@
                   582,
                   584,
                   585,
-                  586
+                  586,
+                  587,
+                  588,
+                  589,
+                  590
                 ]
               },
               {
@@ -3328,6 +3536,22 @@
               {
                 "entity": 586,
                 "children": []
+              },
+              {
+                "entity": 587,
+                "children": []
+              },
+              {
+                "entity": 588,
+                "children": []
+              },
+              {
+                "entity": 589,
+                "children": []
+              },
+              {
+                "entity": 590,
+                "children": []
               }
             ]
           }
@@ -3559,6 +3783,21 @@
           "json": {}
         },
         "586": {
+          "json": {}
+        },
+        "587": {
+          "json": {}
+        },
+        "588": {
+          "json": {}
+        },
+        "589": {
+          "json": {}
+        },
+        "590": {
+          "json": {}
+        },
+        "591": {
           "json": {}
         },
         "66050": {
