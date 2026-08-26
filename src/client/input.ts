@@ -91,6 +91,12 @@ function setupDebugHotkeys(): void {
       startFruitGame(clientState.activePet.id)
       pushToast('DEBUG: fruit minigame started')
     }
+    // "3": toggle the fruit-game camera calibration panel (fruitGame.ts's
+    // debugCam*) — shows while the minigame is active, +/- buttons per axis.
+    if (inputSystem.isTriggered(InputAction.IA_ACTION_5, PointerEventType.PET_DOWN)) {
+      clientState.debugCamPanelOpen = !clientState.debugCamPanelOpen
+      pushToast(clientState.debugCamPanelOpen ? 'DEBUG: cam panel ON' : 'DEBUG: cam panel OFF')
+    }
     // "4": grow the active pet to Adult + Lv5 (unlock breeding).
     if (inputSystem.isTriggered(InputAction.IA_ACTION_6, PointerEventType.PET_DOWN)) {
       if (!clientState.activePet) {

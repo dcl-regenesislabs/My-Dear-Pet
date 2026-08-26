@@ -13,7 +13,6 @@ export enum EntityNames {
   Grassmound01_glb_2 = "Grassmound01.glb_2",
   Grassmound01_glb_3 = "Grassmound01.glb_3",
   HomeDome01_glb = "HomeDome01.glb",
-  Invisible_Wall = "Invisible Wall",
   Mountain02_glb = "Mountain02.glb",
   Mountain02_glb_2 = "Mountain02.glb_2",
   Mountain03_glb = "Mountain03.glb",

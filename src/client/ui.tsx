@@ -6,6 +6,7 @@
 // Reads the client mirror of authoritative server state.
 
 import ReactEcs, { ReactEcsRenderer, Label, UiEntity, Input } from '@dcl/sdk/react-ecs'
+import { engine, InputAction } from '@dcl/sdk/ecs'
 import { movePlayerTo } from '~system/RestrictedActions'
 import * as Cfg from '../shared/config'
 import type { CareAction, Rarity } from '../shared/types'
@@ -14,10 +15,23 @@ import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg
 import { throwMeteor } from './play'
 import { triggerCare, careActive, queueLength } from './input'
 import { startFeedTask } from './feed'
-import { cancelFruitGame } from './fruitGame'
+import {
+  cancelFruitGame,
+  exitFeedResults,
+  startCatchingCountdown,
+  COUNTDOWN_S,
+  DebugCamKey,
+  debugCamAvailableKeys,
+  debugCamLabel,
+  debugCamValue,
+  debugCamAdjust,
+  debugCamToggleClosePreview,
+  debugCamIsClosePreview,
+  debugCamPrint
+} from './fruitGame'
 import { buyItemLocal, buySlotLocal, claimStreak, dailyClaimable, dailyLadderDay, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
 import { sway, startAnimSystem, attentionPulse } from './ui/anim'
-import { C, Color, mobile, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, TactileButton, useCompactCanvas } from './ui/theme'
+import { C, Color, getUiRendererConfig, mobile, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, TactileButton } from './ui/theme'
 import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './ui/dialog'
 
 type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor' | 'breedName'
@@ -538,9 +552,9 @@ function SideButtons() {
   return (
     <UiEntity uiTransform={{ width: '100%', height: '100%', positionType: 'absolute', position: { top: 0, left: 0 }, pointerFilter: 'none' }}>
       {/* right side */}
-      <UiEntity uiTransform={{ positionType: 'absolute', position: { right: S(12), top: 0 }, width: w, height: '100%', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', pointerFilter: 'none' }}>
+      <UiEntity uiTransform={{ positionType: 'absolute', position: { right: S(12), top: S(90) }, width: w, height: h, flexDirection: 'column', alignItems: 'flex-end', pointerFilter: 'none' }}>
         {/* Daily reward is suspended for now — the meteor is the daily drop. */}
-        <TactileButton id="side_spin" label="Spin" width={w} height={h} bg={spins ? C.pink : C.cardAlt} textColor={spins ? C.outline : C.text} radius={S(20)} margin={{ bottom: S(10) }} pulse={spins} fontSize={S(18)} onClick={() => ui.openSpin()} />
+        <TactileButton id="side_spin" label="Spin" width={w} height={h} bg={spins ? C.pink : C.cardAlt} textColor={spins ? C.outline : C.text} radius={S(20)} pulse={spins} fontSize={S(18)} onClick={() => ui.openSpin()} />
         {/* Shop is suspended for now — the panel still exists, just unreachable. */}
       </UiEntity>
       {/* left side */}
@@ -1239,11 +1253,12 @@ function RewardPopup() {
 // Shared BACK button for full-screen action overlays (Petting / Fetch / Bath).
 // Top-left, inset from the corner, pushed further in on mobile so the app's own
 // corner UI doesn't cover it. One place so every action's BACK matches.
-function BackButton(props: { onClick: () => void; disabled?: boolean }) {
+function BackButton(props: { onClick: () => void; disabled?: boolean; position?: { top?: number; left?: number; right?: number } }) {
   const isM = mobile()
+  const pos = props.position ?? { top: isM ? S(120) : S(96), left: isM ? S(210) : S(130) }
   return (
     <UiEntity
-      uiTransform={{ positionType: 'absolute', position: { top: isM ? S(120) : S(96), left: isM ? S(210) : S(130) }, width: S(150), height: S(56), alignItems: 'center', justifyContent: 'center', borderRadius: S(28), pointerFilter: 'block' }}
+      uiTransform={{ positionType: 'absolute', position: pos, width: S(150), height: S(56), alignItems: 'center', justifyContent: 'center', borderRadius: S(28), pointerFilter: 'block' }}
       uiBackground={{ color: props.disabled ? C.cardAlt : C.pink }}
       onMouseDown={() => {
         if (!props.disabled) props.onClick()
@@ -1390,35 +1405,227 @@ function FetchOverlay() {
   )
 }
 
+// Custom mobile move control for the catching phase — replaces the native
+// joystick (hidden/restored from fruitGame.ts via TouchScreenControls) with a
+// single-axis left/right button, since the lane only allows that anyway.
+// uiInputBinding holds the action down for as long as the button is pressed,
+// same as a native on-screen button.
+const ARROW_ICON = {
+  left: 'assets/images/left_arrow.png',
+  left_pressed: 'assets/images/left_arrow_pressed.png',
+  right: 'assets/images/right_arrow.png',
+  right_pressed: 'assets/images/right_arrow_pressed.png'
+}
+// No passive way to read a UI element's held state — track it ourselves via
+// mouse down/up (+ leave, so a touch dragged off the button doesn't stick
+// visually pressed, matching uiInputBinding's own release semantics).
+const arrowPressed = { left: false, right: false }
+
+function MoveArrowButton(props: { side: 'left' | 'right' }) {
+  const action = props.side === 'left' ? InputAction.IA_LEFT : InputAction.IA_RIGHT
+  const pressed = arrowPressed[props.side]
+  const icon = pressed ? ARROW_ICON[`${props.side}_pressed`] : ARROW_ICON[props.side]
+  const size = S(120)
+  const gap = S(420) // half-gap between the pair, centered as a group
+  return (
+    <UiEntity
+      uiTransform={{
+        positionType: 'absolute',
+        position: { bottom: S(60), left: '50%' },
+        margin: { left: props.side === 'left' ? -(size + gap) : gap },
+        width: size,
+        height: size,
+        pointerFilter: 'block'
+      }}
+      uiBackground={{ texture: { src: icon }, textureMode: 'stretch' }}
+      uiInputBinding={{ actions: [action] }}
+      onMouseDown={() => {
+        arrowPressed[props.side] = true
+      }}
+      onMouseUp={() => {
+        arrowPressed[props.side] = false
+      }}
+      onMouseLeave={() => {
+        arrowPressed[props.side] = false
+      }}
+    />
+  )
+}
+
+// Post-round reveal: a fruit count-up (0 -> caught) with a feed bar filling in
+// lockstep (same fraction the actual hunger effect uses — Cfg.FEED_HUNGER_PER_FRUIT
+// — so the bar reads as "this is how full your pet's about to get"), then Exit
+// does the actual teardown (fruitGame.ts's finalizeAndClose). No BackButton here
+// — the round is already decided, Exit is the only way out.
+const RESULTS_COUNT_MS = 1500
+function FeedResultsPanel() {
+  const st = clientState.feedGame
+  const elapsed = Date.now() - st.resultsAt
+  const progress = Math.max(0, Math.min(1, RESULTS_COUNT_MS > 0 ? elapsed / RESULTS_COUNT_MS : 1))
+  const shown = Math.round(progress * st.caught)
+  const fillFrac = Math.max(0, Math.min(1, (st.caught * Cfg.FEED_HUNGER_PER_FRUIT) / 100))
+  const barPct = Math.round(progress * fillFrac * 100)
+  const cardW = S(460)
+  return (
+    <UiEntity
+      uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
+      uiBackground={{ color: C.scrim }}
+    >
+      <UiEntity
+        uiTransform={{
+          width: cardW,
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: S(24),
+          padding: { top: S(28), bottom: S(28), left: S(24), right: S(24) },
+          pointerFilter: 'block'
+        }}
+        uiBackground={{ color: C.panelBg }}
+      >
+        <OutlineLabel value="Fruits caught!" fontSize={S(28)} color={C.gold} width={cardW - S(48)} height={S(40)} textAlign="middle-center" />
+        <Label
+          value={`${shown}`}
+          fontSize={S(64)}
+          color={C.hunger}
+          textAlign="middle-center"
+          uiTransform={{ width: '100%', height: S(80), margin: { top: S(8) } }}
+        />
+        <Label value="Pet fed" fontSize={S(16)} color={C.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(20), margin: { bottom: S(6) } }} />
+        <UiEntity uiTransform={{ width: cardW - S(80), height: S(24), borderRadius: S(12), margin: { bottom: S(26) } }} uiBackground={{ color: C.trackBg }}>
+          <UiEntity uiTransform={{ width: `${barPct}%`, height: '100%', borderRadius: S(12) }} uiBackground={{ color: C.hunger }} />
+        </UiEntity>
+        <TactileButton
+          id="feed_results_exit"
+          label="Exit"
+          width={S(220)}
+          height={S(70)}
+          bg={C.green}
+          textColor={C.outline}
+          fontSize={S(26)}
+          radius={S(24)}
+          onClick={() => exitFeedResults()}
+        />
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+// DEBUG: live camera calibration panel for the fruit game cinematic (toggled
+// by the "3" hotkey, input.ts). +/- nudges the relevant constant in
+// fruitGame.ts and re-applies it straight to the active cinematic camera —
+// "Print values" logs the final numbers to hardcode back into the source.
+const DEBUG_CAM_STEP = 0.1
+function DebugCamPanel() {
+  if (!clientState.debugCamPanelOpen) return <UiEntity />
+  const keys: DebugCamKey[] = debugCamAvailableKeys()
+  const panelW = S(340)
+  return (
+    <UiEntity
+      uiTransform={{
+        positionType: 'absolute',
+        position: { top: S(300), left: S(24) },
+        width: panelW,
+        flexDirection: 'column',
+        alignItems: 'center',
+        borderRadius: S(16),
+        padding: S(14),
+        pointerFilter: 'block'
+      }}
+      uiBackground={{ color: C.panelBg }}
+    >
+      <Label
+        value={`Cam calib (${mobile() ? 'mobile' : 'desktop'})`}
+        fontSize={S(18)}
+        color={C.gold}
+        textAlign="middle-center"
+        uiTransform={{ width: '100%', height: S(26), margin: { bottom: S(6) } }}
+      />
+      {keys.map((k) => (
+        <UiEntity key={k} uiTransform={{ width: '100%', height: S(40), flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Label
+            value={`${debugCamLabel(k)}: ${debugCamValue(k).toFixed(2)}`}
+            fontSize={S(15)}
+            color={C.text}
+            textAlign="middle-left"
+            uiTransform={{ width: S(190), height: S(30) }}
+          />
+          <TactileButton id={`debugcam_${k}_minus`} label="-" width={S(40)} height={S(34)} bg={C.card} onClick={() => debugCamAdjust(k, -DEBUG_CAM_STEP)} />
+          <TactileButton id={`debugcam_${k}_plus`} label="+" width={S(40)} height={S(34)} bg={C.card} margin={{ left: S(6) }} onClick={() => debugCamAdjust(k, DEBUG_CAM_STEP)} />
+        </UiEntity>
+      ))}
+      {mobile() ? (
+        <TactileButton
+          id="debugcam_toggle_close"
+          label={debugCamIsClosePreview() ? 'Preview: CLOSE' : 'Preview: WIDE'}
+          width={panelW - S(28)}
+          height={S(38)}
+          bg={C.cardAlt}
+          margin={{ top: S(8) }}
+          onClick={() => debugCamToggleClosePreview()}
+        />
+      ) : null}
+      <TactileButton
+        id="debugcam_print"
+        label="Print values"
+        width={panelW - S(28)}
+        height={S(38)}
+        bg={C.green}
+        textColor={C.outline}
+        margin={{ top: S(8) }}
+        onClick={() => debugCamPrint()}
+      />
+    </UiEntity>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Feed tree minigame overlay (fruitGame.ts): "how to play" + arrows during
 // arrival/intro (before the player can move freely to catch anything), then a
-// fruit counter + countdown while catching. BACK bails early, submitting
-// whatever was caught so far (same as a natural timeout).
+// fruit counter + countdown while catching (plus, on mobile, the custom
+// left/right move buttons in place of the native joystick). BACK bails early,
+// submitting whatever was caught so far (same as a natural timeout). Once the
+// round ends, FeedResultsPanel takes over instead (see below).
 // ---------------------------------------------------------------------------
 function FeedGameOverlay() {
   const st = clientState.feedGame
   if (!st.active) return <UiEntity />
+  if (st.phase === 'results') return <FeedResultsPanel />
   const catching = st.phase === 'catching'
+  const introPhase = st.phase === 'intro'
+  const countdown = st.phase === 'countdown'
   // Brief pop on the counter each time a fruit lands — works on every client,
   // unlike a particle effect would (Unity desktop only, so it's not used here).
   const flashing = Date.now() < st.catchFlashUntil
-  const arrowNudge = Math.round(sway() * S(10))
+  const countdownNum = Math.max(1, Math.min(COUNTDOWN_S, Math.ceil(COUNTDOWN_S - (Date.now() - st.countdownAt) / 1000)))
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'none' }}>
-      <BackButton onClick={() => cancelFruitGame()} />
+      <BackButton onClick={() => cancelFruitGame()} position={{ top: S(96), right: S(24) }} />
       <UiEntity
-        uiTransform={{
-          positionType: 'absolute',
-          position: { top: S(90), left: '50%' },
-          margin: { left: catching ? -S(190) : -S(220) },
-          width: catching ? S(380) : S(440),
-          height: catching ? S(70) : S(120),
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderRadius: S(20),
-          pointerFilter: 'none'
-        }}
+        uiTransform={
+          catching
+            ? {
+                positionType: 'absolute',
+                position: { top: S(160), right: S(24) },
+                width: S(320),
+                height: S(70),
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: S(20),
+                pointerFilter: 'none'
+              }
+            : {
+                positionType: 'absolute',
+                position: { top: S(90), left: '50%' },
+                margin: { left: -S(220) },
+                width: S(440),
+                height: S(120),
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: S(20),
+                pointerFilter: 'none'
+              }
+        }
         uiBackground={{ color: C.panelBg }}
       >
         {catching ? (
@@ -1429,9 +1636,11 @@ function FeedGameOverlay() {
             textAlign="middle-center"
             uiTransform={{ width: '100%', height: S(36) }}
           />
+        ) : countdown ? (
+          <Label value={`${countdownNum}`} fontSize={S(72)} color={C.gold} textAlign="middle-center" uiTransform={{ width: '100%', height: '100%' }} />
         ) : (
           <UiEntity uiTransform={{ width: '100%', height: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-            <Label value="◀" fontSize={S(36)} color={C.gold} textAlign="middle-center" uiTransform={{ width: S(50), height: S(50), margin: { left: -arrowNudge } }} />
+            <Label value="◀" fontSize={S(36)} color={C.gold} textAlign="middle-center" uiTransform={{ width: S(50), height: S(50) }} />
             <Label
               value="Move left and right to catch the food falling from the tree!"
               fontSize={S(22)}
@@ -1440,10 +1649,18 @@ function FeedGameOverlay() {
               textWrap="wrap"
               uiTransform={{ width: S(320), height: S(100) }}
             />
-            <Label value="▶" fontSize={S(36)} color={C.gold} textAlign="middle-center" uiTransform={{ width: S(50), height: S(50), margin: { left: arrowNudge } }} />
+            <Label value="▶" fontSize={S(36)} color={C.gold} textAlign="middle-center" uiTransform={{ width: S(50), height: S(50) }} />
           </UiEntity>
         )}
       </UiEntity>
+      {introPhase ? (
+        <UiEntity uiTransform={{ positionType: 'absolute', position: { top: S(220), left: '50%' }, margin: { left: -S(110) }, width: S(220), height: S(70), pointerFilter: 'none' }}>
+          <TactileButton id="feed_start" label="Start" width={S(220)} height={S(70)} bg={C.green} textColor={C.outline} fontSize={S(28)} radius={S(24)} pulse onClick={() => startCatchingCountdown()} />
+        </UiEntity>
+      ) : null}
+      {mobile() ? <MoveArrowButton side="left" /> : null}
+      {mobile() ? <MoveArrowButton side="right" /> : null}
+      <DebugCamPanel />
     </UiEntity>
   )
 }
@@ -1731,21 +1948,29 @@ const Root = () => {
   )
 }
 
-// Mobile uses a smaller virtual canvas so the HUD occupies more of the screen
-// (fixes tiny UIs on mobile / the Bevy client). virtualWidth/Height are locked
-// in at setUiRenderer time, so we re-apply this once mobile detection resolves.
-function applyUiRenderer(): void {
-  const compact = useCompactCanvas() // mobile OR the Bevy explorer
-  ReactEcsRenderer.setUiRenderer(Root, {
-    virtualWidth: compact ? 1600 : 1920,
-    virtualHeight: compact ? 720 : 1080
-  })
+let uiRendererSyncRegistered = false
+let lastAppliedUiRendererSignature = ''
+
+function applyUiRenderer(force: boolean = false): void {
+  const config = getUiRendererConfig()
+  const signature = `${mobile()}:${config.virtualWidth}x${config.virtualHeight}:${config.screenInset}`
+  if (!force && signature === lastAppliedUiRendererSignature) return
+
+  ReactEcsRenderer.setUiRenderer(Root, config)
+  lastAppliedUiRendererSignature = signature
+}
+
+function syncUiRendererSystem(): void {
+  applyUiRenderer()
 }
 
 export function setupUi(): void {
-  // Re-apply the renderer once the async platform lookup settles, so mobile gets
-  // the smaller virtual canvas even though detection resolves after first render.
-  resolveRuntimePlatform(applyUiRenderer)
+  if (!uiRendererSyncRegistered) {
+    uiRendererSyncRegistered = true
+    engine.addSystem(syncUiRendererSystem)
+  }
+
+  resolveRuntimePlatform()
   startAnimSystem()
-  applyUiRenderer()
+  applyUiRenderer(true)
 }

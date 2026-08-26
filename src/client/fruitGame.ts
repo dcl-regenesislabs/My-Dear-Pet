@@ -21,13 +21,16 @@ import {
   InputModifier,
   AvatarMask,
   AvatarAttach,
-  AvatarAnchorPointType
+  AvatarAnchorPointType,
+  TouchScreenControls,
+  AudioSource
 } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion } from '@dcl/sdk/math'
 import { movePlayerTo, triggerSceneEmote } from '~system/RestrictedActions'
 import * as RestrictedActions from '~system/RestrictedActions'
 import { EntityNames } from '../../assets/scene/entity-names'
 import { actions, clientState, pushToast } from './state'
+import { mobile } from './ui/theme'
 import { applyFeedMinigameLocal } from './sim'
 
 const FRUIT_MODELS = [
@@ -39,12 +42,23 @@ const FRUIT_MODELS = [
 ]
 const NUM_FRUIT_SLOTS = 5
 
+const FRUIT_PICK_SOUND = 'assets/sounds/fruit_pick.mp3'
+
 // Invisible walls placed in the composite (assets/asset-packs/invisible_wall)
 // penning the player into the catch lane: lane_1/lane_2 are the long front/back
 // walls (block wandering toward/away from the camera), lane_3/lane_4 are the
 // short end-caps (block wandering past the left/right extremes). They ship
 // with collision off in the composite — toggled on only while catching.
 const LANE_ENTITY_NAMES = [EntityNames.lane_1, EntityNames.lane_2, EntityNames.lane_3, EntityNames.lane_4]
+
+// As placed in the composite, lane_1/lane_2 sit only ~0.78m apart (measured
+// from their actual Transforms) — confirmed too tight to strafe in on desktop
+// specifically (mobile's own framing/movement is fine as-is at that width, so
+// this is gated to desktop only). Widened once at runtime — they're invisible,
+// so nudging their position has no visual effect — rather than needing a
+// composite re-edit for a collision-only fix.
+const LANE_DEPTH_EXTRA = 1.2 // total metres of extra clearance added, split evenly between the two walls
+let laneDepthWidened = false
 
 // GltfContainer defaults to CL_POINTER | CL_PHYSICS when unset — without this,
 // every fruit (and the held drawer, which follows the player everywhere) is a
@@ -76,27 +90,64 @@ const LAND_BOUNCE_HEIGHT = 0.22
 const LAND_BOUNCE_UP_MS = 180
 const LAND_BOUNCE_DOWN_MS = 220
 
-// Freeze -> emote -> release timeline (seconds since the intro began). Copied
-// from the prototype's tuned pacing. The crate reveal is delayed a little
-// past the emote trigger so it pops in once the arms have actually reached
-// the holding pose, instead of appearing mid-swing and looking like it jumps
-// into place once the pose catches up.
+// Adjustment applied to the composite-placed cinematic_point marker — closer
+// to, and lower than, the raw spot. This is also the "pulled back" game-camera
+// position the cinematic zooms IN from and, later, back OUT to. Mobile only.
+// These are `let`, not `const` — see debugCam* below, a runtime calibration
+// panel (DEBUG builds/testing only) that nudges them live and prints the
+// final numbers to copy back in here once you're happy with the framing.
+let CAM_CLOSER_DIST = 3.5
+let CAM_RAISE = -2.0
+// Same idea, much lighter touch — desktop has no zoom/close shot, this is
+// just a small correction on the single camera position it uses throughout.
+let DESKTOP_CAM_CLOSER_DIST = 3.3
+let DESKTOP_CAM_RAISE = -1.0
+// Added on top of CAMERA_LOOK_HEIGHT for desktop only, so its one camera
+// looks a bit higher (both during the arrival beat and gameplay, since
+// desktop uses the same framing for both).
+let DESKTOP_LOOK_HEIGHT_BOOST = -0.5
+// Horizontal look offset for desktop's single continuous shot (metres, along
+// +rightRef) — desktop has no separate arrival target, so this is the only
+// way to turn/pan that one camera left or right instead of it staying pinned
+// dead-center on the spawnpoint.
+let DESKTOP_LOOK_LEFT = 0.6
+// Where the arrival/intro shot looks (both the wide starting frame and the
+// close zoomed-in hold use this same target) — higher above ground, and
+// shifted toward the player's own left (confirmed direction: +rightRef) so
+// the shot doesn't read as dead-center/tilted.
+let ARRIVAL_LOOK_HEIGHT = 3.0
+let ARRIVAL_LOOK_LEFT = 0.7 // metres, along +rightRef
+// The close "personal" shot for the reveal: this many metres from the player,
+// same height as the wide game-camera position.
+let CLOSE_CAM_DIST = 3.0
+const ZOOM_IN_MS = 1000
+
+// Freeze -> emote reveal timeline (seconds since intro began). The crate
+// reveal is delayed a little past the emote trigger so it pops in once the
+// arms have actually reached the holding pose, instead of appearing mid-swing
+// and looking like it jumps into place once the pose catches up. After that,
+// 'intro' just sits there (parked) — no auto-advance — until the player taps
+// Start (startCatchingCountdown), which runs a 3-2-1 before catching begins.
 const INTRO_EMOTE_AT_S = 0.9
 const DRAWER_REVEAL_DELAY_S = 0.35
-const INTRO_RELEASE_AT_S = 3.1
+export const COUNTDOWN_S = 3 // exported so ui.tsx's countdown number matches this exactly
 
 // Arrival: we can't script the avatar's own walking (its Transform is
 // engine-controlled), so rather than wait for the player to walk closer, the
 // teleport/freeze happen immediately on hand-off. There's only ONE camera
 // entity for the whole cinematic (cinCam) — it never gets swapped for a
-// different one, it's just re-Tweened, so there's no camera-switch moment
-// that could pop instead of pan:
-//  1. cinCam starts at a snapshot of wherever the player's native follow-cam
-//     was actually looking (so activating it is an invisible cut), then Tweens
-//     to the cinematic_point framing (looking at the now-arrived avatar).
-//  2. Once that settles, a second Tween swings the SAME camera's rotation
-//     (it doesn't move) from looking at the avatar to looking at the canopy.
-const ARRIVAL_PAN_MS = 1100
+// different one, it's just re-Tweened, always between points computed only
+// from cinematic_point/spawnpoint (never a snapshot of the player's native
+// follow-cam — that camera's own rig differs between desktop and mobile, so
+// panning in from it made the cinematic start from a different angle per
+// platform, which is the opposite of what we want):
+//  1. cinCam cuts straight to the wide game-camera position (looking at the
+//     now-arrived avatar) — an invisible cut, since nothing has moved yet.
+//  2. Immediately Tweens IN to a close "personal" shot near the avatar, for
+//     the hands-up reveal + "move left/right" hint.
+//  3. Once that hint goes away (Start tapped + the 3-2-1), a second Tween
+//     pulls the SAME camera back OUT to the wide game-camera position and
+//     re-aims it at the canopy — this is the shot gameplay actually uses.
 const ARRIVAL_HOLD_S = 1.4
 const GAME_CAM_PAN_MS = 800
 
@@ -140,7 +191,7 @@ interface FruitRuntime {
   resolvedAt: number
 }
 
-type Phase = 'idle' | 'arrival' | 'intro' | 'catching'
+type Phase = 'idle' | 'arrival' | 'intro' | 'countdown' | 'catching' | 'results'
 let phase: Phase = 'idle'
 let phaseAt = 0
 let clock = 0
@@ -153,6 +204,7 @@ let clutterIndex = 0
 let cinCam: Entity | null = null // the one cinematic camera, re-Tweened rather than swapped
 let drawerAnchor: Entity | null = null
 let drawerEntity: Entity | null = null
+let sfxEntity: Entity | null = null
 
 let groundY = 0
 let canopyCenter = Vector3.Zero()
@@ -193,13 +245,42 @@ function stopHoldEmote(): void {
   }
 }
 
-/** Turn the lane's invisible walls solid (catching) or back off (everywhere else). */
+/** One-time fixup: push lane_1/lane_2 apart along the line between them, so
+ *  the pen they form is wide enough to walk in without clipping both sides
+ *  at once. Desktop only (see LANE_DEPTH_EXTRA). No-ops if already done or if
+ *  the markers aren't found. */
+function widenLaneDepthOnce(): void {
+  if (laneDepthWidened) return
+  const lane1 = engine.getEntityOrNullByName(EntityNames.lane_1)
+  const lane2 = engine.getEntityOrNullByName(EntityNames.lane_2)
+  if (!lane1 || !lane2 || !Transform.has(lane1) || !Transform.has(lane2)) return
+  const p1 = Transform.get(lane1).position
+  const p2 = Transform.get(lane2).position
+  const dir = Vector3.normalize(Vector3.create(p2.x - p1.x, 0, p2.z - p1.z))
+  const half = LANE_DEPTH_EXTRA / 2
+  Transform.getMutable(lane1).position = Vector3.create(p1.x - dir.x * half, p1.y, p1.z - dir.z * half)
+  Transform.getMutable(lane2).position = Vector3.create(p2.x + dir.x * half, p2.y, p2.z + dir.z * half)
+  laneDepthWidened = true
+}
+
+/** Turn the lane's invisible walls solid (catching) or back off (everywhere
+ *  else). Logs what actually happened to each marker — whether it was found
+ *  in the scene and what mask got applied — so a live test tells us for sure
+ *  whether the colliders are really being armed, instead of guessing. */
 function setLaneColliders(on: boolean): void {
+  if (on && !mobile()) widenLaneDepthOnce()
   for (const name of LANE_ENTITY_NAMES) {
     const e = engine.getEntityOrNullByName(name)
-    if (!e || !GltfContainer.has(e)) continue
-    GltfContainer.getMutable(e).visibleMeshesCollisionMask = on ? ColliderLayer.CL_PHYSICS : ColliderLayer.CL_NONE
+    if (!e || !GltfContainer.has(e)) {
+      console.log(`[Client] fruit game: lane marker "${name}" not found or has no GltfContainer — collider NOT set`)
+      continue
+    }
+    const mask = on ? ColliderLayer.CL_PHYSICS : ColliderLayer.CL_NONE
+    GltfContainer.getMutable(e).visibleMeshesCollisionMask = mask
+    console.log(`[Client] fruit game: lane marker "${name}" visibleMeshesCollisionMask -> ${mask} (${on ? 'ON' : 'off'})`)
   }
+  const pp = playerPos()
+  console.log(`[Client] fruit game: setLaneColliders(${on}) — player at (${pp.x.toFixed(2)}, ${pp.z.toFixed(2)}), canopyCenter (${canopyCenter.x.toFixed(2)}, ${canopyCenter.z.toFixed(2)}), canopyHalfWidth ${canopyHalfWidth.toFixed(2)}`)
 }
 
 function randomFruitModel(): string {
@@ -279,6 +360,7 @@ function resolveFruit(f: FruitRuntime, caught: boolean): void {
   if (caught) {
     clientState.feedGame.caught += 1
     clientState.feedGame.catchFlashUntil = Date.now() + 350
+    if (sfxEntity) AudioSource.playSound(sfxEntity, FRUIT_PICK_SOUND)
   } else {
     dropGroundClutter(pos, GltfContainer.get(f.entity).src)
   }
@@ -322,26 +404,19 @@ function updateHoldPose(): void {
   carryPrevPos = Vector3.create(pp.x, pp.y, pp.z)
 }
 
-/** Arrival: once the establishing pan (started in startFruitGame) has settled,
- *  swing the SAME camera's rotation over to the game framing — no camera
- *  swap, so there's nothing that could pop instead of pan. Time-based, not
- *  distance-based: we can't script the avatar's own walk, so this doesn't
- *  wait on player movement. */
+/** Arrival: just a timer gate — the zoom-in already started in startFruitGame
+ *  and has had time to settle by now. Time-based, not distance-based: we
+ *  can't script the avatar's own walk, so this doesn't wait on player
+ *  movement. */
 function arrivalTick(): void {
   if (clock - phaseAt < ARRIVAL_HOLD_S) return
-  if (!cinCam) return
-
-  const cur = Transform.get(cinCam)
-  const gameRot = Quaternion.fromLookAt(pendingCamPos, pendingLookTarget)
-  Tween.createOrReplace(cinCam, {
-    mode: Tween.Mode.MoveRotateScale({
-      position: { start: cur.position, end: pendingCamPos },
-      rotation: { start: cur.rotation, end: gameRot }
-    }),
-    duration: GAME_CAM_PAN_MS,
-    easingFunction: EasingFunction.EF_EASEQUAD
+  // Swap the full freeze for the same light lock catching uses (walk/run
+  // free, no jump/glide) — the move buttons are already on screen, so let the
+  // player try them out before they commit with Start.
+  InputModifier.createOrReplace(engine.PlayerEntity, {
+    mode: InputModifier.Mode.Standard({ disableJump: true, disableDoubleJump: true, disableGliding: true })
   })
-
+  setLaneColliders(true) // keep them penned in the lane while they test the buttons
   phase = 'intro'
   phaseAt = clock
   clientState.feedGame.phase = 'intro'
@@ -359,32 +434,81 @@ function introTick(): void {
     if (drawerEntity) VisibilityComponent.getMutable(drawerEntity).visible = true
     drawerRevealed = true
   }
-  if (elapsed >= INTRO_RELEASE_AT_S) {
-    // Swap the full freeze for a lighter lock: free to walk/run the lane, but
-    // no jumping or gliding out of it.
-    InputModifier.createOrReplace(engine.PlayerEntity, {
-      mode: InputModifier.Mode.Standard({ disableJump: true, disableDoubleJump: true, disableGliding: true })
-    })
-    setLaneColliders(true) // pen the player into the catch lane now that they can move
-    for (const f of fruits) armFruit(f)
-    phase = 'catching'
-    phaseAt = clock
-    clientState.feedGame.phase = 'catching'
-  }
+  // No auto-advance from here — 'intro' just sits parked (frozen, hands up,
+  // crate in hand) until the player taps Start (see startCatchingCountdown).
 }
 
-function endFruitGame(): void {
+/** Start button tapped: run the 3-2-1, then hand off to beginCatching(). */
+export function startCatchingCountdown(): void {
+  if (phase !== 'intro') return
+  phase = 'countdown'
+  phaseAt = clock
+  clientState.feedGame.phase = 'countdown'
+  clientState.feedGame.countdownAt = Date.now()
+}
+
+function countdownTick(): void {
+  if (clock - phaseAt < COUNTDOWN_S) return
+  beginCatching()
+}
+
+/** Zoom the cinematic camera back out to the wide game position and start
+ *  dropping fruit — the jump/glide lock and lane pen are already in place
+ *  from arrivalTick, since the player's been free to move (and try the
+ *  buttons) since 'intro' began. */
+function beginCatching(): void {
+  // Zoom the SAME camera back out to the wide game position and re-aim it at
+  // the canopy, from wherever the close shot currently sits.
+  if (cinCam) {
+    const cur = Transform.get(cinCam)
+    const gameRot = Quaternion.fromLookAt(pendingCamPos, pendingLookTarget)
+    Tween.createOrReplace(cinCam, {
+      mode: Tween.Mode.MoveRotateScale({
+        position: { start: cur.position, end: pendingCamPos },
+        rotation: { start: cur.rotation, end: gameRot }
+      }),
+      duration: GAME_CAM_PAN_MS,
+      easingFunction: EasingFunction.EF_EASEQUAD
+    })
+  }
+  for (const f of fruits) armFruit(f)
+  phase = 'catching'
+  phaseAt = clock
+  clientState.feedGame.phase = 'catching'
+}
+
+/** Round over: stop the catching gameplay and submit the reward, but stay on
+ *  screen showing the results (count-up + feed bar) — closing fully happens
+ *  separately, once the player taps Exit (see finalizeAndClose). */
+function applyResults(): void {
   const caught = clientState.feedGame.caught
-  if (MainCamera.has(engine.CameraEntity)) MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: undefined })
-  if (InputModifier.has(engine.PlayerEntity)) InputModifier.deleteFrom(engine.PlayerEntity)
   stopHoldEmote()
-  setLaneColliders(false)
-  if (drawerEntity) VisibilityComponent.getMutable(drawerEntity).visible = false
   for (const f of fruits) {
     Tween.deleteFrom(f.entity)
     VisibilityComponent.createOrReplace(f.entity, { visible: false })
     f.phase = 'idle'
   }
+  // Ground clutter stays lying around for the results beat — it's just cosmetic debris.
+  phase = 'results'
+  clientState.feedGame.phase = 'results'
+  clientState.feedGame.resultsAt = Date.now()
+  if (caught > 0) {
+    applyFeedMinigameLocal(caught) // optimistic local effect
+    actions.feedResult(caught) // tell the server (it corrects via snapshot)
+  }
+}
+
+/** Release the camera/movement lock/touch controls and hand the screen back —
+ *  called once the player is done looking at the results (Exit), or right
+ *  away on an early cancel (no results screen in that case). */
+function finalizeAndClose(): void {
+  if (MainCamera.has(engine.CameraEntity)) MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: undefined })
+  if (InputModifier.has(engine.PlayerEntity)) InputModifier.deleteFrom(engine.PlayerEntity)
+  setLaneColliders(false)
+  TouchScreenControls.showAll()
+  TouchScreenControls.showJoystick()
+  TouchScreenControls.showCrosshair()
+  if (drawerEntity) VisibilityComponent.getMutable(drawerEntity).visible = false
   for (const e of groundClutter) {
     Tween.deleteFrom(e)
     if (TweenSequence.has(e)) TweenSequence.deleteFrom(e)
@@ -394,17 +518,39 @@ function endFruitGame(): void {
   phase = 'idle'
   carryPrevPos = null
   carryMoving = false
-  if (caught > 0) {
-    applyFeedMinigameLocal(caught) // optimistic local effect
-    actions.feedResult(caught) // tell the server (it corrects via snapshot)
-    pushToast(`Caught ${caught} fruit${caught === 1 ? '' : 's'}!`)
-  }
 }
 
-/** Bail out early (Back button) — submits whatever was caught so far, same as a natural timeout. */
+/** Bail out early (Back button, only shown before 'results') — submits
+ *  whatever was caught so far and closes immediately, skipping the results
+ *  reveal (you asked to leave, so no flourish). */
 export function cancelFruitGame(): void {
-  if (phase === 'idle') return
-  endFruitGame()
+  if (phase === 'idle' || phase === 'results') return
+  const caught = clientState.feedGame.caught
+  applyResults()
+  finalizeAndClose()
+  if (caught > 0) pushToast(`Caught ${caught} fruit${caught === 1 ? '' : 's'}!`)
+}
+
+/** Exit button on the results screen. */
+export function exitFeedResults(): void {
+  if (phase !== 'results') return
+  finalizeAndClose()
+}
+
+// DEBUG: purely observational — logs (throttled) if the player is found
+// further from the canopy than the lane should ever allow, so a live test on
+// mobile tells us for certain whether they're actually escaping the pen and
+// where/when, instead of guessing from a static code read. No correction, no
+// teleport — just evidence.
+let lastBoundsLogAt = -999
+function logIfOutOfBounds(): void {
+  if (clock - lastBoundsLogAt < 1) return
+  const pp = playerPos()
+  const dist = distFlat(pp, canopyCenter)
+  const maxExpected = canopyHalfWidth + 3 // generous margin over the intended width
+  if (dist <= maxExpected) return
+  lastBoundsLogAt = clock
+  console.log(`[Client] fruit game DEBUG: player at (${pp.x.toFixed(2)}, ${pp.z.toFixed(2)}) is ${dist.toFixed(2)}m from canopyCenter — expected within ~${maxExpected.toFixed(2)}m`)
 }
 
 function tick(dt: number): void {
@@ -413,12 +559,17 @@ function tick(dt: number): void {
     arrivalTick()
   } else if (phase === 'intro') {
     introTick()
+    logIfOutOfBounds()
+  } else if (phase === 'countdown') {
+    countdownTick()
+    logIfOutOfBounds()
   } else if (phase === 'catching') {
     fruitTick()
     updateHoldPose()
+    logIfOutOfBounds()
     const st = clientState.feedGame
     st.timeLeft = Math.max(0, st.timeLeft - dt)
-    if (st.timeLeft <= 0) endFruitGame()
+    if (st.timeLeft <= 0) applyResults()
   }
 }
 
@@ -448,7 +599,73 @@ export function setupFruitGame(): void {
   GltfContainer.create(drawerEntity, { src: DRAWER_MODEL, ...NO_COLLISION })
   VisibilityComponent.create(drawerEntity, { visible: false })
 
+  sfxEntity = engine.addEntity()
+  Transform.create(sfxEntity, {})
+  AudioSource.create(sfxEntity, { audioClipUrl: FRUIT_PICK_SOUND, playing: false, global: true })
+
   engine.addSystem(tick)
+}
+
+interface CinematicGeometry {
+  camPos: Vector3
+  viewDir: Vector3
+  rightRef: Vector3
+  gameLookTarget: Vector3
+  arrivalLookTarget: Vector3
+  wideRot: Quaternion
+  closeCamPos: Vector3
+  closeRot: Quaternion
+}
+
+/** All the camera math shared between startFruitGame's real setup and the
+ *  debugCam* live-preview below — kept in one place so nudging a constant
+ *  from the debug panel matches exactly what a real playthrough would do. */
+function computeCinematicGeometry(rawCamPos: Vector3, spawnPos: Vector3, gY: number, onMobile: boolean): CinematicGeometry {
+  const towardSpawn = Vector3.normalize(Vector3.create(spawnPos.x - rawCamPos.x, 0, spawnPos.z - rawCamPos.z))
+  const closerDist = onMobile ? CAM_CLOSER_DIST : DESKTOP_CAM_CLOSER_DIST
+  const raise = onMobile ? CAM_RAISE : DESKTOP_CAM_RAISE
+  const camPos = Vector3.create(
+    rawCamPos.x + towardSpawn.x * closerDist,
+    rawCamPos.y + raise,
+    rawCamPos.z + towardSpawn.z * closerDist
+  )
+
+  const viewDir = Vector3.normalize(Vector3.create(spawnPos.x - camPos.x, 0, spawnPos.z - camPos.z))
+  const rightRef = Vector3.create(-viewDir.z, 0, viewDir.x)
+
+  const lookHeight = CAMERA_LOOK_HEIGHT + (onMobile ? 0 : DESKTOP_LOOK_HEIGHT_BOOST)
+  const lookLeftOffset = onMobile ? 0 : DESKTOP_LOOK_LEFT
+  const gameLookTarget = Vector3.create(
+    spawnPos.x + rightRef.x * lookLeftOffset,
+    gY + lookHeight,
+    spawnPos.z + rightRef.z * lookLeftOffset
+  )
+
+  // Desktop has no separate "look at the player" arrival shot at all — it's
+  // the exact same framing as gameplay from the very first frame, so there's
+  // nothing in between that could point the wrong way.
+  const arrivalLookTarget = onMobile
+    ? Vector3.create(
+        spawnPos.x + rightRef.x * ARRIVAL_LOOK_LEFT,
+        gY + ARRIVAL_LOOK_HEIGHT,
+        spawnPos.z + rightRef.z * ARRIVAL_LOOK_LEFT
+      )
+    : gameLookTarget
+  const wideRot = Quaternion.fromLookAt(camPos, arrivalLookTarget)
+
+  // Close "personal" shot: same height as the wide position, just this much
+  // nearer to the player, along the same camera-to-player line. Mobile only,
+  // but computed unconditionally — harmless, and lets the debug panel preview
+  // it regardless of the platform it's running on.
+  const towardCam = Vector3.create(-viewDir.x, 0, -viewDir.z)
+  const closeCamPos = Vector3.create(
+    spawnPos.x + towardCam.x * CLOSE_CAM_DIST,
+    camPos.y,
+    spawnPos.z + towardCam.z * CLOSE_CAM_DIST
+  )
+  const closeRot = Quaternion.fromLookAt(closeCamPos, arrivalLookTarget)
+
+  return { camPos, viewDir, rightRef, gameLookTarget, arrivalLookTarget, wideRot, closeCamPos, closeRot }
 }
 
 /** Hand-off once the walk-to-tree errand arrives: freeze + camera cut + "hands
@@ -479,20 +696,17 @@ export function startFruitGame(mascotaId: string): void {
   }
   console.log('[Client] fruit game started for', mascotaId)
 
-  const camPos = Transform.get(cinePoint).position
+  const onMobile = mobile() // all the camera repositioning below (closer/lower/zoom/look-offset) is mobile-only — desktop keeps the original framing
+
+  const rawCamPos = Transform.get(cinePoint).position
   const spawnPos = Transform.get(spawnPoint).position
   const p3 = Transform.get(lane3).position
   const p4 = Transform.get(lane4).position
   groundY = spawnPos.y
 
-  // "Forward" (the narrow depth axis) still comes from the camera's own view
-  // direction — that's what reads as "toward/away from camera" on screen.
-  // "Right" (the wide axis fruit actually spread along) comes from the real
-  // line between the two end-cap walls, so the canopy's width and center are
-  // measured, not guessed.
-  const viewDir = Vector3.normalize(Vector3.create(spawnPos.x - camPos.x, 0, spawnPos.z - camPos.z))
+  const geo = computeCinematicGeometry(rawCamPos, spawnPos, groundY, onMobile)
+  const { camPos, viewDir, rightRef, arrivalLookTarget, wideRot } = geo
   localForward = viewDir
-  const rightRef = Vector3.create(-viewDir.z, 0, viewDir.x)
   let laneSpan = Vector3.create(p4.x - p3.x, 0, p4.z - p3.z)
   if (Vector3.dot(laneSpan, rightRef) < 0) laneSpan = Vector3.create(-laneSpan.x, 0, -laneSpan.z)
   const laneWidth = Vector3.length(laneSpan)
@@ -507,9 +721,7 @@ export function startFruitGame(mascotaId: string): void {
 
   // Cached for arrivalTick's cut to the game camera.
   pendingCamPos = camPos
-  // Look toward the play area (avatar + catch zone), not straight down at
-  // ground level — but not all the way up at the fruit's hang height either.
-  pendingLookTarget = Vector3.create(spawnPos.x, groundY + CAMERA_LOOK_HEIGHT, spawnPos.z)
+  pendingLookTarget = geo.gameLookTarget
 
   // Snap the player into place and face them at cinematic_point right away —
   // we can't script their own walk-in, so there's no point waiting for it.
@@ -528,27 +740,39 @@ export function startFruitGame(mascotaId: string): void {
     })
   })
 
-  // Arrival camera: start it at a snapshot of wherever the player's native
-  // follow-cam actually was — switching MainCamera to it is then an invisible
-  // cut — then Tween it over to the cinematic_point framing for a real pan
-  // ("you're walking" -> "you turn around with the crate"), not a jump.
-  const liveCam = Transform.getOrNull(engine.CameraEntity)
-  const panStartPos = liveCam ? liveCam.position : camPos
-  const panStartRot = liveCam ? liveCam.rotation : Quaternion.fromEulerDegrees(0, 0, 0)
-  const panEndRot = Quaternion.fromLookAt(camPos, spawnPos)
+  // Swap the native joystick/crosshair/gamepad for the custom left/right
+  // buttons in FeedGameOverlay from the very start — no-op on platforms
+  // without touch controls. Shown from the first "Move left/right" hint, not
+  // just once catching begins, so mobile players see them right away.
+  TouchScreenControls.hideAll()
+  TouchScreenControls.hideJoystick()
+  TouchScreenControls.hideCrosshair()
 
+  // Arrival camera: cut straight to the wide cinematic_point framing (looking
+  // at the now-arrived avatar) — computed only from cinematic_point/
+  // spawnpoint, never a snapshot of the player's native follow-cam (that
+  // camera's own rig differs between desktop and mobile, which made an
+  // earlier version of this cut start from a different-looking angle per
+  // platform). On mobile, immediately Tweens IN to a close shot for the
+  // reveal; the pull back out to this same wide position happens later, in
+  // introTick, once the "move left/right" hint goes away. Desktop skips the
+  // zoom entirely — it keeps the original single cut, looking straight at
+  // the player (no height/left offset).
   if (!cinCam) cinCam = engine.addEntity()
-  Transform.createOrReplace(cinCam, { position: panStartPos, rotation: panStartRot })
+  Transform.createOrReplace(cinCam, { position: camPos, rotation: wideRot })
   VirtualCamera.createOrReplace(cinCam, {})
   MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: cinCam })
-  Tween.createOrReplace(cinCam, {
-    mode: Tween.Mode.MoveRotateScale({
-      position: { start: panStartPos, end: camPos },
-      rotation: { start: panStartRot, end: panEndRot }
-    }),
-    duration: ARRIVAL_PAN_MS,
-    easingFunction: EasingFunction.EF_EASEQUAD
-  })
+
+  if (onMobile) {
+    Tween.createOrReplace(cinCam, {
+      mode: Tween.Mode.MoveRotateScale({
+        position: { start: camPos, end: geo.closeCamPos },
+        rotation: { start: wideRot, end: geo.closeRot }
+      }),
+      duration: ZOOM_IN_MS,
+      easingFunction: EasingFunction.EF_EASEOUTQUAD
+    })
+  }
 
   for (const f of fruits) {
     Tween.deleteFrom(f.entity)
@@ -558,9 +782,111 @@ export function startFruitGame(mascotaId: string): void {
     f.phase = 'idle'
   }
 
-  clientState.feedGame = { active: true, phase: 'arrival', caught: 0, timeLeft: GAME_DURATION_S, catchFlashUntil: 0 }
+  clientState.feedGame = { active: true, phase: 'arrival', caught: 0, timeLeft: GAME_DURATION_S, catchFlashUntil: 0, countdownAt: 0, resultsAt: 0 }
   introEmotePlayed = false
   drawerRevealed = false
   phase = 'arrival'
   phaseAt = clock
+}
+
+// ---------------------------------------------------------------------------
+// DEBUG camera calibration panel. While the fruit game is active, nudges the
+// module-level camera constants above and re-applies them straight to cinCam's
+// Transform so the effect is visible immediately — no restart needed. Once
+// the numbers feel right, call debugCamPrint() (logs to console) and hardcode
+// them back into the `let`s above.
+// ---------------------------------------------------------------------------
+export type DebugCamKey = 'closer' | 'raise' | 'lookHeight' | 'lookLeft' | 'closeDist'
+let debugPreviewClose = false
+
+function debugFindMarkers(): { cinePoint: Entity; spawnPoint: Entity } | null {
+  const cinePoint = engine.getEntityOrNullByName(EntityNames.cinematic_point)
+  const spawnPoint = engine.getEntityOrNullByName(EntityNames.cinematic_play_spawnpoint)
+  if (!cinePoint || !spawnPoint || !Transform.has(cinePoint) || !Transform.has(spawnPoint)) return null
+  return { cinePoint, spawnPoint }
+}
+
+function debugApplyPreview(): void {
+  if (!cinCam || !Transform.has(cinCam)) return
+  const markers = debugFindMarkers()
+  if (!markers) return
+  const rawCamPos = Transform.get(markers.cinePoint).position
+  const spawnPos = Transform.get(markers.spawnPoint).position
+  const onMobileNow = mobile()
+  const geo = computeCinematicGeometry(rawCamPos, spawnPos, spawnPos.y, onMobileNow)
+  Tween.deleteFrom(cinCam) // a stale Tween would otherwise fight the snap below
+  if (onMobileNow && debugPreviewClose) {
+    Transform.createOrReplace(cinCam, { position: geo.closeCamPos, rotation: geo.closeRot })
+  } else {
+    Transform.createOrReplace(cinCam, { position: geo.camPos, rotation: geo.wideRot })
+  }
+}
+
+/** 'closeDist' (the zoom-in shot) is a mobile-only concept — desktop has no
+ *  zoom, so the debug panel hides it there. Every other key applies to both
+ *  platforms, just backed by a different pair of constants (see debugCamValue). */
+export function debugCamAvailableKeys(): DebugCamKey[] {
+  return mobile() ? ['closer', 'raise', 'lookHeight', 'lookLeft', 'closeDist'] : ['closer', 'raise', 'lookHeight', 'lookLeft']
+}
+
+export function debugCamLabel(key: DebugCamKey): string {
+  switch (key) {
+    case 'closer': return 'Closer'
+    case 'raise': return 'Raise'
+    case 'lookHeight': return 'Look height'
+    case 'lookLeft': return 'Look left'
+    case 'closeDist': return 'Close dist'
+  }
+}
+
+export function debugCamValue(key: DebugCamKey): number {
+  const m = mobile()
+  switch (key) {
+    case 'closer': return m ? CAM_CLOSER_DIST : DESKTOP_CAM_CLOSER_DIST
+    case 'raise': return m ? CAM_RAISE : DESKTOP_CAM_RAISE
+    case 'lookHeight': return m ? ARRIVAL_LOOK_HEIGHT : DESKTOP_LOOK_HEIGHT_BOOST
+    case 'lookLeft': return m ? ARRIVAL_LOOK_LEFT : DESKTOP_LOOK_LEFT
+    case 'closeDist': return CLOSE_CAM_DIST
+  }
+}
+
+export function debugCamAdjust(key: DebugCamKey, delta: number): void {
+  const m = mobile()
+  switch (key) {
+    case 'closer': if (m) CAM_CLOSER_DIST += delta; else DESKTOP_CAM_CLOSER_DIST += delta; break
+    case 'raise': if (m) CAM_RAISE += delta; else DESKTOP_CAM_RAISE += delta; break
+    case 'lookHeight': if (m) ARRIVAL_LOOK_HEIGHT += delta; else DESKTOP_LOOK_HEIGHT_BOOST += delta; break
+    case 'lookLeft': if (m) ARRIVAL_LOOK_LEFT += delta; else DESKTOP_LOOK_LEFT += delta; break
+    case 'closeDist': CLOSE_CAM_DIST += delta; break
+  }
+  debugApplyPreview()
+}
+
+export function debugCamToggleClosePreview(): void {
+  debugPreviewClose = !debugPreviewClose
+  debugApplyPreview()
+}
+
+export function debugCamIsClosePreview(): boolean {
+  return debugPreviewClose
+}
+
+export function debugCamPrint(): void {
+  const m = mobile()
+  const lines = m
+    ? [
+        `CAM_CLOSER_DIST = ${CAM_CLOSER_DIST.toFixed(2)}`,
+        `CAM_RAISE = ${CAM_RAISE.toFixed(2)}`,
+        `ARRIVAL_LOOK_HEIGHT = ${ARRIVAL_LOOK_HEIGHT.toFixed(2)}`,
+        `ARRIVAL_LOOK_LEFT = ${ARRIVAL_LOOK_LEFT.toFixed(2)}`,
+        `CLOSE_CAM_DIST = ${CLOSE_CAM_DIST.toFixed(2)}`
+      ]
+    : [
+        `DESKTOP_CAM_CLOSER_DIST = ${DESKTOP_CAM_CLOSER_DIST.toFixed(2)}`,
+        `DESKTOP_CAM_RAISE = ${DESKTOP_CAM_RAISE.toFixed(2)}`,
+        `DESKTOP_LOOK_HEIGHT_BOOST = ${DESKTOP_LOOK_HEIGHT_BOOST.toFixed(2)}`,
+        `DESKTOP_LOOK_LEFT = ${DESKTOP_LOOK_LEFT.toFixed(2)}`
+      ]
+  console.log(`[Client] fruit game camera calibration (${m ? 'mobile' : 'desktop'}):\n` + lines.join('\n'))
+  pushToast('Cam values printed to console')
 }
