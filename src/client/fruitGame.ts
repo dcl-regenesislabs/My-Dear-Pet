@@ -42,7 +42,7 @@ const FRUIT_MODELS = [
 ]
 const NUM_FRUIT_SLOTS = 5
 
-const FRUIT_PICK_SOUND = 'assets/sounds/fruit_pick.mp3'
+const FRUIT_PICK_SOUND = 'assets/sounds/fruit_pick2.wav'
 
 // Invisible walls placed in the composite (assets/asset-packs/invisible_wall)
 // penning the player into the catch lane: lane_1/lane_2 are the long front/back
@@ -141,8 +141,10 @@ export const COUNTDOWN_S = 3 // exported so ui.tsx's countdown number matches th
 // follow-cam — that camera's own rig differs between desktop and mobile, so
 // panning in from it made the cinematic start from a different angle per
 // platform, which is the opposite of what we want):
-//  1. cinCam cuts straight to the wide game-camera position (looking at the
-//     now-arrived avatar) — an invisible cut, since nothing has moved yet.
+//  1. cinCam activates at the wide game-camera position (looking at the
+//     now-arrived avatar) — its own defaultTransition blends the cut in from
+//     wherever the player's live follow-cam was, instead of hard-popping
+//     there the instant the trigger fires.
 //  2. Immediately Tweens IN to a close "personal" shot near the avatar, for
 //     the hands-up reveal + "move left/right" hint.
 //  3. Once that hint goes away (Start tapped + the 3-2-1), a second Tween
@@ -150,6 +152,12 @@ export const COUNTDOWN_S = 3 // exported so ui.tsx's countdown number matches th
 //     re-aims it at the canopy — this is the shot gameplay actually uses.
 const ARRIVAL_HOLD_S = 1.4
 const GAME_CAM_PAN_MS = 800
+// Blends the very first cut (live follow-cam -> cinCam) via VirtualCamera's
+// own defaultTransition, instead of a hard instant snap — this is a real
+// engine-side blend (unlike Tweening an already-active camera, which doesn't
+// animate), since it only fires on activation/switch. Units per CameraTransition's
+// own "time" field (seconds).
+const ARRIVAL_CAM_TRANSITION_S = 0.8
 
 // Geometry: invisible marker entities placed in the Creator Hub composite
 // (next to the tree) drive all of this — no geometry is derived from the
@@ -760,7 +768,9 @@ export function startFruitGame(mascotaId: string): void {
   // the player (no height/left offset).
   if (!cinCam) cinCam = engine.addEntity()
   Transform.createOrReplace(cinCam, { position: camPos, rotation: wideRot })
-  VirtualCamera.createOrReplace(cinCam, {})
+  VirtualCamera.createOrReplace(cinCam, {
+    defaultTransition: { transitionMode: VirtualCamera.Transition.Time(ARRIVAL_CAM_TRANSITION_S) }
+  })
   MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: cinCam })
 
   if (onMobile) {
