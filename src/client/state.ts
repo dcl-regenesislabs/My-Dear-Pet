@@ -4,7 +4,7 @@
 import { getPlayer } from '@dcl/sdk/players'
 import { room } from '../shared/messages'
 import type { CareAction, PetData, PlayerData, PlayerSnapshot, PresenceEntry, SwapOfferPayload } from '../shared/types'
-import { levelForXp, SERVER_TIMEOUT_MS, SIZE_BASE, SIZE_MAX, SLOT_PRICE, speciesLabel, xpForLevel, type SpinReward } from '../shared/config'
+import { levelForXp, NEW_PET_STATS, SERVER_TIMEOUT_MS, SIZE_BASE, SIZE_MAX, SLOT_PRICE, speciesLabel, xpForLevel, type SpinReward } from '../shared/config'
 
 export type DialogState = {
   open: boolean
@@ -168,10 +168,10 @@ function makeLocalPet(species: string, name: string): PetData {
     species,
     name: name || speciesLabel(species),
     rarity: 'common',
-    hunger: 80,
-    hygiene: 80,
-    energy: 80,
-    happiness: 80,
+    hunger: NEW_PET_STATS.hunger,
+    hygiene: NEW_PET_STATS.hygiene,
+    energy: NEW_PET_STATS.energy,
+    happiness: NEW_PET_STATS.happiness,
     petXp: 0,
     petLevel: 1,
     size: SIZE_BASE,

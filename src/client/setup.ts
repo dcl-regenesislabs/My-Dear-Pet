@@ -28,6 +28,7 @@ import { setupPlantSway } from './plantSway'
 import { setupCaretaker } from './caretaker'
 import { setupTree } from './tree'
 import { setupFeedTask } from './feed'
+import { setupPetSpeech } from './speech'
 
 let introTriggered = false
 let firstSnapshotSeen = false // decide the "Choose Location!" modal on the FIRST snapshot only
@@ -158,6 +159,7 @@ export function setupClient(): void {
   setupPlay() // Play action: throw an animated meteorite forward
   setupTree() // spawn the fruit tree (in code, not the composite)
   setupFeedTask() // Feed action: guide arrow to the tree, click it to start the feeding game
+  setupPetSpeech() // speech bubble over the pet — asks for what its stats need
 
   if (DEV_SKIP_SERVER_GATE) {
     // Bypass the loading gate entirely — no InputModifier freeze, no wait.
