@@ -1720,61 +1720,6 @@
       }
     },
     {
-      "name": "core-schema::Network-Entity",
-      "jsonSchema": {
-        "type": "object",
-        "properties": {
-          "networkId": {
-            "type": "integer",
-            "serializationType": "int64"
-          },
-          "entityId": {
-            "type": "integer",
-            "serializationType": "entity"
-          }
-        },
-        "serializationType": "map"
-      },
-      "data": {
-        "585": {
-          "json": {
-            "networkId": 0,
-            "entityId": 8002
-          }
-        },
-        "586": {
-          "json": {
-            "networkId": 0,
-            "entityId": 8003
-          }
-        },
-        "587": {
-          "json": {
-            "networkId": 0,
-            "entityId": 8004
-          }
-        },
-        "588": {
-          "json": {
-            "networkId": 0,
-            "entityId": 8005
-          }
-        },
-        "589": {
-          "json": {
-            "networkId": 0,
-            "entityId": 8006
-          }
-        },
-        "590": {
-          "json": {
-            "networkId": 0,
-            "entityId": 8007
-          }
-        }
-      }
-    },
-    {
       "name": "core::Animator",
       "jsonSchema": {
         "type": "object",
@@ -2945,67 +2890,6 @@
         "66117": {
           "json": {
             "value": "Sprout.glb"
-          }
-        }
-      }
-    },
-    {
-      "name": "core-schema::Sync-Components",
-      "jsonSchema": {
-        "type": "object",
-        "properties": {
-          "componentIds": {
-            "type": "array",
-            "items": {
-              "type": "integer",
-              "serializationType": "int64"
-            },
-            "serializationType": "array"
-          }
-        },
-        "serializationType": "map"
-      },
-      "data": {
-        "585": {
-          "json": {
-            "componentIds": [
-              1041
-            ]
-          }
-        },
-        "586": {
-          "json": {
-            "componentIds": [
-              1041
-            ]
-          }
-        },
-        "587": {
-          "json": {
-            "componentIds": [
-              1041
-            ]
-          }
-        },
-        "588": {
-          "json": {
-            "componentIds": [
-              1041
-            ]
-          }
-        },
-        "589": {
-          "json": {
-            "componentIds": [
-              1041
-            ]
-          }
-        },
-        "590": {
-          "json": {
-            "componentIds": [
-              1041
-            ]
           }
         }
       }

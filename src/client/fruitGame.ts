@@ -49,6 +49,12 @@ const FRUIT_PICK_SOUND = 'assets/sounds/fruit_pick2.wav'
 // walls (block wandering toward/away from the camera), lane_3/lane_4 are the
 // short end-caps (block wandering past the left/right extremes). They ship
 // with collision off in the composite — toggled on only while catching.
+// IMPORTANT: these (and cinematic_point/cinematic_play_spawnpoint) must stay
+// NOT networked (no Network-Entity/Sync-Components in the composite). This is
+// a per-player mechanic — if GltfContainer were synced, one player's collider
+// toggle here would broadcast to every connected client via CRDT, blocking
+// movement for players who aren't even in the minigame. If Creator Hub
+// re-enables sync on these next time the scene is opened/saved, strip it again.
 const LANE_ENTITY_NAMES = [EntityNames.lane_1, EntityNames.lane_2, EntityNames.lane_3, EntityNames.lane_4]
 
 // As placed in the composite, lane_1/lane_2 sit only ~0.78m apart (measured
