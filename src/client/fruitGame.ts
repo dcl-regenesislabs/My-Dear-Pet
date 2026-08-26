@@ -243,13 +243,21 @@ function distFlat(a: Vector3, b: Vector3): number {
 }
 
 function playHoldEmote(): void {
-  void triggerSceneEmote({ src: HOLD_EMOTE, loop: true, mask: AvatarMask.AM_UPPER_BODY }).catch(() => {})
+  console.log('[Client] fruit game: playHoldEmote() firing triggerSceneEmote')
+  void triggerSceneEmote({ src: HOLD_EMOTE, loop: true, mask: AvatarMask.AM_UPPER_BODY })
+    .then(() => console.log('[Client] fruit game: triggerSceneEmote resolved OK'))
+    .catch((err) => console.log('[Client] fruit game: triggerSceneEmote FAILED', err))
 }
 
 /** Guarded: not every client implements stopEmote (see pet.ts's stopHoldEmote). */
 function stopHoldEmote(): void {
   if (typeof RestrictedActions.stopEmote === 'function') {
-    void RestrictedActions.stopEmote({}).catch(() => {})
+    console.log('[Client] fruit game: stopHoldEmote() firing stopEmote')
+    void RestrictedActions.stopEmote({})
+      .then(() => console.log('[Client] fruit game: stopEmote resolved OK'))
+      .catch((err) => console.log('[Client] fruit game: stopEmote FAILED', err))
+  } else {
+    console.log('[Client] fruit game: stopHoldEmote() — this client has no stopEmote function at all')
   }
 }
 
@@ -439,6 +447,7 @@ function introTick(): void {
   if (!drawerRevealed && elapsed >= INTRO_EMOTE_AT_S + DRAWER_REVEAL_DELAY_S) {
     // Delayed past the emote trigger so the crate pops in once the arms have
     // actually reached the holding pose, not mid-swing.
+    console.log(`[Client] fruit game: revealing drawer — drawerEntity=${drawerEntity}, has Transform=${drawerEntity ? Transform.has(drawerEntity) : 'n/a'}, has AvatarAttach on anchor=${drawerAnchor ? AvatarAttach.has(drawerAnchor) : 'n/a'}`)
     if (drawerEntity) VisibilityComponent.getMutable(drawerEntity).visible = true
     drawerRevealed = true
   }
@@ -449,6 +458,19 @@ function introTick(): void {
 /** Start button tapped: run the 3-2-1, then hand off to beginCatching(). */
 export function startCatchingCountdown(): void {
   if (phase !== 'intro') return
+  // The Start button is enabled the instant 'intro' begins, but the emote and
+  // drawer reveal are timed (INTRO_EMOTE_AT_S / +DRAWER_REVEAL_DELAY_S) — a
+  // fast tap can beat introTick() to one or both, permanently skipping them
+  // for the round since introTick stops running once we leave 'intro'. Force
+  // whichever hasn't fired yet, right now, so Start never skips the reveal.
+  if (!introEmotePlayed) {
+    playHoldEmote()
+    introEmotePlayed = true
+  }
+  if (!drawerRevealed) {
+    if (drawerEntity) VisibilityComponent.getMutable(drawerEntity).visible = true
+    drawerRevealed = true
+  }
   phase = 'countdown'
   phaseAt = clock
   clientState.feedGame.phase = 'countdown'
@@ -610,7 +632,7 @@ export function setupFruitGame(): void {
 
   sfxEntity = engine.addEntity()
   Transform.create(sfxEntity, {})
-  AudioSource.create(sfxEntity, { audioClipUrl: FRUIT_PICK_SOUND, playing: false, global: true })
+  AudioSource.create(sfxEntity, { audioClipUrl: FRUIT_PICK_SOUND, playing: false, global: true, volume: 0.4 })
 
   engine.addSystem(tick)
 }
@@ -798,6 +820,7 @@ export function startFruitGame(mascotaId: string): void {
   drawerRevealed = false
   phase = 'arrival'
   phaseAt = clock
+  console.log(`[Client] fruit game: startFruitGame() full reset done — introEmotePlayed=${introEmotePlayed}, drawerRevealed=${drawerRevealed}, drawerEntity=${drawerEntity}`)
 }
 
 // ---------------------------------------------------------------------------
