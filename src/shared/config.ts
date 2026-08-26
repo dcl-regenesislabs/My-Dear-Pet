@@ -22,6 +22,50 @@ export const SERVER_TIMEOUT_MS = 10000
 export const DEV_SKIP_SERVER_GATE = false
 
 // ---------------------------------------------------------------------------
+// Pet speech — what the pet says over its head to nudge the player into a care
+// action. The bubble is NOT on a timer: `need` names the stat that drives the
+// line, and the pet only speaks when that stat has actually dropped (see
+// client/speech.ts). `id` is the dedupe key that stops the same nag repeating
+// back-to-back.
+// ---------------------------------------------------------------------------
+export interface PetSpeechLine {
+  id: string
+  need: StatKey | 'love'
+  text: string
+}
+
+export const PET_SPEECH_LINES: PetSpeechLine[] = [
+  { id: 'hungry', need: 'hunger', text: "I'm hungry, please feed me!" },
+  { id: 'dirty', need: 'hygiene', text: 'I feel dirty... bath time?' },
+  { id: 'sleepy', need: 'energy', text: "I'm sleepy, take me to bed!" },
+  { id: 'bored', need: 'happiness', text: "I'm bored! Let's play together!" },
+  { id: 'love', need: 'love', text: 'Pet me, I missed you!' }
+]
+
+/**
+ * A stat at or below this asks for its care action. Sits well above
+ * NEGLECT_THRESHOLD (15) on purpose: the pet should ask BEFORE it is suffering,
+ * and above NEW_PET_STATS.hunger (see below) so a fresh hatchling asks to be fed
+ * the moment it is placed.
+ */
+export const PET_SPEECH_NEED_THRESHOLD = 45
+/** Seconds a message stays on screen. */
+export const PET_SPEECH_HOLD_SECONDS = 5
+/** Seconds of silence before the pet may speak again. */
+export const PET_SPEECH_GAP_SECONDS = 3
+/**
+ * Seconds before the SAME line may be repeated. A stat crawls down slowly
+ * (DECAY_PER_SEC), so without this the pet would re-ask every few seconds for as
+ * long as it stayed hungry. A DIFFERENT need still speaks after the gap above.
+ */
+export const PET_SPEECH_REPEAT_SECONDS = 45
+/**
+ * Nothing needed: the pet is content, so it only asks for attention ("love")
+ * this often. Set to 0 to keep a content pet silent.
+ */
+export const PET_SPEECH_IDLE_SECONDS = 120
+
+// ---------------------------------------------------------------------------
 // Colony — the shared Mars population everyone is building toward. Teaser for
 // now: the server counts pets across the players it knows about and broadcasts
 // the total, so every client shows the same number. Real persistent aggregation
@@ -30,34 +74,112 @@ export const DEV_SKIP_SERVER_GATE = false
 export const COLONY_GOAL = 100 // target population for the current milestone
 
 // ---------------------------------------------------------------------------
-// Pet roster — the 11 species already modeled under assets/scene/Models/.
+// Pet roster — species a player can ADOPT. Derived / breeding-only species
+// (see SPROUT_DERIVATIVES) are deliberately NOT in this list: the server
+// validates adoption against it (server/state.ts), so they can only ever be
+// produced by breeding.
 // ---------------------------------------------------------------------------
 export const SPECIES: string[] = [
+  'sprout-original',
   'alienPet-v1',
   'alienPet-2',
   'PetPanda',
   'PetTiger'
 ]
 
+/** The Sprout family: the adoptable base + the variants breeding will roll.
+ *  All four share one rig and one clip set (SPROUT_CLIPS below). */
+export const SPROUT_BASE = 'sprout-original'
+export const SPROUT_DERIVATIVES: string[] = ['sprout-amebita', 'sprout-fluflito', 'sprout-pepito']
+export const SPROUT_SPECIES: string[] = [SPROUT_BASE, ...SPROUT_DERIVATIVES]
+
 // Per-species model overrides (outside the assets/scene/Models convention).
 const MODEL_OVERRIDES: Record<string, string> = {
   'alienPet-v1': 'models/AlienPet_dcl.glb', // alien model (idle + walk)
-  'alienPet-2': 'models/alien_pet_2.glb' // second alien model (idle + walk)
+  'alienPet-2': 'models/alien_pet_2.glb', // second alien model (idle + walk)
+  'sprout-original': 'models/sprouts/sprout_original.glb', // adoptable Sprout
+  'sprout-amebita': 'models/sprouts/sprout_amebita.glb', // breeding variant
+  'sprout-fluflito': 'models/sprouts/sprout_fluflito.glb', // breeding variant
+  'sprout-pepito': 'models/sprouts/sprout_pepito.glb' // breeding variant
 }
 
 export function modelForSpecies(species: string): string {
   return MODEL_OVERRIDES[species] ?? `assets/scene/Models/${species}/${species}.glb`
 }
 
-/** Display name for a species — strips a LEADING "Pet" (PetPanda -> Panda) but
- *  leaves custom ids intact (alienPet-v1 stays alienPet-v1). */
+// Display-name overrides for ids that don't read well raw (the species id is
+// what's persisted in save data, so it stays stable while the label can change).
+const SPECIES_LABEL: Record<string, string> = {
+  'sprout-original': 'Sprout',
+  'sprout-amebita': 'Amebita',
+  'sprout-fluflito': 'Fluflito',
+  'sprout-pepito': 'Pepito'
+}
+
+/** Display name for a species — an explicit override wins, else a LEADING "Pet"
+ *  is stripped (PetPanda -> Panda), else the id is left intact. */
 export function speciesLabel(species: string): string {
-  return species.startsWith('Pet') ? species.slice(3) : species
+  return SPECIES_LABEL[species] ?? (species.startsWith('Pet') ? species.slice(3) : species)
+}
+
+// ---------------------------------------------------------------------------
+// Animation clips. The pet code (client/pet.ts) asks for LOGICAL clips — idle,
+// walk, run… — and each species maps them onto whatever its GLB actually calls
+// them. Species with no entry here are assumed to use the logical names as-is
+// (that's the alien models), with `sleep` falling back to idle.
+// ---------------------------------------------------------------------------
+export type PetClip = 'idle' | 'walk' | 'run' | 'eat' | 'dance' | 'gesture-positive' | 'gesture-negative' | 'sleep'
+
+/** Every logical clip, in the order the Animator states are declared. */
+export const PET_CLIPS: PetClip[] = ['idle', 'walk', 'run', 'eat', 'dance', 'gesture-positive', 'gesture-negative', 'sleep']
+
+// The Sprout rig ships: Sprout_Idle, Sprout_Walk, Sprout_Eat, Sprout_Happy,
+// Sprout_SitIdle, Sprout_Sad, Sprout_Sleep. No dedicated run clip -> reuse walk.
+const SPROUT_CLIPS: Record<PetClip, string> = {
+  idle: 'Sprout_Idle',
+  walk: 'Sprout_Walk',
+  run: 'Sprout_Walk',
+  eat: 'Sprout_Eat',
+  dance: 'Sprout_Happy',
+  'gesture-positive': 'Sprout_Happy',
+  'gesture-negative': 'Sprout_Sad',
+  sleep: 'Sprout_Sleep'
+}
+
+const SPECIES_CLIPS: Record<string, Partial<Record<PetClip, string>>> = {
+  'sprout-original': SPROUT_CLIPS,
+  'sprout-amebita': SPROUT_CLIPS,
+  'sprout-fluflito': SPROUT_CLIPS,
+  'sprout-pepito': SPROUT_CLIPS
+}
+
+/** The GLB clip name a species uses for a logical clip. Unmapped clips fall back
+ *  to that species' idle, so a missing animation never freezes the pet. */
+export function clipForSpecies(species: string, clip: PetClip): string {
+  const map = SPECIES_CLIPS[species]
+  if (map) return map[clip] ?? map.idle ?? 'idle'
+  return clip === 'sleep' ? 'idle' : clip // default convention: logical name IS the clip name
+}
+
+/** Distinct GLB clip names for a species — what its Animator states are built from. */
+export function clipsForSpecies(species: string): string[] {
+  const out: string[] = []
+  for (const c of PET_CLIPS) {
+    const name = clipForSpecies(species, c)
+    if (out.indexOf(name) === -1) out.push(name)
+  }
+  return out
 }
 
 // Per-species scale multiplier (× the pet's grown size). Default 1.
 const SPECIES_SCALE: Record<string, number> = {
-  'alienPet-2': 3 // new alien model is authored small — scale it up
+  'alienPet-2': 3, // new alien model is authored small — scale it up
+  // Sprouts are authored ~1 m tall (the alien is ~1.9 m): scale up so an ADULT
+  // Sprout reads at a comparable size next to the other pets.
+  'sprout-original': 1.6,
+  'sprout-amebita': 1.6,
+  'sprout-fluflito': 1.6,
+  'sprout-pepito': 1.6
 }
 
 export function scaleForSpecies(species: string): number {
@@ -78,7 +200,10 @@ export function yawOffsetForSpecies(species: string): number {
 // art lands; species without one fall back to a colored disc.
 const SPECIES_IMAGE: Record<string, string> = {
   'alienPet-v1': 'assets/images/pets/alien1.png',
-  'alienPet-2': 'assets/images/pets/alien2.png'
+  'alienPet-2': 'assets/images/pets/alien2.png',
+  'sprout-original': 'assets/images/pets/sprout.png'
+  // The three breeding variants have no render yet — they fall back to the
+  // colored disc until art lands at assets/images/pets/.
 }
 
 export function speciesImage(species: string): string | undefined {
@@ -95,6 +220,24 @@ export function speciesImage(species: string): string | undefined {
 // ---------------------------------------------------------------------------
 
 export const HOME_RADIUS = 6 // metres from the Dome01 house entity within which the Hatch button shows
+
+// ---------------------------------------------------------------------------
+// Birth stats — what a brand-new pet (adopted, hatched, or bred) starts with.
+// Everything is comfortable EXCEPT hunger, deliberately: a newborn is hungry, so
+// the speech bubble greets the player with "I'm hungry, please feed me!" the
+// moment they accept it. That makes Feed the obvious first care action instead
+// of the player being handed a pet that needs nothing and standing there.
+//
+// Keep hunger BELOW PET_SPEECH_NEED_THRESHOLD (45) or the newborn stays silent,
+// and ABOVE NEGLECT_THRESHOLD (15) so it isn't born already counting as
+// neglected and bleeding happiness.
+// ---------------------------------------------------------------------------
+export const NEW_PET_STATS: Record<StatKey, number> = {
+  hunger: 30,
+  hygiene: 85,
+  energy: 85,
+  happiness: 85
+}
 
 // ---------------------------------------------------------------------------
 // Stat decay — points lost per real second. Hunger fastest, happiness slowest.

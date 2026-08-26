@@ -1,8 +1,11 @@
 // Client-side pet rendering, follow / wander navigation, and animation.
-// Pets share a clip set: idle, walk, run, eat, dance, gesture-positive,
-// gesture-negative. We pick idle when still, walk/run when moving, and a
-// specific clip during care interactions. The pet is owned + animated locally
-// for smooth feel; authoritative stats come from the server snapshot.
+// Pets are animated through LOGICAL clips: idle, walk, run, eat, dance,
+// gesture-positive, gesture-negative, sleep. Each species maps those onto its
+// own GLB clip names (config.clipForSpecies) — the aliens use the logical names
+// verbatim, the Sprout family uses Sprout_Idle / Sprout_Walk / ... We pick idle
+// when still, walk/run when moving, and a specific clip during care
+// interactions. The pet is owned + animated locally for smooth feel;
+// authoritative stats come from the server snapshot.
 
 import {
   engine,
@@ -32,7 +35,17 @@ import {
 } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion } from '@dcl/sdk/math'
 import * as C from '../shared/config'
-import { modelForSpecies, petStage, scaleForSpecies, speciesLabel, stageScaleFor, yawOffsetForSpecies } from '../shared/config'
+import {
+  clipForSpecies,
+  clipsForSpecies,
+  modelForSpecies,
+  petStage,
+  scaleForSpecies,
+  speciesLabel,
+  stageScaleFor,
+  yawOffsetForSpecies,
+  type PetClip
+} from '../shared/config'
 import type { PetData } from '../shared/types'
 import { triggerSceneEmote } from '~system/RestrictedActions'
 import * as RestrictedActions from '~system/RestrictedActions'
@@ -44,16 +57,15 @@ import { mobile } from './ui/theme'
 
 type Mode = 'follow' | 'goto' | 'interact' | 'wander' | 'bathhop'
 
-const ANIM_CLIPS = ['idle', 'walk', 'run', 'eat', 'dance', 'gesture-positive', 'gesture-negative']
-
 let localPet: Entity | null = null
 let localSpecies = ''
 let mode: Mode = 'follow'
 let target = Vector3.create(199.2, 0, 231.8)
 let onArrive: (() => void) | null = null
 let interactTimer = 0
-let interactClip = 'idle'
-const curClip = new Map<Entity, string>()
+let interactClip: PetClip = 'idle'
+const curClip = new Map<Entity, string>() // entity -> the GLB clip name currently playing
+const entitySpecies = new Map<Entity, string>() // entity -> species, so setClip can resolve its clip names
 
 // Bath exit hop — placePetAtStation teleports the pet straight into the tub, which
 // sits above/inside walled geometry. Walking straight out afterward (normal 'follow'
@@ -144,7 +156,10 @@ function moodCol(v: number): number {
   return 2
 }
 
-type HealthTag = { root: Entity; label: Entity; icons: Entity[]; name: string; iconCol: number[] }
+/** A pet's floating indicators: the name label plus (for owned pets) the row of
+ *  4 mood icons. `hidden` is the tag's CURRENT on-screen state — updateTag skips
+ *  rewriting text/icons while it's true, so a hidden tag stays hidden. */
+type HealthTag = { root: Entity; label: Entity; icons: Entity[]; name: string; iconCol: number[]; hidden: boolean }
 
 // The player's NON-active stored pets roam the care area on their own.
 type Roamer = { entity: Entity; species: string; tag: HealthTag; home: Vector3; target: Vector3 | null; pause: number }
@@ -222,12 +237,16 @@ function makeTag(showStats: boolean): HealthTag {
     }
   }
 
-  return { root, label, icons, name: '', iconCol }
+  return { root, label, icons, name: '', iconCol, hidden: false }
 }
 
 /** Reposition the tag over the pet, refresh its name, and (if owned) its mood icons. */
 function updateTag(tag: HealthTag, pos: Vector3, size: number, name: string, stats: PetData | null): void {
   Transform.getMutable(tag.root).position = Vector3.create(pos.x, pos.y + TAG_MIN + TAG_SIZE_MULT * size, pos.z)
+  // Keep following the pet while hidden (so it reappears in the right place),
+  // but don't rewrite the label — setTagVisible cleared it on purpose and this
+  // runs every frame, which would put the name straight back on screen.
+  if (tag.hidden) return
   if (name !== tag.name) {
     TextShape.getMutable(tag.label).text = name
     tag.name = name
@@ -245,6 +264,55 @@ function updateTag(tag: HealthTag, pos: Vector3, size: number, name: string, sta
   }
 }
 
+/**
+ * Show/hide a tag as a whole. This is the ONLY place tag visibility is written,
+ * because hiding one takes two steps: the icons' plane meshes respect the
+ * propagated VisibilityComponent, but TextShape does NOT — the name has to be
+ * cleared directly, and `name` reset so updateTag's diff-check re-writes it when
+ * the tag comes back.
+ */
+function setTagVisible(tag: HealthTag, visible: boolean): void {
+  if (tag.hidden === !visible) return
+  tag.hidden = !visible
+  VisibilityComponent.createOrReplace(tag.root, { visible, propagateToChildren: true })
+  if (!visible) {
+    TextShape.getMutable(tag.label).text = ''
+    tag.name = ''
+  }
+}
+
+// The local pet's tag has two independent reasons to be hidden: the pet flow
+// itself (carried in hand, waiting inside an unhatched egg) and the speech
+// bubble taking over that space. Track what the flow WANTS and AND it with the
+// bubble's suppression, so whichever un-hides first can't override the other.
+let localTagWanted = true
+let tagsSuppressed = false
+
+function setLocalTagVisible(visible: boolean): void {
+  localTagWanted = visible
+  if (localTag) setTagVisible(localTag, visible && !tagsSuppressed)
+}
+
+/**
+ * True while the pet is standing in the world as itself — false when it's being
+ * carried in the player's hands or hidden inside an egg mid-hatch. The speech
+ * bubble reads this so it never floats over a pet the player can't see or act
+ * on; it's the same signal that drives the pet's own name tag.
+ */
+export function petIsPresent(): boolean {
+  return localPet !== null && localTagWanted
+}
+
+/**
+ * Hide the owned pet's indicators (name + mood icons) while the speech bubble is
+ * on screen, and put them back when it goes away. Called from client/speech.ts.
+ */
+export function suppressPetTags(on: boolean): void {
+  if (on === tagsSuppressed) return
+  tagsSuppressed = on
+  if (localTag) setTagVisible(localTag, localTagWanted && !on)
+}
+
 /** Remove a tag and all its child entities. */
 function removeTag(tag: HealthTag): void {
   for (const icon of tag.icons) engine.removeEntity(icon)
@@ -255,19 +323,31 @@ function removeTag(tag: HealthTag): void {
 // ---------------------------------------------------------------------------
 // Animation helpers
 // ---------------------------------------------------------------------------
-function ensureAnimator(e: Entity): void {
-  if (Animator.has(e)) return
-  Animator.create(e, {
-    states: ANIM_CLIPS.map((clip) => ({ clip, playing: clip === 'idle', loop: true, speed: 1, weight: 1 }))
+/** Build (or rebuild) an entity's Animator from ITS species' clip names. Called
+ *  again whenever the model swaps — a pet that changes species keeps the entity
+ *  but needs the new GLB's clip names, or every setClip would be a silent no-op. */
+function ensureAnimator(e: Entity, species: string): void {
+  if (Animator.has(e) && entitySpecies.get(e) === species) return
+  entitySpecies.set(e, species)
+  const idle = clipForSpecies(species, 'idle')
+  Animator.createOrReplace(e, {
+    states: clipsForSpecies(species).map((clip) => ({ clip, playing: clip === idle, loop: true, speed: 1, weight: 1 }))
   })
-  curClip.set(e, 'idle')
+  curClip.set(e, idle)
 }
 
-function setClip(e: Entity, clip: string): void {
-  if (curClip.get(e) === clip) return
-  curClip.set(e, clip)
+function forgetAnimator(e: Entity): void {
+  curClip.delete(e)
+  entitySpecies.delete(e)
+}
+
+/** Play a logical clip, resolved to whatever this entity's species calls it. */
+function setClip(e: Entity, clip: PetClip): void {
+  const name = clipForSpecies(entitySpecies.get(e) ?? '', clip)
+  if (curClip.get(e) === name) return
+  curClip.set(e, name)
   const a = Animator.getMutable(e)
-  for (const s of a.states) s.playing = s.clip === clip
+  for (const s of a.states) s.playing = s.clip === name
 }
 
 // ---------------------------------------------------------------------------
@@ -323,7 +403,7 @@ function ensureLocalPet(): void {
   if (!pet) {
     if (localPet) {
       engine.removeEntity(localPet)
-      curClip.delete(localPet)
+      forgetAnimator(localPet)
       localPet = null
       localSpecies = ''
     }
@@ -351,11 +431,14 @@ function ensureLocalPet(): void {
       }
     )
     localTag = makeTag(true) // owner's own pet — show mood icons
+    // A pet can be (re)built mid-sentence — start the fresh tag in whatever state
+    // the flow and the speech bubble currently agree on, not blindly visible.
+    setTagVisible(localTag, localTagWanted && !tagsSuppressed)
   }
   if (localSpecies !== pet.species) {
     localSpecies = pet.species
     GltfContainer.createOrReplace(localPet, { src: modelForSpecies(pet.species), visibleMeshesCollisionMask: ColliderLayer.CL_POINTER })
-    ensureAnimator(localPet)
+    ensureAnimator(localPet, pet.species)
   }
   // Keep visual scale synced to growth.
   const t = Transform.getMutable(localPet)
@@ -364,7 +447,7 @@ function ensureLocalPet(): void {
 }
 
 /** Send the pet to a world position; play `clip` on arrival, then run cb. */
-export function sendPetTo(dest: Vector3, cb: () => void, clip = 'eat'): void {
+export function sendPetTo(dest: Vector3, cb: () => void, clip: PetClip = 'eat'): void {
   if (!localPet) return
   target = flat(dest)
   onArrive = cb
@@ -579,20 +662,13 @@ function attachPetToHands(species: string): void {
   t.rotation = Quaternion.fromEulerDegrees(0, yawOffsetForSpecies(species) + PET_HOLD_YAW, 0)
   // Scale is re-applied every frame in the carryPet branch below — ensureLocalPet()
   // runs first each tick and would otherwise snap it back to the grown size.
-  if (localTag) {
-    VisibilityComponent.createOrReplace(localTag.root, { visible: false, propagateToChildren: true })
-    // The icons' plane meshes respect the propagated visibility, but TextShape
-    // doesn't — clear the text directly, and reset the cache so updateTag's
-    // diff-check (name !== tag.name) is forced to re-write it once the tag reappears.
-    TextShape.getMutable(localTag.label).text = ''
-    localTag.name = ''
-  }
+  setLocalTagVisible(false)
 }
 
 /** Detach the pet back into world space (place at the tub, or cancel the carry); restore its tag. */
 function detachPetFromHands(): void {
   if (localPet) Transform.getMutable(localPet).parent = engine.RootEntity
-  if (localTag) VisibilityComponent.createOrReplace(localTag.root, { visible: true, propagateToChildren: true })
+  setLocalTagVisible(true)
   if (carriedPetAnchor) AvatarAttach.deleteFrom(carriedPetAnchor) // stop riding the player's bone between baths
 }
 
@@ -957,7 +1033,7 @@ function updateLocalPet(dt: number): void {
     const hatchlingId = clientState.player?.hatchling?.id
     if (hatchlingId && petP.id === hatchlingId) {
       VisibilityComponent.createOrReplace(localPet, { visible: false })
-      if (localTag) VisibilityComponent.createOrReplace(localTag.root, { visible: false, propagateToChildren: true })
+      setLocalTagVisible(false)
       return
     }
     // Otherwise (adoption) the CURRENT pet steps aside to its home slot so the
@@ -976,7 +1052,7 @@ function updateLocalPet(dt: number): void {
     const petH = clientState.activePet
     // Undo any hide from the carry phase — the newborn is emerging now.
     VisibilityComponent.createOrReplace(localPet, { visible: true })
-    if (localTag) VisibilityComponent.createOrReplace(localTag.root, { visible: true, propagateToChildren: true })
+    setLocalTagVisible(true)
     const full = petScale(petH.species, stageScaleFor(petH.size))
     if (hatchPopT > 0) hatchPopT -= dt
     const f = hatchPopT > 0 ? Math.max(0.05, 1 - hatchPopT / HATCH_POP_SECONDS) : 1 // 0 -> 1
@@ -1026,7 +1102,7 @@ function updateLocalPet(dt: number): void {
   }
 
   let moved = 0
-  let moveClip = 'walk'
+  let moveClip: PetClip = 'walk'
 
   switch (mode) {
     case 'follow': {
@@ -1086,9 +1162,11 @@ function updateLocalPet(dt: number): void {
     }
   }
 
-  // Decide animation: interaction clip > movement > idle.
+  // Decide animation: interaction clip > movement > sleeping > idle.
+  // (sleep only while standing still — a pet dozing mid-walk would just slide.)
   if (mode === 'interact') setClip(localPet, interactClip)
   else if (moved > 0.003) setClip(localPet, moveClip)
+  else if (clientState.activePet?.sleeping) setClip(localPet, 'sleep')
   else setClip(localPet, 'idle')
 
   // Floating name tag follows the pet.
@@ -1143,7 +1221,7 @@ function updateRemotePets(dt: number): void {
     if (remoteSpecies.get(addr) !== entry.species) {
       remoteSpecies.set(addr, entry.species)
       GltfContainer.createOrReplace(ent, { src: modelForSpecies(entry.species), visibleMeshesCollisionMask: ColliderLayer.CL_POINTER })
-      ensureAnimator(ent)
+      ensureAnimator(ent, entry.species)
     }
     const t = Transform.getMutable(ent)
     const s = petScale(entry.species, stageScaleFor(entry.size))
@@ -1167,7 +1245,7 @@ function updateRemotePets(dt: number): void {
       engine.removeEntity(ent)
       remotePets.delete(addr)
       remoteSpecies.delete(addr)
-      curClip.delete(ent)
+      forgetAnimator(ent)
       const tag = remoteTags.get(addr)
       if (tag) {
         removeTag(tag)
@@ -1203,7 +1281,7 @@ function updateInactivePets(dt: number): void {
         const e = engine.addEntity()
         Transform.create(e, { position: home, scale: petScale(pet.species, stageScaleFor(pet.size)) })
         GltfContainer.createOrReplace(e, { src: modelForSpecies(pet.species), visibleMeshesCollisionMask: ColliderLayer.CL_POINTER })
-        ensureAnimator(e)
+        ensureAnimator(e, pet.species)
         const petId = pet.id
         pointerEventsSystem.onPointerDown(
           { entity: e, opts: { button: InputAction.IA_POINTER, hoverText: `Select ${pet.name}`, maxDistance: 8 } },
@@ -1216,6 +1294,7 @@ function updateInactivePets(dt: number): void {
       if (st.species !== pet.species) {
         st.species = pet.species
         GltfContainer.createOrReplace(st.entity, { src: modelForSpecies(pet.species), visibleMeshesCollisionMask: ColliderLayer.CL_POINTER })
+        ensureAnimator(st.entity, pet.species)
       }
 
       // Wander in a SMALL radius around its slot, so it stays in its own spot.
@@ -1247,7 +1326,7 @@ function updateInactivePets(dt: number): void {
     if (!wanted.has(id)) {
       engine.removeEntity(st.entity)
       removeTag(st.tag)
-      curClip.delete(st.entity)
+      forgetAnimator(st.entity)
       inactivePets.delete(id)
     }
   }
