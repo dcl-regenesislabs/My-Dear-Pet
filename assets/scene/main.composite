@@ -1633,6 +1633,27 @@
             "parent": 0
           }
         },
+        "592": {
+          "json": {
+            "position": {
+              "x": 167.75,
+              "y": 0.009999999776482582,
+              "z": 246
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0,
+              "w": 1
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            },
+            "parent": 0
+          }
+        },
         "66050": {
           "json": {
             "position": {
@@ -2461,6 +2482,13 @@
             "invisibleMeshesCollisionMask": 0
           }
         },
+        "592": {
+          "json": {
+            "src": "assets/Models/floormash01/floormash01.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 3
+          }
+        },
         "66059": {
           "json": {
             "src": "assets/Models/Mountain01/mountain01.glb",
@@ -2872,6 +2900,11 @@
             "value": "lane_4"
           }
         },
+        "592": {
+          "json": {
+            "value": "floormash01.glb"
+          }
+        },
         "66050": {
           "json": {
             "value": "Plants"
@@ -2977,7 +3010,7 @@
         "serializationType": "map"
       },
       "data": {
-        "0": {
+        "592": {
           "json": {
             "gizmo": 0
           }
@@ -3072,7 +3105,8 @@
                   587,
                   588,
                   589,
-                  590
+                  590,
+                  592
                 ]
               },
               {
@@ -3436,6 +3470,10 @@
               {
                 "entity": 590,
                 "children": []
+              },
+              {
+                "entity": 592,
+                "children": []
               }
             ]
           }
@@ -3682,6 +3720,9 @@
           "json": {}
         },
         "591": {
+          "json": {}
+        },
+        "592": {
           "json": {}
         },
         "66050": {
