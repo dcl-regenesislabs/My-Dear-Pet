@@ -12,6 +12,8 @@ export const Messages = {
   adopt: Schemas.Map({ species: Schemas.String, name: Schemas.String }),
   // Trigger a care action: feed | clean | sleep | play. onBed = slept on the Bed.
   careAction: Schemas.Map({ action: Schemas.String, onBed: Schemas.Boolean }),
+  // Feed tree minigame result: how many fruit were caught (sent once, at game end).
+  feedResult: Schemas.Map({ caught: Schemas.Int }),
   // Pet your own active pet (instant happiness).
   petSelf: Schemas.Map({}),
   // Pet/treat another player's pet.

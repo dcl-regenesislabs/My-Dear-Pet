@@ -11,6 +11,7 @@ import { actionObjectPosition } from './objects'
 import { isBusy, sendPetTo } from './pet'
 import { applyCareLocal } from './sim'
 import { startFeedTask } from './feed'
+import { startFruitGame } from './fruitGame'
 import { actions, clientState, debugGrowAdultLocal, pushToast } from './state'
 import { ui } from './ui'
 
@@ -77,11 +78,27 @@ function setupCareQueue(): void {
   })
 }
 
-// DEBUG hotkey: press "4" to grow the active pet to Adult + Lv5 (unlock breeding).
-// NOTE: DCL exposes only number keys 1-4 (IA_ACTION_3..6); there is no key "5",
-// so this testing shortcut lives on 4 (IA_ACTION_6).
+// DEBUG hotkeys. NOTE: DCL exposes only number keys 1-4 (IA_ACTION_3..6);
+// there is no key "5".
 function setupDebugHotkeys(): void {
   engine.addSystem(() => {
+    // "2": jump straight into the Feed tree minigame, skipping the walk-to-tree
+    // errand — for iterating on the minigame itself without the walk each time.
+    if (inputSystem.isTriggered(InputAction.IA_ACTION_4, PointerEventType.PET_DOWN)) {
+      if (!clientState.activePet) {
+        pushToast('DEBUG: no active pet to feed')
+        return
+      }
+      startFruitGame(clientState.activePet.id)
+      pushToast('DEBUG: fruit minigame started')
+    }
+    // "3": toggle the fruit-game camera calibration panel (fruitGame.ts's
+    // debugCam*) — shows while the minigame is active, +/- buttons per axis.
+    if (inputSystem.isTriggered(InputAction.IA_ACTION_5, PointerEventType.PET_DOWN)) {
+      clientState.debugCamPanelOpen = !clientState.debugCamPanelOpen
+      pushToast(clientState.debugCamPanelOpen ? 'DEBUG: cam panel ON' : 'DEBUG: cam panel OFF')
+    }
+    // "4": grow the active pet to Adult + Lv5 (unlock breeding).
     if (inputSystem.isTriggered(InputAction.IA_ACTION_6, PointerEventType.PET_DOWN)) {
       if (!clientState.activePet) {
         pushToast('DEBUG: no active pet to grow')

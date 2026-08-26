@@ -259,13 +259,20 @@ export const DECAY_PER_SEC: Record<StatKey, number> = {
 export const HAPPINESS_NEGLECT_PENALTY = 0.00025
 export const NEGLECT_THRESHOLD = 15 // a stat below this counts as "neglected"
 
-/** How much each care action refills. Energy is drained by play. */
+/** How much each care action refills. Energy is drained by play.
+ *  feed's entry is dead on the direct-trigger path (Feed now runs the fruit
+ *  minigame — see FEED_HUNGER_PER_FRUIT — instead of an instant flat effect);
+ *  kept because ACTION_COOLDOWN_MS.feed and the CareAction union still use it. */
 export const ACTION_EFFECT: Record<CareAction, Partial<Record<StatKey, number>>> = {
   feed: { hunger: 35 },
   clean: { hygiene: 45 },
   sleep: {}, // sleep is a State, not an instant effect — see SLEEP_FILL_PER_SEC
   play: { happiness: 30, energy: -12 }
 }
+
+/** Hunger restored per fruit caught in the Feed tree minigame (fruitGame.ts).
+ *  ~6 catches matches the old flat feed effect; a strong run tops the pet off. */
+export const FEED_HUNGER_PER_FRUIT = 6
 
 /** Server-side per-action cooldown (ms) to stop spam. */
 export const ACTION_COOLDOWN_MS: Record<CareAction, number> = {

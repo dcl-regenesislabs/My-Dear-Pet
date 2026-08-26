@@ -51,12 +51,6 @@ let platformLookupStarted = false
 
 const MOBILE_AGENT_RE = /mobile|android|iphone|ipad|ios/
 
-/** True when the UI should use the smaller virtual canvas (mobile only). Bevy is
- * handled separately via a devicePixelRatio scale in S() — see below. */
-export function useCompactCanvas(): boolean {
-  return isMobileRuntime
-}
-
 /**
  * Live device pixel ratio, read from the renderer. Bevy (web) rasterizes the HUD
  * at the PHYSICAL resolution, so on a retina screen (dpr 2) everything comes out
@@ -96,6 +90,22 @@ export function resolveRuntimePlatform(onResolved?: () => void): void {
 export function mobile(): boolean {
   return isMobileRuntime
 }
+
+/**
+ * Mobile keeps the pre-7.26 HUD sizing by expanding the virtual canvas in lockstep
+ * with the reported pixel density, while opting out of the new safe-area inset so
+ * anchored HUD pieces stay flush with the full screen like before.
+ */
+export function getUiRendererConfig() {
+  const densityScale = isMobileRuntime ? Math.max(1, devicePixelRatio()) : 1
+
+  return {
+    virtualWidth: isMobileRuntime ? Math.max(1, Math.round(1600 * densityScale)) : 1920,
+    virtualHeight: isMobileRuntime ? Math.max(1, Math.round(720 * densityScale)) : 1080,
+    screenInset: 'none' as const
+  }
+}
+
 // Global UI scale — larger touch targets on mobile, slightly larger on desktop
 // too (mobile-testing friendly). React-ECS re-renders every frame, so the HUD
 // resizes automatically once the platform lookup resolves.

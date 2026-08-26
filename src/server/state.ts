@@ -402,6 +402,30 @@ export function debugGrowAdult(p: PlayerData): Notify[] {
   return [{ kind: 'adopt', message: `DEBUG: ${pet.name} is now Adult (Lv ${pet.petLevel}), +${C.SLOT_PRICE} coins — breeding + slot 2 unlocked.` }]
 }
 
+/** Shared tail for a completed (non-sleep) care action: apply the stat effects,
+ *  grow/level/reward the pet + caretaker, and check achievements. Shared by
+ *  careAction and feedFromMinigame so this logic can't drift between them. */
+function applyCompletedCare(
+  p: PlayerData,
+  pet: PetData,
+  effects: Partial<Record<StatKey, number>>,
+  counterKey: string,
+  notes: Notify[]
+): void {
+  pet.sleeping = false
+  for (const key of Object.keys(effects) as StatKey[]) {
+    pet[key] = clamp(pet[key] + effects[key]!)
+  }
+  pet.careCount += 1
+  pet.size = C.sizeForCareCount(pet.careCount)
+  grantPetXp(pet, C.PET_XP_PER_ACTION)
+  grantCaretakerXp(p, C.CARETAKER_XP_PER_ACTION, notes)
+  p.currency += C.COINS_PER_ACTION
+  bump(p, counterKey)
+  bump(p, 'careCount')
+  checkAchievements(p, notes)
+}
+
 export function careAction(p: PlayerData, action: CareAction, onBed: boolean): Notify[] {
   const notes: Notify[] = []
   const pet = activePet(p)
@@ -428,20 +452,22 @@ export function careAction(p: PlayerData, action: CareAction, onBed: boolean): N
     }]
   }
 
-  // Any other attention wakes the pet before it takes effect.
-  pet.sleeping = false
-  const effects = C.ACTION_EFFECT[action]
-  for (const key of Object.keys(effects) as StatKey[]) {
-    pet[key] = clamp(pet[key] + effects[key]!)
+  applyCompletedCare(p, pet, C.ACTION_EFFECT[action], `${action}Count`, notes)
+  return notes
+}
+
+/** Feed tree minigame result: hunger restored scales with fruit caught (client-
+ *  submitted, so `caught` isn't trusted beyond this — but clamp(0,100) already
+ *  ceilings any inflated value at the same cap a legitimate great run reaches). */
+export function feedFromMinigame(p: PlayerData, caught: number): Notify[] {
+  const notes: Notify[] = []
+  const pet = activePet(p)
+  if (!pet) return [{ kind: 'error', message: 'No active pet' }]
+  if (!cooldownOk(p.address, 'feed', C.ACTION_COOLDOWN_MS.feed)) {
+    return [{ kind: 'cooldown', message: 'Pet is still busy...' }]
   }
-  pet.careCount += 1
-  pet.size = C.sizeForCareCount(pet.careCount)
-  grantPetXp(pet, C.PET_XP_PER_ACTION)
-  grantCaretakerXp(p, C.CARETAKER_XP_PER_ACTION, notes)
-  p.currency += C.COINS_PER_ACTION
-  bump(p, `${action}Count`)
-  bump(p, 'careCount')
-  checkAchievements(p, notes)
+  tickPlayer(p)
+  applyCompletedCare(p, pet, { hunger: caught * C.FEED_HUNGER_PER_FRUIT }, 'feedCount', notes)
   return notes
 }
 
