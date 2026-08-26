@@ -22,7 +22,6 @@ import { setupPetSystems, startCarryEgg } from './pet'
 import { setupPlay } from './play'
 import { setupMeteor } from './meteor'
 import { setupSkybox } from './skybox'
-import { setupFloor } from './floor'
 import { setupEggShake } from './eggShake'
 import { setupPlantSway } from './plantSway'
 import { setupCaretaker } from './caretaker'
@@ -146,7 +145,6 @@ export function setupClient(): void {
   resolveMyAddress()
   seedLocalPlayer() // HUD renders immediately, no waiting on the network
   setupSkybox() // Mars ground + boundary colliders
-  setupFloor() // tiled grass ground plane
   setupEggShake() // subtle constant tremble on the placed decor eggs
   setupPlantSway() // subtle wind sway on a random subset of the placed plants
   setupCaretaker() // click collider + Idle/Talk animation
