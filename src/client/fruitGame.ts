@@ -491,6 +491,7 @@ function beginCatching(): void {
 function applyResults(): void {
   const caught = clientState.feedGame.caught
   stopHoldEmote()
+  if (drawerEntity) VisibilityComponent.getMutable(drawerEntity).visible = false
   for (const f of fruits) {
     Tween.deleteFrom(f.entity)
     VisibilityComponent.createOrReplace(f.entity, { visible: false })
