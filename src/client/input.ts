@@ -6,6 +6,7 @@
 import { engine, pointerEventsSystem, inputSystem, InputAction, PointerEventType } from '@dcl/sdk/ecs'
 import { EntityNames } from '../../assets/scene/entity-names'
 import type { CareAction } from '../shared/types'
+import type { PetClip } from '../shared/config'
 import { actionObjectPosition } from './objects'
 import { isBusy, sendPetTo } from './pet'
 import { applyCareLocal } from './sim'
@@ -13,7 +14,7 @@ import { startFeedTask } from './feed'
 import { actions, clientState, debugGrowAdultLocal, pushToast } from './state'
 import { ui } from './ui'
 
-const ACTION_CLIP: Record<CareAction, string> = {
+const ACTION_CLIP: Record<CareAction, PetClip> = {
   feed: 'eat',
   clean: 'gesture-positive',
   sleep: 'idle',
