@@ -28,6 +28,7 @@ import { setupCaretaker } from './caretaker'
 import { setupFeedTask } from './feed'
 import { setupFruitGame } from './fruitGame'
 import { setupPetSpeech } from './speech'
+import { setupNav } from './nav'
 
 let introTriggered = false
 let firstSnapshotSeen = false // decide the "Choose Location!" modal on the FIRST snapshot only
@@ -158,6 +159,7 @@ export function setupClient(): void {
   setupFruitGame() // fruit pool for the Feed minigame (feed.ts hands off to it on tree click)
   setupFeedTask() // Feed action: guide arrow to the composite tree, auto-starts the feeding game on arrival
   setupPetSpeech() // speech bubble over the pet — asks for what its stats need
+  setupNav() // pet navigation: avoid building walls, use doors (WIP: coord capture)
 
   if (DEV_SKIP_SERVER_GATE) {
     // Bypass the loading gate entirely — no InputModifier freeze, no wait.
