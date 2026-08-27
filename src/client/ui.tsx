@@ -7,7 +7,6 @@
 
 import ReactEcs, { ReactEcsRenderer, Label, UiEntity, Input } from '@dcl/sdk/react-ecs'
 import { engine, InputAction } from '@dcl/sdk/ecs'
-import { movePlayerTo } from '~system/RestrictedActions'
 import * as Cfg from '../shared/config'
 import type { CareAction, Rarity } from '../shared/types'
 import { actions, clientState, discardHatchling, keepHatchling, pushToast, serverConnected, switchActivePet } from './state'
@@ -33,6 +32,7 @@ import { buyItemLocal, buySlotLocal, claimStreak, dailyClaimable, dailyLadderDay
 import { sway, startAnimSystem, attentionPulse } from './ui/anim'
 import { C, Color, getUiRendererConfig, mobile, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, TactileButton } from './ui/theme'
 import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './ui/dialog'
+import { endCaretakerIntroLock } from './caretaker'
 import { DebugBrowserBar, UI_DEBUG_MODE } from './ui/debugBrowser'
 
 export type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor' | 'breedName'
@@ -88,9 +88,12 @@ export const ui = {
     const p = clientState.player
     const hasFreeSlot = !!p && p.pets.length < p.petSlots
     if (!clientState.activePet) {
-      // First adoption: intro dialog, then the picker.
+      // First adoption: intro dialog, then the picker — no teleport, the
+      // player stays put (same as the automatic first-boot intro in setup.ts).
+      // endCaretakerIntroLock() is a no-op if the intro-lock isn't active, so
+      // this is also the escape hatch if this click ever races the lock.
       openCaretakerIntro(() => {
-        ui.goCareCenter()
+        endCaretakerIntroLock()
         ui.openAdopt()
       })
     } else if (hasFreeSlot) {
@@ -103,10 +106,6 @@ export const ui = {
   },
   close(): void {
     uiState.panel = 'none'
-  },
-  /** Teleport the player to the Care Center (where adoption happens). */
-  goCareCenter(): void {
-    void movePlayerTo({ newRelativePosition: CARE_CENTER })
   }
 }
 
@@ -119,9 +118,6 @@ export function debugForcePanel(panel: Panel): void {
 export function debugSetUiState(patch: Partial<{ shopTab: 'food' | 'slots'; adoptStep: 'pick' | 'name' }>): void {
   Object.assign(uiState, patch)
 }
-
-// Care Center spawn — the adoption area, used by the tutorial's Adopt step.
-const CARE_CENTER = { x: 167.899, y: 5.755, z: 260.964 }
 
 // ---------------------------------------------------------------------------
 // Top HUD bars — name+level, coins, colony pets count. Three separate pills
@@ -1113,7 +1109,7 @@ function MeteorRewardPanel() {
 function GoalsPanel() {
   const p = clientState.player
   return (
-    <PetHudModal title="Goals" subtitle="Check your goals & achievements!" width={S(680)} height={S(600)} onClose={() => ui.close()}>
+    <PetHudModal title="Goals" subtitle="Check your goals & achievements!" width={S(680)} height={Math.round(S(680) / PET_MODAL_ASPECT)} onClose={() => ui.close()}>
       <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
         {Cfg.ACHIEVEMENTS.map((a) => {
           const done = (p?.achievements.indexOf(a.id) ?? -1) !== -1
@@ -1960,6 +1956,37 @@ function BathButton() {
 }
 
 // ---------------------------------------------------------------------------
+// Loading gate — invisible for the normal case (the server usually answers in
+// well under a second), but if it's genuinely taking a while, a small message
+// appears so a slow/dead server doesn't look like a silent freeze with zero
+// feedback. Intentionally NOT a big persistent card like the old
+// LoadingServerOverlay — the request was to remove that, not to remove all
+// feedback whatsoever. This does not lift the freeze: per setup.ts, the scene
+// is deliberately not playable offline, so it stays blocked until the server
+// answers (or forever, if it never does).
+// ---------------------------------------------------------------------------
+let loadingGateSince = 0
+const LOADING_HINT_DELAY_MS = 8000
+
+function LoadingGate() {
+  if (loadingGateSince === 0) loadingGateSince = Date.now()
+  const waitingTooLong = Date.now() - loadingGateSince > LOADING_HINT_DELAY_MS
+  return (
+    <UiEntity uiTransform={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'flex-end', pointerFilter: 'block' }}>
+      {waitingTooLong && (
+        <Label
+          value="Still connecting to the server…"
+          fontSize={S(16)}
+          color={C.dim}
+          textAlign="middle-center"
+          uiTransform={{ width: '100%', height: S(30), margin: { bottom: S(60) } }}
+        />
+      )}
+    </UiEntity>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Root
 // ---------------------------------------------------------------------------
 const Root = () => {
@@ -1971,7 +1998,7 @@ const Root = () => {
   // below can render on top of ANY of these branches, not just the default one.
   const content =
     !clientState.serverReady ? (
-      <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'block' }} />
+      <LoadingGate />
     ) : clientState.petting.active ? (
       <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
         <PettingOverlay />

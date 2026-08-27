@@ -2,12 +2,13 @@
 // local simulation, and request persisted state.
 //
 // INTENTIONAL: this is NOT playable offline. The loading gate in ui.tsx
-// (Root, gated on clientState.serverReady) blocks all UI/input until the
-// FIRST stateSnapshot answers requestState() below. If the server never
-// answers, the player is stuck on "Loading server..." forever — there is no
-// local-only fallback anymore. seedLocalPlayer()/simTick() still run so the
-// data is ready the instant the gate lifts, but nothing is shown or usable
-// before that.
+// (Root -> LoadingGate, gated on clientState.serverReady) blocks all UI/input
+// until the FIRST stateSnapshot answers requestState() below. It stays
+// invisible for a normal (fast) connect; if the server never answers, a small
+// "Still connecting..." message appears after a few seconds and the player is
+// stuck there — there is no local-only fallback anymore. seedLocalPlayer()/
+// simTick() still run so the data is ready the instant the gate lifts, but
+// nothing is shown or usable before that.
 
 import { engine, InputModifier } from '@dcl/sdk/ecs'
 import { room } from '../shared/messages'
@@ -68,9 +69,10 @@ function registerHandlers(): void {
         firstSnapshotSeen = true
         if (snap.activePet) {
           introTriggered = true // returning player already has a pet -> skip the tutorial
-          // No "Choose Location" modal / teleport for returning players: they spawn
-          // at the house (scene.json), right where their pets are, so a follow can
-          // never start with a wall between the pet and the player.
+          // No "Choose Location" modal / teleport for returning players — they
+          // just land wherever scene.json's spawn point puts them (currently
+          // near the Caretaker, not the house; see nav.ts's door-pathing
+          // comments if that ever needs to change back).
         } else {
           showIntro()
         }
