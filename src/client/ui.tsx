@@ -225,7 +225,7 @@ function TopBars() {
   const w3 = Math.round(h * BAR_PETS_ASPECT)
   const totalW = w1 + gap + w2 + gap + w3
   return (
-    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: S(10), left: '50%' }, margin: { left: -totalW / 2 }, width: totalW, height: h, flexDirection: 'row', alignItems: 'center', pointerFilter: 'none' }}>
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: mobile() ? S(46) : S(10), left: '50%' }, margin: { left: -totalW / 2 }, width: totalW, height: h, flexDirection: 'row', alignItems: 'center', pointerFilter: 'none' }}>
       <NameLevelBar height={h} />
       <UiEntity uiTransform={{ width: gap, height: h }} />
       <CoinsBar height={h} />
@@ -542,7 +542,7 @@ function BottomNav() {
     )
   }
   return (
-    <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(18), left: 0 }, width: '100%', height: bh, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', pointerFilter: 'none' }}>
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: mobile() ? S(70) : S(18), left: 0 }, width: '100%', height: bh, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', pointerFilter: 'none' }}>
       {nav('nav_pets', NAV_PAW_UVS, 'roster', () => ui.openRoster())}
       {nav('nav_inv', NAV_INV_UVS, 'inventory', () => ui.openInventory())}
       {nav('nav_goals', NAV_GOALS_UVS, 'goals', () => ui.openGoals())}
