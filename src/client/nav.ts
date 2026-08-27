@@ -139,21 +139,6 @@ function updatePetZone(p: Vector3): Building | null {
   return buildingById(petZoneId)
 }
 
-/** Non-mutating read of the pet's committed zone. */
-export function petZone(): Building | null {
-  return buildingById(petZoneId)
-}
-
-/**
- * True while the pet still has a wall between it and `dest` (its committed zone
- * differs from the destination's). Callers use this to keep the pet stepping
- * THROUGH a doorway instead of stopping straddled on the threshold when it's
- * already within follow distance of the player.
- */
-export function navCrossing(dest: Vector3): boolean {
-  return petZone() !== zoneOf(flat(dest))
-}
-
 /** True if p is inside any building footprint (used to keep wander outdoors). */
 export function pointInsideAnyBuilding(p: Vector3): boolean {
   return zoneOf(p) !== null
@@ -270,7 +255,10 @@ export function navStepToward(entity: Entity, finalDest: Vector3, dt: number, ya
 // Stand at a spot and press "3" (IA_ACTION_5): prints the player's (x,z) plus,
 // for each building, the distance and bearing from that building's centre.
 // ---------------------------------------------------------------------------
-const NAV_CAPTURE = true
+// OFF by default — this binds key "3" (which input-panel toggling also uses) and
+// toasts raw coords, so it must never ship enabled. Flip to true only while
+// measuring a building's door/radius in-world (e.g. to dial in the Care Center).
+const NAV_CAPTURE = false
 
 function setupNavCapture(): void {
   engine.addSystem(() => {

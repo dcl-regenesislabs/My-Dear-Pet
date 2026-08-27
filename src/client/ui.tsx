@@ -45,10 +45,7 @@ const uiState = {
   // Breeding: partner pet chosen to cross with, and the name the player types for
   // the offspring (the server prefixes it "Gen-N ").
   breedPartnerId: '',
-  breedName: '',
-  // "Choose Location!" modal — opened on entry for RETURNING players only
-  // (first-timers get the tutorial instead). Wired from setup.ts.
-  locationOpen: false
+  breedName: ''
 }
 
 export const ui = {
@@ -106,28 +103,14 @@ export const ui = {
   close(): void {
     uiState.panel = 'none'
   },
-  openLocation(): void {
-    uiState.locationOpen = true
-  },
   /** Teleport the player to the Care Center (where adoption happens). */
   goCareCenter(): void {
     void movePlayerTo({ newRelativePosition: CARE_CENTER })
-  },
-  /** Teleport the player to the middle of the home dome. */
-  goHome(): void {
-    void movePlayerTo({ newRelativePosition: HOME_DOME })
   }
 }
 
-// Care Center spawn — the adoption area. Shared by the "Choose Location!" modal
-// and the tutorial's Adopt step.
+// Care Center spawn — the adoption area, used by the tutorial's Adopt step.
 const CARE_CENTER = { x: 167.899, y: 5.755, z: 260.964 }
-// Home dome spawn (Dome01, from main.composite). Hardcoded like CARE_CENTER above
-// instead of objectPosition(EntityNames.Dome01_glb) — that reads the entity's live
-// Transform, which can still be Vector3.Zero() if the composite entity hasn't
-// resolved by name yet (the "Choose Location!" modal can open early, right on the
-// first server snapshot) — teleporting the player to scene origin.
-const HOME_DOME = { x: 205.75, y: 0, z: 247.5 }
 
 // ---------------------------------------------------------------------------
 // Top profile bar (Caretaker level + XP + coins) -> tap opens Goals
@@ -1718,85 +1701,6 @@ function LightModal(props: { title: string; width: number; height: number; onClo
   )
 }
 
-function LocationTile(props: { imageSrc: string; label: string; color: Color; onClick: () => void }) {
-  const tileW = S(300)
-  const iconH = S(210)
-  const imageW = S(220)
-  const imageH = S(147)
-  return (
-    <UiEntity
-      uiTransform={{ width: tileW, flexDirection: 'column', alignItems: 'center', margin: { left: S(12), right: S(12) }, pointerFilter: 'block' }}
-      onMouseDown={props.onClick}
-    >
-      {/* Icon area (white rounded card) */}
-      <UiEntity
-        uiTransform={{ width: tileW, height: iconH, alignItems: 'center', justifyContent: 'center', borderRadius: S(22) }}
-        uiBackground={{ color: LOC.tile }}
-      >
-        <UiEntity uiTransform={{ width: imageW, height: imageH }} uiBackground={{ texture: { src: props.imageSrc }, textureMode: 'stretch' }} />
-      </UiEntity>
-      {/* Colored label banner */}
-      <UiEntity
-        uiTransform={{ width: tileW - S(30), height: S(64), alignItems: 'center', justifyContent: 'center', margin: { top: -S(14) }, borderRadius: S(16) }}
-        uiBackground={{ color: props.color }}
-      >
-        <OutlineLabel value={props.label} fontSize={S(24)} color={LOC.white} outlineColor={{ r: 0, g: 0, b: 0, a: 0.35 }} width={'100%'} height={S(34)} textAlign="middle-center" />
-      </UiEntity>
-    </UiEntity>
-  )
-}
-
-function LocationPanel() {
-  if (!uiState.locationOpen) return <UiEntity />
-  const MW = S(760)
-  const MH = S(560)
-  const close = () => (uiState.locationOpen = false)
-  return (
-    <UiEntity
-      uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
-      uiBackground={{ color: { r: 0, g: 0, b: 0, a: 0.5 } }}
-      onMouseDown={() => {}}
-    >
-      <UiEntity
-        uiTransform={{ width: MW, height: MH, flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', padding: { top: S(28), bottom: S(28), left: S(24), right: S(24) }, borderRadius: S(28), pointerFilter: 'block' }}
-        uiBackground={{ color: LOC.card }}
-      >
-        {/* Red X (top-right) */}
-        <UiEntity
-          uiTransform={{ positionType: 'absolute', position: { top: S(18), right: S(18) }, width: S(56), height: S(56), alignItems: 'center', justifyContent: 'center', borderRadius: S(14), pointerFilter: 'block' }}
-          uiBackground={{ color: LOC.red }}
-          onMouseDown={close}
-        >
-          <OutlineLabel value="X" fontSize={S(30)} color={LOC.white} outlineColor={{ r: 0, g: 0, b: 0, a: 0.3 }} width={S(56)} height={S(40)} textAlign="middle-center" />
-        </UiEntity>
-        {/* Title */}
-        <OutlineLabel value="Choose Location!" fontSize={S(52)} color={LOC.title} outlineColor={LOC.titleOutline} width={'100%'} height={S(70)} textAlign="middle-center" />
-        {/* Two options */}
-        <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', margin: { top: S(20) } }}>
-          <LocationTile
-            imageSrc="assets/images/carecenter.png"
-            label="ADOPTION CENTER"
-            color={LOC.orange}
-            onClick={() => {
-              close()
-              ui.goCareCenter()
-            }}
-          />
-          <LocationTile
-            imageSrc="assets/images/dome.png"
-            label="HOUSE"
-            color={LOC.blue}
-            onClick={() => {
-              close()
-              ui.goHome()
-            }}
-          />
-        </UiEntity>
-      </UiEntity>
-    </UiEntity>
-  )
-}
-
 // ---------------------------------------------------------------------------
 // Carry-egg-home flow — while carrying an egg, a hint says "take it home"; once
 // the player is home a big centered "Hatch" button starts the rub-to-hatch flow.
@@ -1939,7 +1843,6 @@ const Root = () => {
     {uiState.panel === 'goals' && <GoalsPanel />}
     {uiState.panel === 'daily' && <DailyRewardPanel />}
     <DialogBox />
-    <LocationPanel />
     {/* Hints + reward + toasts render LAST so they sit on top of any panel/modal. */}
     <HintBanner />
     <RewardPopup />

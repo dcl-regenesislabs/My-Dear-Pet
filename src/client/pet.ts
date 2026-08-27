@@ -188,16 +188,14 @@ function activePetSlotIndex(): number {
   return p && id ? p.pets.findIndex((x) => x.id === id) : -1
 }
 
-// Where a freshly-spawned pet first appears: just outside the house (Dome01), by
-// its door, so it doesn't walk in from across the map AND doesn't spawn inside the
-// walls (the dome origin is the footprint centre). Falls back to a hardcoded home
-// if the composite entity hasn't resolved by name yet.
-const HOME_FALLBACK = Vector3.create(205.75, C.PET_BASE_Y, 247.5)
+// Where a freshly-spawned pet first appears: just outside the home dome, in the
+// play area right where the player spawns (scene.json SpawnArea1) — NOT at the dome
+// centre. This keeps the pet clear of the walls on load and next to the player, so
+// a follow never begins with a wall between them (no beeline through the dome).
+// nudgeOutsideBuildings is a belt-and-braces guarantee it stays outside any ring.
+const HOME_BASE = Vector3.create(204, C.PET_BASE_Y, 240)
 function homeSpawnPos(): Vector3 {
-  const home = objectPosition(EntityNames.HomeDome01_glb)
-  const resolved = home.x > 1 || home.z > 1 // not scene origin (0,0)
-  const base = resolved ? home : HOME_FALLBACK
-  return nudgeOutsideBuildings(Vector3.create(base.x, C.PET_BASE_Y, base.z))
+  return nudgeOutsideBuildings(HOME_BASE)
 }
 
 let localTag: HealthTag | null = null
@@ -1000,7 +998,7 @@ function followTarget(): Vector3 {
 // threshold oscillation it caused). Wander/goto still use nav (they stay outside).
 const TRAIL_SPACING = 0.4 // record a new breadcrumb after the player moves this far (m)
 const TRAIL_TELEPORT = 8 // a player jump larger than this = teleport -> reset the trail
-const TRAIL_MAX = 400 // hard cap on stored breadcrumbs (~160 m of path)
+const TRAIL_MAX = 96 // hard cap on stored breadcrumbs (~38 m) — bounds trailPathLength()'s per-frame cost on mobile
 const FOLLOW_SUSPEND_SLACK = 2.0 // how far past follow distance still counts as "near the player"
 const FOLLOW_WALL_KEEP = 2.5 // stay on the breadcrumb trail within this of any wall (clean door crossing)
 let followTrail: Vector3[] = []

@@ -65,7 +65,9 @@ function registerHandlers(): void {
         firstSnapshotSeen = true
         if (snap.activePet) {
           introTriggered = true // returning player already has a pet -> skip the tutorial
-          ui.openLocation()
+          // No "Choose Location" modal / teleport for returning players: they spawn
+          // at the house (scene.json), right where their pets are, so a follow can
+          // never start with a wall between the pet and the player.
         } else {
           showIntro()
         }
