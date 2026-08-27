@@ -274,3 +274,21 @@ export function applyCareLocal(action: CareAction, onBed: boolean): void {
   bumpCounter(p, 'careCount')
   showReward(xpGain, Cfg.COINS_PER_ACTION) // gamified "+XP +coins" popup
 }
+
+/** Apply the Feed tree minigame's result locally (optimistic; server snapshot
+ *  corrects). Mirrors applyCareLocal's tail, but the hunger delta scales with
+ *  fruit caught instead of a flat ACTION_EFFECT. */
+export function applyFeedMinigameLocal(caught: number): void {
+  const p = clientState.player
+  const pet = clientState.activePet
+  if (!p || !pet || caught <= 0) return
+  pet.sleeping = false
+  pet.hunger = clamp(pet.hunger + caught * Cfg.FEED_HUNGER_PER_FRUIT)
+  pet.careCount += 1
+  pet.size = Cfg.sizeForCareCount(pet.careCount)
+  const xpGain = grantXp(p)
+  p.currency += Cfg.COINS_PER_ACTION
+  bumpCounter(p, 'feedCount')
+  bumpCounter(p, 'careCount')
+  showReward(xpGain, Cfg.COINS_PER_ACTION)
+}

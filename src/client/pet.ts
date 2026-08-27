@@ -1011,6 +1011,18 @@ function updateLocalPet(dt: number): void {
   ensureLocalPet()
   if (!localPet) return
 
+  // Hidden entirely during the Feed tree minigame — it just gets in the way
+  // while the player is dodging around to catch fruit.
+  if (clientState.feedGame.active) {
+    VisibilityComponent.createOrReplace(localPet, { visible: false })
+    if (localTag) VisibilityComponent.createOrReplace(localTag.root, { visible: false, propagateToChildren: true })
+    return
+  }
+  // Undo that hide once the minigame ends — every other branch below assumes
+  // visible unless it says otherwise.
+  VisibilityComponent.createOrReplace(localPet, { visible: true })
+  if (localTag) VisibilityComponent.createOrReplace(localTag.root, { visible: true, propagateToChildren: true })
+
   // While carrying a new egg (or hatching it, before the newborn emerges), send
   // the CURRENT pet to its home slot and park it there. This clears the hatch
   // spot in front of the player so the new pet won't spawn on top of this one.

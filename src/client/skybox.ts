@@ -2,8 +2,10 @@
 //
 // Everything here is created by code (not placed in the Creator Hub): the
 // "here" anchor marker and the 4 boundary planes. Gameplay objects sit at
-// y=0. The visible ground is the tiled grass plane in `floor.ts`, sized to
-// match this same footprint.
+// y=0. The visible ground is the floormash01.glb model placed in the Creator
+// Hub composite — its footprint is smaller than these boundary planes, not a
+// 1:1 match (the old code-generated grass plane used to match this exactly,
+// but that's gone now — see the fix/dark-floor-on-mobile PR).
 //
 // The gameplay area (Bowl/Bed/Ball/Pond/Caretaker/Shop) was moved in
 // `main.composite` to sit around the "here" anchor below — see `shared/config.ts`.

@@ -959,10 +959,12 @@
     "nearbyVoiceChat": "enabled"
   },
   "creator": "",
-  "skyboxConfig": { "fixedTime": 36000 },
+  "skyboxConfig": {
+    "fixedTime": 36000
+  },
   "source": {
     "origin": "creator-hub",
-    "projectId": "b164c50b-c64a-49c2-8bc0-56bd94119716"
+    "projectId": "91fb690d-fdd8-45ae-92e9-4e5f0e0341e8"
   },
   "landscapeTerrain": true
 }

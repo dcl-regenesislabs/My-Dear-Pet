@@ -22,12 +22,11 @@ import { setupPetSystems, startCarryEgg } from './pet'
 import { setupPlay } from './play'
 import { setupMeteor } from './meteor'
 import { setupSkybox } from './skybox'
-import { setupFloor } from './floor'
 import { setupEggShake } from './eggShake'
 import { setupPlantSway } from './plantSway'
 import { setupCaretaker } from './caretaker'
-import { setupTree } from './tree'
 import { setupFeedTask } from './feed'
+import { setupFruitGame } from './fruitGame'
 import { setupPetSpeech } from './speech'
 
 let introTriggered = false
@@ -146,7 +145,6 @@ export function setupClient(): void {
   resolveMyAddress()
   seedLocalPlayer() // HUD renders immediately, no waiting on the network
   setupSkybox() // Mars ground + boundary colliders
-  setupFloor() // tiled grass ground plane
   setupEggShake() // subtle constant tremble on the placed decor eggs
   setupPlantSway() // subtle wind sway on a random subset of the placed plants
   setupCaretaker() // click collider + Idle/Talk animation
@@ -157,8 +155,8 @@ export function setupClient(): void {
   setupInput()
   setupPetSystems() // renders + simulates remote pets from server `presence`
   setupPlay() // Play action: throw an animated meteorite forward
-  setupTree() // spawn the fruit tree (in code, not the composite)
-  setupFeedTask() // Feed action: guide arrow to the tree, click it to start the feeding game
+  setupFruitGame() // fruit pool for the Feed minigame (feed.ts hands off to it on tree click)
+  setupFeedTask() // Feed action: guide arrow to the composite tree, auto-starts the feeding game on arrival
   setupPetSpeech() // speech bubble over the pet — asks for what its stats need
 
   if (DEV_SKIP_SERVER_GATE) {

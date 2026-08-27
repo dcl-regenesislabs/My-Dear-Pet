@@ -59,6 +59,23 @@ export const clientState: {
   // Hatch gesture: rubbing/tapping the egg fills this progress, then it hatches.
   // Reuses the petting gesture input.
   hatch: { active: boolean; progress: number }
+  // Feed tree minigame (fruitGame.ts): 'arrival' tracks the zoom-in cinematic,
+  // 'intro' is the freeze+emote reveal beat where the player waits (parked)
+  // until they tap Start, 'countdown' is the 3-2-1 after Start, 'catching' is
+  // the timed fruit-catching phase the HUD counter/timer reads from, 'results'
+  // is the post-round reveal (count-up + feed bar) before the player taps
+  // Exit. catchFlashUntil (Date.now() ms) briefly pulses the counter each time
+  // a fruit is caught; countdownAt/resultsAt (Date.now() ms) mark when those
+  // phases began, driving their respective animations.
+  feedGame: {
+    active: boolean
+    phase: 'arrival' | 'intro' | 'countdown' | 'catching' | 'results'
+    caught: number
+    timeLeft: number
+    catchFlashUntil: number
+    countdownAt: number
+    resultsAt: number
+  }
   // Fetch (Play) mode: `active` shows the centered Fetch button and hides the
   // panel; `busy` is true from the moment the ball is thrown until the pet drops
   // it back (the Fetch button is disabled while busy).
@@ -78,6 +95,9 @@ export const clientState: {
   serverReady: boolean
   // Shared Mars colony population, broadcast by the server (same for everyone).
   colonyPopulation: number
+  // DEBUG: fruit game camera calibration panel (fruitGame.ts's debugCam*),
+  // toggled by a debug hotkey while the minigame is active.
+  debugCamPanelOpen: boolean
 } = {
   myAddress: '',
   player: null,
@@ -98,13 +118,15 @@ export const clientState: {
   carryEgg: { active: false, species: '', name: '', atHome: false },
   carryPet: { active: false, atStation: false },
   hatch: { active: false, progress: 0 },
+  feedGame: { active: false, phase: 'arrival', caught: 0, timeLeft: 0, catchFlashUntil: 0, countdownAt: 0, resultsAt: 0 },
   fetch: { active: false, busy: false },
   pendingPet: null,
   pendingUntil: 0,
   streak: { count: 1, lastDay: 0, claimedDay: 0 },
   lastServerMsgAt: 0,
   serverReady: false,
-  colonyPopulation: 0
+  colonyPopulation: 0,
+  debugCamPanelOpen: false
 }
 
 /** Stamp that the server just talked to us. Called from every server handler. */
@@ -287,6 +309,9 @@ export const actions = {
   },
   care(action: CareAction, onBed = false): void {
     room.send('careAction', { action, onBed })
+  },
+  feedResult(caught: number): void {
+    room.send('feedResult', { caught })
   },
   keepPet(): void {
     room.send('keepPet', {})
