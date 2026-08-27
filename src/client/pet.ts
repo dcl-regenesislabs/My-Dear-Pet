@@ -53,6 +53,7 @@ import { clientState, actions, adoptPet, openDialog, pushToast, switchActivePet,
 import { applyCareLocal } from './sim'
 import { EntityNames } from '../../assets/scene/entity-names'
 import { objectPosition } from './objects'
+import { navStepToward, zoneOf, nearWall, pointInsideAnyBuilding, nudgeOutsideBuildings } from './nav'
 import { mobile } from './ui/theme'
 
 type Mode = 'follow' | 'goto' | 'interact' | 'wander' | 'bathhop'
@@ -177,7 +178,8 @@ const PET_SLOT_HOMES: Vector3[] = [
 ]
 function slotHome(index: number): Vector3 {
   const s = PET_SLOT_HOMES[((index % PET_SLOT_HOMES.length) + PET_SLOT_HOMES.length) % PET_SLOT_HOMES.length]
-  return Vector3.create(s.x, s.y, s.z)
+  // Keep resting slots out of the buildings — the pet lives in the open.
+  return nudgeOutsideBuildings(Vector3.create(s.x, s.y, s.z))
 }
 /** Index of the currently-shown active pet within the roster (-1 if none). */
 function activePetSlotIndex(): number {
@@ -186,15 +188,14 @@ function activePetSlotIndex(): number {
   return p && id ? p.pets.findIndex((x) => x.id === id) : -1
 }
 
-// Where a freshly-spawned pet first appears: at the house (Dome01), so it doesn't
-// walk in from across the map. Falls back to a hardcoded home if the composite
-// entity hasn't resolved by name yet (objectPosition would return scene origin).
-const HOME_FALLBACK = Vector3.create(205.75, C.PET_BASE_Y, 247.5)
+// Where a freshly-spawned pet first appears: just outside the home dome, in the
+// play area right where the player spawns (scene.json SpawnArea1) — NOT at the dome
+// centre. This keeps the pet clear of the walls on load and next to the player, so
+// a follow never begins with a wall between them (no beeline through the dome).
+// nudgeOutsideBuildings is a belt-and-braces guarantee it stays outside any ring.
+const HOME_BASE = Vector3.create(204, C.PET_BASE_Y, 240)
 function homeSpawnPos(): Vector3 {
-  const home = objectPosition(EntityNames.HomeDome01_glb)
-  const resolved = home.x > 1 || home.z > 1 // not scene origin (0,0)
-  const base = resolved ? home : HOME_FALLBACK
-  return Vector3.create(base.x, C.PET_BASE_Y, base.z)
+  return nudgeOutsideBuildings(HOME_BASE)
 }
 
 let localTag: HealthTag | null = null
@@ -988,6 +989,52 @@ function followTarget(): Vector3 {
   return Vector3.create(pp.x - C.PET_FOLLOW_DISTANCE, C.PET_BASE_Y, pp.z - C.PET_FOLLOW_DISTANCE)
 }
 
+// --- Follow-the-leader breadcrumb trail ------------------------------------
+// The pet follows the player by RETRACING the player's recent path, not by
+// steering at the player's current position. The player can't walk through walls
+// or models (they have colliders), so their trail is collision-free by
+// construction — the pet inherits that and goes through the door because the
+// player did. This replaces the footprint/door math for following (and the
+// threshold oscillation it caused). Wander/goto still use nav (they stay outside).
+const TRAIL_SPACING = 0.4 // record a new breadcrumb after the player moves this far (m)
+const TRAIL_TELEPORT = 8 // a player jump larger than this = teleport -> reset the trail
+const TRAIL_MAX = 96 // hard cap on stored breadcrumbs (~38 m) — bounds trailPathLength()'s per-frame cost on mobile
+const FOLLOW_SUSPEND_SLACK = 2.0 // how far past follow distance still counts as "near the player"
+const FOLLOW_WALL_KEEP = 2.5 // stay on the breadcrumb trail within this of any wall (clean door crossing)
+let followTrail: Vector3[] = []
+
+/** Append the player's position to the trail (call once per frame). The full Y is
+ *  kept (not flattened) so the pet inherits the player's HEIGHT along the path —
+ *  it rises where the player walked up onto the raised house / care-center bases. */
+function recordTrail(): void {
+  const src = playerPos()
+  const pp = Vector3.create(src.x, src.y, src.z)
+  if (followTrail.length === 0) {
+    followTrail.push(pp)
+    return
+  }
+  const last = followTrail[followTrail.length - 1]
+  const d = distFlat(pp, last) // spacing is horizontal, so height changes don't spam crumbs
+  if (d > TRAIL_TELEPORT) {
+    followTrail = [pp] // teleport (e.g. Choose Location) -> drop the stale path
+    return
+  }
+  if (d >= TRAIL_SPACING) {
+    followTrail.push(pp)
+    if (followTrail.length > TRAIL_MAX) followTrail.shift()
+  }
+}
+
+/** Remaining distance from the pet, ALONG the trail, to the player. Using path
+ *  length (not straight line) is what keeps a wall between them from stopping the
+ *  pet early — the path goes the long way, through the door. */
+function trailPathLength(petPos: Vector3): number {
+  if (followTrail.length === 0) return distFlat(petPos, playerPos())
+  let total = distFlat(petPos, followTrail[0])
+  for (let i = 0; i < followTrail.length - 1; i++) total += distFlat(followTrail[i], followTrail[i + 1])
+  return total + distFlat(followTrail[followTrail.length - 1], playerPos())
+}
+
 function updateWander(dt: number): number {
   if (wanderPause > 0) {
     wanderPause -= dt
@@ -1002,9 +1049,16 @@ function updateWander(dt: number): number {
     }
     const r = 3 + Math.random() * 3
     const ang = Math.random() * Math.PI * 2
-    wanderTarget = Vector3.create(wanderHome.x + Math.cos(ang) * r, C.PET_BASE_Y, wanderHome.z + Math.sin(ang) * r)
+    const cand = Vector3.create(wanderHome.x + Math.cos(ang) * r, C.PET_BASE_Y, wanderHome.z + Math.sin(ang) * r)
+    // Don't wander INTO a building — pick a spot in the open, or just idle this
+    // round if the roll landed inside one (next round tries again).
+    if (pointInsideAnyBuilding(cand)) {
+      wanderPause = 0.5
+      return 0
+    }
+    wanderTarget = cand
   }
-  return localPet ? stepToward(localPet, wanderTarget, dt, yawOffsetForSpecies(clientState.activePet?.species ?? '')) : 0
+  return localPet ? navStepToward(localPet, wanderTarget, dt, yawOffsetForSpecies(clientState.activePet?.species ?? '')) : 0
 }
 
 function updateLocalPet(dt: number): void {
@@ -1107,11 +1161,39 @@ function updateLocalPet(dt: number): void {
   let moved = 0
   let moveClip: PetClip = 'walk'
 
+  recordTrail() // keep the player's breadcrumb path fresh for follow mode
+
   switch (mode) {
     case 'follow': {
-      const dest = followTarget()
-      if (distFlat(playerPos(), Transform.get(localPet).position) > C.PET_FOLLOW_DISTANCE + 0.5) {
-        moved = stepToward(localPet, dest, dt, yawOffsetForSpecies(clientState.activePet?.species ?? ''))
+      // Retrace the player's breadcrumb trail (collision-free by construction) —
+      // the pet walks the exact route the player took, so it enters through the
+      // door instead of trying to cut across a wall.
+      const petPos = Transform.get(localPet).position
+      // Suspend the trail when the pet is already CLOSE to the player, in the SAME
+      // zone, and both are clear of any wall: there's no wall between them so it can
+      // just settle by the player instead of retracing their wiggles (kills the
+      // zigzag in the open). Near a wall / different zone we keep the trail so the
+      // door crossing stays clean, and going straight-to-player keeps the height
+      // right (same local ground) — no far-crumb elevation artifact.
+      const pp = playerPos()
+      const nearPlayer = distFlat(petPos, pp) <= C.PET_FOLLOW_DISTANCE + FOLLOW_SUSPEND_SLACK
+      if (nearPlayer && zoneOf(petPos) === zoneOf(pp) && !nearWall(petPos, FOLLOW_WALL_KEEP) && !nearWall(pp, FOLLOW_WALL_KEEP)) {
+        followTrail.length = 0
+      }
+      // Drop breadcrumbs we've already reached.
+      while (followTrail.length > 0 && distFlat(petPos, followTrail[0]) < C.PET_ARRIVE_DISTANCE) followTrail.shift()
+      // Trail the player by the follow distance measured ALONG the path.
+      if (trailPathLength(petPos) > C.PET_FOLLOW_DISTANCE + 0.5) {
+        const wp = followTrail.length > 0 ? followTrail[0] : playerPos()
+        // stepToward snaps Y back to PET_BASE_Y every frame, so ease the height
+        // from the pet's PREVIOUS Y (captured before the step) toward the
+        // breadcrumb's Y — otherwise the height keeps resetting to 0 each frame and
+        // the pet only ever climbs a fraction of the way, sinking into raised bases.
+        const prevY = petPos.y
+        moved = stepToward(localPet, wp, dt, yawOffsetForSpecies(clientState.activePet?.species ?? ''))
+        const tp = Transform.getMutable(localPet)
+        const y = prevY + (wp.y - prevY) * Math.min(1, dt * 8)
+        tp.position = Vector3.create(tp.position.x, y, tp.position.z)
       }
       break
     }
@@ -1121,7 +1203,7 @@ function updateLocalPet(dt: number): void {
     }
     case 'goto': {
       moveClip = 'run'
-      moved = stepToward(localPet, target, dt, yawOffsetForSpecies(clientState.activePet?.species ?? ''))
+      moved = navStepToward(localPet, target, dt, yawOffsetForSpecies(clientState.activePet?.species ?? ''))
       if (distFlat(Transform.get(localPet).position, target) <= C.PET_ARRIVE_DISTANCE) {
         mode = 'interact'
         interactTimer = 1.1
