@@ -285,7 +285,7 @@ export function applyFeedMinigameLocal(caught: number): void {
   pet.sleeping = false
   pet.hunger = clamp(pet.hunger + caught * Cfg.FEED_HUNGER_PER_FRUIT)
   pet.careCount += 1
-  pet.size = Cfg.sizeForCareCount(pet.careCount)
+  pet.size = Cfg.growSize(pet.size) // monotonic — never shrink (mirrors the server)
   const xpGain = grantXp(p)
   p.currency += Cfg.COINS_PER_ACTION
   bumpCounter(p, 'feedCount')
