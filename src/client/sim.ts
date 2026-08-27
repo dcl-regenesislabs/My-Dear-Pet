@@ -189,7 +189,7 @@ export function useItemLocal(tier: number): boolean {
   pet.happiness = clamp(pet.happiness + item.happiness)
   // Mirror the server: feeding is a care action — grow, gain XP + coins, cheer it.
   pet.careCount += 1
-  pet.size = Cfg.sizeForCareCount(pet.careCount)
+  pet.size = Cfg.growSize(pet.size)
   const xpGain = grantXp(p)
   p.currency += Cfg.COINS_PER_ACTION
   showReward(xpGain, Cfg.COINS_PER_ACTION)
@@ -267,7 +267,7 @@ export function applyCareLocal(action: CareAction, onBed: boolean): void {
     pet[key] = clamp(pet[key] + effects[key]!)
   }
   pet.careCount += 1
-  pet.size = Cfg.sizeForCareCount(pet.careCount)
+  pet.size = Cfg.growSize(pet.size)
   const xpGain = grantXp(p)
   p.currency += Cfg.COINS_PER_ACTION // instant coin reward (matches the server)
   bumpCounter(p, `${action}Count`)
@@ -285,7 +285,7 @@ export function applyFeedMinigameLocal(caught: number): void {
   pet.sleeping = false
   pet.hunger = clamp(pet.hunger + caught * Cfg.FEED_HUNGER_PER_FRUIT)
   pet.careCount += 1
-  pet.size = Cfg.sizeForCareCount(pet.careCount)
+  pet.size = Cfg.growSize(pet.size) // monotonic — never shrink (mirrors the server)
   const xpGain = grantXp(p)
   p.currency += Cfg.COINS_PER_ACTION
   bumpCounter(p, 'feedCount')

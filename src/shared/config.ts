@@ -81,10 +81,9 @@ export const COLONY_GOAL = 100 // target population for the current milestone
 // ---------------------------------------------------------------------------
 export const SPECIES: string[] = [
   'sprout-original',
-  'alienPet-v1',
-  'alienPet-2',
-  'PetPanda',
-  'PetTiger'
+  'pepito-original',
+  'amebita-original',
+  'fluflito-original'
 ]
 
 /** The Sprout family: the adoptable base + the variants breeding will roll.
@@ -100,7 +99,12 @@ const MODEL_OVERRIDES: Record<string, string> = {
   'sprout-original': 'models/sprouts/sprout_original.glb', // adoptable Sprout
   'sprout-amebita': 'models/sprouts/sprout_amebita.glb', // breeding variant
   'sprout-fluflito': 'models/sprouts/sprout_fluflito.glb', // breeding variant
-  'sprout-pepito': 'models/sprouts/sprout_pepito.glb' // breeding variant
+  'sprout-pepito': 'models/sprouts/sprout_pepito.glb', // breeding variant
+  // The other 3 adoptable originals. Their breeding variants (assets/Models/
+  // <Fam>_<Other>.glb) are on disk too, wired in with the crossing issue.
+  'pepito-original': 'assets/Models/Pepito_Original.glb',
+  'amebita-original': 'assets/Models/Amebita_Original.glb',
+  'fluflito-original': 'assets/Models/Fluflito.glb'
 }
 
 export function modelForSpecies(species: string): string {
@@ -113,7 +117,10 @@ const SPECIES_LABEL: Record<string, string> = {
   'sprout-original': 'Sprout',
   'sprout-amebita': 'Amebita',
   'sprout-fluflito': 'Fluflito',
-  'sprout-pepito': 'Pepito'
+  'sprout-pepito': 'Pepito',
+  'pepito-original': 'Pepito',
+  'amebita-original': 'Amebita',
+  'fluflito-original': 'Fluflito'
 }
 
 /** Display name for a species — an explicit override wins, else a LEADING "Pet"
@@ -133,24 +140,31 @@ export type PetClip = 'idle' | 'walk' | 'run' | 'eat' | 'dance' | 'gesture-posit
 /** Every logical clip, in the order the Animator states are declared. */
 export const PET_CLIPS: PetClip[] = ['idle', 'walk', 'run', 'eat', 'dance', 'gesture-positive', 'gesture-negative', 'sleep']
 
-// The Sprout rig ships: Sprout_Idle, Sprout_Walk, Sprout_Eat, Sprout_Happy,
-// Sprout_SitIdle, Sprout_Sad, Sprout_Sleep. No dedicated run clip -> reuse walk.
-const SPROUT_CLIPS: Record<PetClip, string> = {
-  idle: 'Sprout_Idle',
-  walk: 'Sprout_Walk',
-  run: 'Sprout_Walk',
-  eat: 'Sprout_Eat',
-  dance: 'Sprout_Happy',
-  'gesture-positive': 'Sprout_Happy',
-  'gesture-negative': 'Sprout_Sad',
-  sleep: 'Sprout_Sleep'
+// All four families share one rig LAYOUT — the same seven clips, each just
+// prefixed with the family name: <Fam>_Idle / _Walk / _Eat / _Happy / _SitIdle
+// / _Sad / _Sleep. No dedicated run clip -> reuse walk. So the clip map is
+// generated from the prefix instead of hand-listing each family.
+function familyClips(prefix: string): Record<PetClip, string> {
+  return {
+    idle: `${prefix}_Idle`,
+    walk: `${prefix}_Walk`,
+    run: `${prefix}_Walk`,
+    eat: `${prefix}_Eat`,
+    dance: `${prefix}_Happy`,
+    'gesture-positive': `${prefix}_Happy`,
+    'gesture-negative': `${prefix}_Sad`,
+    sleep: `${prefix}_Sleep`
+  }
 }
 
 const SPECIES_CLIPS: Record<string, Partial<Record<PetClip, string>>> = {
-  'sprout-original': SPROUT_CLIPS,
-  'sprout-amebita': SPROUT_CLIPS,
-  'sprout-fluflito': SPROUT_CLIPS,
-  'sprout-pepito': SPROUT_CLIPS
+  'sprout-original': familyClips('Sprout'),
+  'sprout-amebita': familyClips('Sprout'),
+  'sprout-fluflito': familyClips('Sprout'),
+  'sprout-pepito': familyClips('Sprout'),
+  'pepito-original': familyClips('Pepito'),
+  'amebita-original': familyClips('Amebita'),
+  'fluflito-original': familyClips('Fluflito')
 }
 
 /** The GLB clip name a species uses for a logical clip. Unmapped clips fall back
@@ -179,7 +193,10 @@ const SPECIES_SCALE: Record<string, number> = {
   'sprout-original': 1.6,
   'sprout-amebita': 1.6,
   'sprout-fluflito': 1.6,
-  'sprout-pepito': 1.6
+  'sprout-pepito': 1.6,
+  'pepito-original': 1.6,
+  'amebita-original': 1.6,
+  'fluflito-original': 1.6
 }
 
 export function scaleForSpecies(species: string): number {
@@ -201,9 +218,10 @@ export function yawOffsetForSpecies(species: string): number {
 const SPECIES_IMAGE: Record<string, string> = {
   'alienPet-v1': 'assets/images/pets/alien1.png',
   'alienPet-2': 'assets/images/pets/alien2.png',
-  'sprout-original': 'assets/images/pets/sprout.png'
-  // The three breeding variants have no render yet — they fall back to the
-  // colored disc until art lands at assets/images/pets/.
+  'sprout-original': 'assets/images/pets/sprout.png',
+  'pepito-original': 'assets/images/pets/pepito.png',
+  'amebita-original': 'assets/images/pets/amebita.png',
+  'fluflito-original': 'assets/images/pets/fluflito.png'
 }
 
 export function speciesImage(species: string): string | undefined {
@@ -417,6 +435,14 @@ export const SIZE_PER_CARE = 0.008
 export const SIZE_MAX = 1.1
 export function sizeForCareCount(careCount: number): number {
   return Math.min(SIZE_MAX, SIZE_BASE + careCount * SIZE_PER_CARE)
+}
+/** Grow a pet's size by one care step, capped. Care actions use THIS (not
+ *  sizeForCareCount) so growth is monotonic: a care action can only ever grow
+ *  the pet, never shrink it. Recomputing size from careCount instead would snap
+ *  the size DOWN whenever the two drifted apart (migrated saves, breeding, the
+ *  debug grow, ...), which showed up as pets shrinking to Junior on bath. */
+export function growSize(size: number): number {
+  return Math.min(SIZE_MAX, size + SIZE_PER_CARE)
 }
 
 // ---------------------------------------------------------------------------

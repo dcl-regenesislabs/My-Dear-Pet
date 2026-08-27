@@ -417,7 +417,11 @@ function applyCompletedCare(
     pet[key] = clamp(pet[key] + effects[key]!)
   }
   pet.careCount += 1
-  pet.size = C.sizeForCareCount(pet.careCount)
+  // Monotonic growth (never recompute from careCount) so a care action can only
+  // grow the pet, never shrink it — recomputing from careCount snapped size down
+  // to Junior after a bath when size/careCount had drifted apart (breeding, debug
+  // grow, migration). See growSize in config.
+  pet.size = C.growSize(pet.size)
   grantPetXp(pet, C.PET_XP_PER_ACTION)
   grantCaretakerXp(p, C.CARETAKER_XP_PER_ACTION, notes)
   p.currency += C.COINS_PER_ACTION
@@ -621,7 +625,7 @@ export function useItem(p: PlayerData, tier: number): Notify[] {
   pet.hunger = clamp(pet.hunger + item.hunger)
   pet.happiness = clamp(pet.happiness + item.happiness)
   pet.careCount += 1
-  pet.size = C.sizeForCareCount(pet.careCount)
+  pet.size = C.growSize(pet.size)
   grantPetXp(pet, C.PET_XP_PER_ACTION)
   grantCaretakerXp(p, C.CARETAKER_XP_PER_ACTION, notes)
   p.currency += C.COINS_PER_ACTION
