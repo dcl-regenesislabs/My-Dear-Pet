@@ -1988,7 +1988,6 @@ const Root = () => {
       <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
         <ServerStatus />
         <TopBars />
-        <PetPanel />
         <RemotePetPanel />
         <SwapOfferPanel />
         <SideButtons />
@@ -1996,6 +1995,9 @@ const Root = () => {
         <FetchOverlay />
         <CarryHatchButton />
         <BathButton />
+        {/* Rendered after the HUD chrome (side buttons, bottom nav) so it paints
+            on top of them instead of the nav icons poking through over it. */}
+        <PetPanel />
         {uiState.panel === 'adopt' && <AdoptPanel />}
         {uiState.panel === 'breedName' && <BreedNamePanel />}
         {uiState.panel === 'shop' && <ShopPanel />}
