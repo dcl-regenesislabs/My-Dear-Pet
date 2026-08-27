@@ -435,7 +435,7 @@ export function careAction(p: PlayerData, action: CareAction, onBed: boolean): N
     pet[key] = clamp(pet[key] + effects[key]!)
   }
   pet.careCount += 1
-  pet.size = C.sizeForCareCount(pet.careCount)
+  pet.size = C.growSize(pet.size)
   grantPetXp(pet, C.PET_XP_PER_ACTION)
   grantCaretakerXp(p, C.CARETAKER_XP_PER_ACTION, notes)
   p.currency += C.COINS_PER_ACTION
@@ -595,7 +595,7 @@ export function useItem(p: PlayerData, tier: number): Notify[] {
   pet.hunger = clamp(pet.hunger + item.hunger)
   pet.happiness = clamp(pet.happiness + item.happiness)
   pet.careCount += 1
-  pet.size = C.sizeForCareCount(pet.careCount)
+  pet.size = C.growSize(pet.size)
   grantPetXp(pet, C.PET_XP_PER_ACTION)
   grantCaretakerXp(p, C.CARETAKER_XP_PER_ACTION, notes)
   p.currency += C.COINS_PER_ACTION

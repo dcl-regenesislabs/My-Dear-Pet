@@ -94,6 +94,15 @@ const HIDE_TAG_WHILE_SPEAKING = true
 const REF_DISTANCE = 6
 const MAX_DISTANCE_SCALE = 1.8
 const MOBILE_SCALE = 1.35
+// Horizontal placement. The bubble billboards (rotates to face the camera), so
+// offsetting the ROOT in world-X only lines the tail up from one angle. Instead we
+// slide the PLANE sideways in its OWN local X until the baked tail tip sits
+// centered under the root (the pet's head) — then it points at the pet from every
+// angle, with the cloud body floating off to that side. This fraction of the plane
+// width, and the vertical nudge below, were dialed in live over a test bubble.
+const bubbleXFrac = 0.284
+// Extra vertical nudge (world metres, scaled with the bubble). Negative lowers it.
+const bubbleYOffset = -0.7
 
 // ---------------------------------------------------------------------------
 // Text measuring / wrapping
@@ -219,8 +228,15 @@ function layout(b: Bubble, text: string): void {
   // Slack around the measured block: centered alignment keeps it on the origin.
   t.width = textW + 0.6
   t.height = textH + 0.4
-  // Lift the text into the belly, clear of the tail baked into the PNG's bottom.
-  Transform.getMutable(b.label).position = Vector3.create(0, h * TEXT_RISE, Z_TEXT)
+  // Slide the cloud + its text sideways so the tail centers under the root, and
+  // lift the text into the belly, clear of the tail baked into the PNG's bottom.
+  reapplyX(b)
+}
+
+/** Position the cloud + text in the root's local X so the tail centers under it. */
+function reapplyX(b: Bubble): void {
+  Transform.getMutable(b.img).position = Vector3.create(bubbleXFrac * b.w, 0, Z_BODY)
+  Transform.getMutable(b.label).position = Vector3.create(bubbleXFrac * b.w, b.h * TEXT_RISE, Z_TEXT)
 }
 
 // ---------------------------------------------------------------------------
@@ -343,7 +359,9 @@ function update(dt: number): void {
   const tailTip =
     a.pos.y + HEAD_CLEAR + HEAD_SIZE_MULT * a.size + (a.hasTag && !HIDE_TAG_WHILE_SPEAKING ? TAG_CLEAR : 0)
   const t = Transform.getMutable(b.root)
-  t.position = Vector3.create(a.pos.x, tailTip + (b.h / 2) * scale, a.pos.z)
+  // Root sits exactly over the pet; the tail is centered under it by the local-X
+  // slide in reapplyX(), so it points at the pet from any camera angle.
+  t.position = Vector3.create(a.pos.x, tailTip + (b.h / 2 + bubbleYOffset) * scale, a.pos.z)
   t.scale = Vector3.create(scale, scale, scale)
 }
 
