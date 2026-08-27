@@ -181,6 +181,9 @@ export function TactileButton(props: {
    * is skipped — these textures ship with their caption already baked in.
    */
   texture?: string
+  /** Optional UV crop (8 numbers, bottom-left clockwise) for pulling this
+   *  button out of a spritesheet instead of a standalone texture file. */
+  uvs?: number[]
 }) {
   const scale = getPress(props.id) * (props.pulse && !props.disabled ? attentionPulse() : 1)
   const w = Math.round(props.width * scale)
@@ -194,7 +197,7 @@ export function TactileButton(props: {
         uiTransform={{ width: w, height: h, alignItems: 'center', justifyContent: 'center', borderRadius: textured ? 0 : props.radius ?? S(16) }}
         uiBackground={
           textured
-            ? { texture: { src: props.texture! }, textureMode: 'stretch' }
+            ? { texture: { src: props.texture! }, textureMode: 'stretch', uvs: props.uvs }
             : { color: props.disabled ? dimColor(props.bg) : props.bg ?? C.card }
         }
         onMouseDown={() => {

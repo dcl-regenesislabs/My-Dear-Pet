@@ -25,7 +25,11 @@ export const clientState: {
   presence: PresenceEntry[]
   // UI flags
   followEnabled: boolean
-  toasts: { message: string; until: number }[]
+  // Toast queue: pushToast() enqueues a message here; Toasts() (ui.tsx) shows
+  // one at a time from `currentToast`, advancing the queue as each expires —
+  // multiple toasts no longer stack/overlap on screen.
+  toasts: string[]
+  currentToast: { message: string; until: number } | null
   // Contextual guidance hint (one shown at a time), persistent until its action
   // is done. See showHint/clearHint. null = nothing showing.
   hint: { id: string; message: string } | null
@@ -105,6 +109,7 @@ export const clientState: {
   presence: [],
   followEnabled: true,
   toasts: [],
+  currentToast: null,
   hint: null,
   reward: null,
   lastSpin: null,
@@ -262,8 +267,8 @@ export function presenceFor(address: string): PresenceEntry | undefined {
 }
 
 export function pushToast(message: string): void {
-  clientState.toasts.push({ message, until: Date.now() + 4000 })
-  if (clientState.toasts.length > 4) clientState.toasts.shift()
+  clientState.toasts.push(message)
+  if (clientState.toasts.length > 6) clientState.toasts.shift()
 }
 
 // ---------------------------------------------------------------------------

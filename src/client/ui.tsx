@@ -33,8 +33,9 @@ import { buyItemLocal, buySlotLocal, claimStreak, dailyClaimable, dailyLadderDay
 import { sway, startAnimSystem, attentionPulse } from './ui/anim'
 import { C, Color, getUiRendererConfig, mobile, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, TactileButton } from './ui/theme'
 import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './ui/dialog'
+import { DebugBrowserBar, UI_DEBUG_MODE } from './ui/debugBrowser'
 
-type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor' | 'breedName'
+export type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor' | 'breedName'
 
 const uiState = {
   panel: 'none' as Panel,
@@ -45,10 +46,7 @@ const uiState = {
   // Breeding: partner pet chosen to cross with, and the name the player types for
   // the offspring (the server prefixes it "Gen-N ").
   breedPartnerId: '',
-  breedName: '',
-  // "Choose Location!" modal — opened on entry for RETURNING players only
-  // (first-timers get the tutorial instead). Wired from setup.ts.
-  locationOpen: false
+  breedName: ''
 }
 
 export const ui = {
@@ -106,9 +104,6 @@ export const ui = {
   close(): void {
     uiState.panel = 'none'
   },
-  openLocation(): void {
-    uiState.locationOpen = true
-  },
   /** Teleport the player to the Care Center (where adoption happens). */
   goCareCenter(): void {
     void movePlayerTo({ newRelativePosition: CARE_CENTER })
@@ -117,6 +112,16 @@ export const ui = {
   goHome(): void {
     void movePlayerTo({ newRelativePosition: HOME_DOME })
   }
+}
+
+// DEBUG bridge for ui/debugBrowser.tsx — lets it force any panel/uiState field
+// directly, bypassing ui.openX()'s guard conditions (e.g. openAdopt() blocks if
+// a hatchling already exists). Not part of the public `ui` API above.
+export function debugForcePanel(panel: Panel): void {
+  uiState.panel = panel
+}
+export function debugSetUiState(patch: Partial<{ shopTab: 'food' | 'slots'; adoptStep: 'pick' | 'name' }>): void {
+  Object.assign(uiState, patch)
 }
 
 // Care Center spawn — the adoption area. Shared by the "Choose Location!" modal
@@ -130,99 +135,102 @@ const CARE_CENTER = { x: 167.899, y: 5.755, z: 260.964 }
 const HOME_DOME = { x: 205.75, y: 0, z: 247.5 }
 
 // ---------------------------------------------------------------------------
-// Top profile bar (Caretaker level + XP + coins) -> tap opens Goals
+// Top HUD bars — name+level, coins, colony pets count. Three separate pills
+// using the hud.png sprites, laid out in a row. Tapping the name/level bar
+// still opens Goals (same as the old combined ProfileBar).
 // ---------------------------------------------------------------------------
-function ProfileBar() {
+function NameLevelBar(props: { height: number }) {
+  const h = props.height
+  const w = Math.round(h * BAR_NAME_ASPECT)
   const p = clientState.player
-  if (!p) return <UiEntity />
-  const W = S(360)
+  if (!p) return <UiEntity uiTransform={{ width: w, height: h }} />
   const lvl = p.caretakerLevel
   const base = Cfg.xpForLevel(lvl)
   const next = Cfg.xpForLevel(lvl + 1)
   const frac = next > base ? Math.max(0, Math.min(1, (p.caretakerXp - base) / (next - base))) : 1
-  // Explicit middle width so the flex column never collapses (which would wrap
-  // the label vertically and shove the coins around).
-  const midW = W - S(8) - S(12) - S(48) - S(10) - S(86) - S(8)
-
+  // Level number sits directly over the sprite's own black circle (no extra
+  // badge shape drawn on top of it) — box measured from the sheet, relative
+  // to BAR_NAME_BOX's crop.
+  const circleLeft = Math.round(w * 0.0474)
+  const circleTop = Math.round(h * 0.1333)
+  const circleW = Math.round(w * 0.1541)
+  const circleH = Math.round(h * 0.6933)
+  const textW = w - circleLeft - circleW - S(10)
   return (
     <UiEntity
-      uiTransform={{ positionType: 'absolute', position: { top: S(10), left: '50%' }, margin: { left: -W / 2 }, width: W, height: S(64), flexDirection: 'row', alignItems: 'center', padding: { left: S(8), right: S(12) }, borderRadius: S(32), pointerFilter: 'block' }}
-      uiBackground={{ color: C.panelBg }}
+      uiTransform={{ width: w, height: h, pointerFilter: 'block' }}
+      uiBackground={{ texture: { src: HUD_SHEET }, textureMode: 'stretch', uvs: BAR_NAME_UVS }}
       onMouseDown={() => ui.openGoals()}
     >
-      {/* level badge */}
-      <UiEntity uiTransform={{ width: S(48), height: S(48), borderRadius: S(24), alignItems: 'center', justifyContent: 'center', margin: { right: S(10) } }} uiBackground={{ color: C.green }}>
-        <OutlineLabel value={`${lvl}`} fontSize={S(24)} color={C.text} outlineColor={C.outline} width={S(48)} height={S(48)} />
-      </UiEntity>
-      {/* name + xp bar */}
-      <UiEntity uiTransform={{ width: midW, height: '100%', flexDirection: 'column', justifyContent: 'center' }}>
-        <Label value={`${playerName()}  ·  Lv ${lvl}`} fontSize={S(15)} color={C.text} textAlign="middle-left" textWrap="nowrap" uiTransform={{ width: midW, height: S(18) }} />
-        <UiEntity uiTransform={{ width: '100%', height: S(12), borderRadius: S(6), margin: { top: S(2) } }} uiBackground={{ color: C.trackBg }}>
-          <UiEntity uiTransform={{ width: `${Math.round(frac * 100)}%`, height: '100%', borderRadius: S(6) }} uiBackground={{ color: C.gold }} />
+      <Label
+        value={`${lvl}`}
+        fontSize={Math.round(Math.min(circleW, circleH) * 0.6)}
+        color={PET_UI.white}
+        textAlign="middle-center"
+        uiTransform={{ positionType: 'absolute', position: { left: circleLeft, top: circleTop }, width: circleW, height: circleH }}
+      />
+      <UiEntity uiTransform={{ positionType: 'absolute', position: { left: circleLeft + circleW + S(10), top: 0 }, width: textW, height: h, flexDirection: 'column', justifyContent: 'center' }}>
+        <Label value={`${playerName()}  ·  Lv ${lvl}`} fontSize={S(15)} color={PET_UI.ink} textAlign="middle-left" textWrap="nowrap" uiTransform={{ width: textW, height: S(18) }} />
+        <UiEntity uiTransform={{ width: Math.round(textW * 0.55), height: S(10), borderRadius: S(5), margin: { top: S(3) } }} uiBackground={{ color: LOC.tile }}>
+          <UiEntity uiTransform={{ width: `${Math.round(frac * 100)}%`, height: '100%', borderRadius: S(5) }} uiBackground={{ color: C.gold }} />
         </UiEntity>
-      </UiEntity>
-      {/* coins */}
-      <UiEntity uiTransform={{ width: S(86), height: S(40), flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', margin: { left: S(8) } }}>
-        <UiEntity uiTransform={{ width: S(26), height: S(26), borderRadius: S(13), margin: { right: S(5) }, alignItems: 'center', justifyContent: 'center' }} uiBackground={{ color: C.gold }}>
-          <Label value="C" fontSize={S(14)} color={C.outline} textAlign="middle-center" uiTransform={{ width: S(26), height: S(26) }} />
-        </UiEntity>
-        <Label value={`${Math.floor(p.currency)}`} fontSize={S(17)} color={C.text} textAlign="middle-right" uiTransform={{ width: S(50), height: S(40) }} />
       </UiEntity>
     </UiEntity>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Colony meter (top, right of the profile) — the shared Mars population and the
-// milestone we're all building toward. Broadcast by the server, so every player
-// sees the same number.
-// ---------------------------------------------------------------------------
-function ColonyBar() {
+function CoinsBar(props: { height: number }) {
+  const h = props.height
+  const w = Math.round(h * BAR_COIN_ASPECT)
+  const p = clientState.player
+  if (!p) return <UiEntity uiTransform={{ width: w, height: h }} />
+  return (
+    <UiEntity uiTransform={{ width: w, height: h }} uiBackground={{ texture: { src: HUD_SHEET }, textureMode: 'stretch', uvs: BAR_COIN_UVS }}>
+      <Label
+        value={`${Math.floor(p.currency)}`}
+        fontSize={S(24)}
+        color={PET_UI.ink}
+        textAlign="middle-right"
+        uiTransform={{ positionType: 'absolute', position: { right: S(14), top: 0 }, width: Math.round(w * 0.5), height: h }}
+      />
+    </UiEntity>
+  )
+}
+
+// The shared Mars population and the milestone we're all building toward.
+// Broadcast by the server, so every player sees the same number.
+function PetsCountBar(props: { height: number }) {
+  const h = props.height
+  const w = Math.round(h * BAR_PETS_ASPECT)
   const pop = clientState.colonyPopulation
   const goal = Cfg.COLONY_GOAL
-  const frac = goal > 0 ? Math.max(0, Math.min(1, pop / goal)) : 0
-  const W = S(190)
   return (
-    <UiEntity
-      uiTransform={{
-        positionType: 'absolute',
-        position: { top: S(10), left: '50%' },
-        margin: { left: S(360) / 2 + S(10) },
-        width: W,
-        height: S(64),
-        flexDirection: 'column',
-        justifyContent: 'center',
-        padding: { left: S(16), right: S(16) },
-        borderRadius: S(32),
-        pointerFilter: 'none'
-      }}
-      uiBackground={{ color: C.panelBg }}
-    >
-      <Label
-        value="Mars Colony"
-        fontSize={S(12)}
-        color={C.dim}
-        textAlign="middle-left"
-        textWrap="nowrap"
-        uiTransform={{ width: '100%', height: S(16) }}
-      />
+    <UiEntity uiTransform={{ width: w, height: h }} uiBackground={{ texture: { src: HUD_SHEET }, textureMode: 'stretch', uvs: BAR_PETS_UVS }}>
       <Label
         value={`${pop} / ${goal} pets`}
-        fontSize={S(17)}
-        color={C.text}
-        textAlign="middle-left"
-        textWrap="nowrap"
-        uiTransform={{ width: '100%', height: S(22) }}
+        fontSize={S(22)}
+        color={PET_UI.ink}
+        textAlign="middle-right"
+        uiTransform={{ positionType: 'absolute', position: { right: S(16), top: 0 }, width: Math.round(w * 0.65), height: h }}
       />
-      <UiEntity
-        uiTransform={{ width: '100%', height: S(9), borderRadius: S(5), margin: { top: S(3) } }}
-        uiBackground={{ color: C.trackBg }}
-      >
-        <UiEntity
-          uiTransform={{ width: `${Math.round(frac * 100)}%`, height: '100%', borderRadius: S(5) }}
-          uiBackground={{ color: C.green }}
-        />
-      </UiEntity>
+    </UiEntity>
+  )
+}
+
+function TopBars() {
+  const h = S(58)
+  const gap = S(10)
+  const w1 = Math.round(h * BAR_NAME_ASPECT)
+  const w2 = Math.round(h * BAR_COIN_ASPECT)
+  const w3 = Math.round(h * BAR_PETS_ASPECT)
+  const totalW = w1 + gap + w2 + gap + w3
+  return (
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: S(10), left: '50%' }, margin: { left: -totalW / 2 }, width: totalW, height: h, flexDirection: 'row', alignItems: 'center', pointerFilter: 'none' }}>
+      <NameLevelBar height={h} />
+      <UiEntity uiTransform={{ width: gap, height: h }} />
+      <CoinsBar height={h} />
+      <UiEntity uiTransform={{ width: gap, height: h }} />
+      <PetsCountBar height={h} />
     </UiEntity>
   )
 }
@@ -246,8 +254,11 @@ function StatRow(props: { label: string; value: number; color: Color; width: num
 }
 
 // Snapshot + rarity + growth stage/size — shared by the owner's PetPanel and
-// the read-only RemotePetPanel so both "passports" look consistent.
-function PetIdentityRow(props: { species: string; rarity: Rarity; size: number; width: number }) {
+// the read-only RemotePetPanel so both "passports" look consistent. `name`/
+// `level` are optional: PetPanel passes them to show its header inline (the
+// hud2 card has no separate title bar); RemotePetPanel leaves them off since
+// its LightModal title already shows the name/level.
+function PetIdentityRow(props: { species: string; rarity: Rarity; size: number; width: number; name?: string; level?: number }) {
   const img = Cfg.speciesImage(props.species)
   const stage = Cfg.petStage(props.size)
   const rc = Cfg.RARITY_COLOR[props.rarity] ?? Cfg.RARITY_COLOR.common
@@ -261,6 +272,9 @@ function PetIdentityRow(props: { species: string; rarity: Rarity; size: number; 
         uiBackground={img ? { texture: { src: img }, textureMode: 'stretch' } : { color: speciesColor(props.species) }}
       />
       <UiEntity uiTransform={{ width: textW, flexDirection: 'column', justifyContent: 'center' }}>
+        {props.name !== undefined && (
+          <Label value={`${props.name}  ·  Lv ${props.level}`} fontSize={S(20)} color={PET_UI.ink} textAlign="middle-left" textWrap="nowrap" uiTransform={{ width: '100%', height: S(26) }} />
+        )}
         <Label value={Cfg.rarityLabel(props.rarity).toUpperCase()} fontSize={S(18)} color={rarityColor} textAlign="middle-left" uiTransform={{ width: '100%', height: S(24) }} />
         <Label value={`${stage} pet  ·  size ${props.size.toFixed(2)}`} fontSize={S(14)} color={LOC.dim} textAlign="middle-left" uiTransform={{ width: '100%', height: S(20), margin: { top: S(2) } }} />
       </UiEntity>
@@ -280,8 +294,8 @@ function PetPanel() {
   const partner = clientState.player?.pets.find((x) => x.id !== pet.id)
 
   return (
-    <LightModal title={`${pet.name}  ·  Lv ${pet.petLevel}`} width={S(700)} height={S(660)} onClose={() => (clientState.petPanelOpen = false)}>
-      <PetIdentityRow species={pet.species} rarity={pet.rarity} size={pet.size} width={contentW} />
+    <PetHudCard width={S(700)} height={S(480)} onClose={() => (clientState.petPanelOpen = false)}>
+      <PetIdentityRow species={pet.species} rarity={pet.rarity} size={pet.size} width={contentW} name={pet.name} level={pet.petLevel} />
       {careActive() && (
         <Label value={`Busy${queueLength() > 0 ? ` +${queueLength()}` : ''}`} fontSize={S(14)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(20), margin: { bottom: S(6) } }} />
       )}
@@ -383,7 +397,7 @@ function PetPanel() {
           }}
         />
       </UiEntity>
-    </LightModal>
+    </PetHudCard>
   )
 }
 
@@ -511,30 +525,27 @@ function BottomNav() {
   // The nav buttons only appear once you actually own a pet (kept at least one).
   if (p.pets.length === 0) return <UiEntity />
 
-  // Flat button style (same look as the modals): blue when its panel is open,
-  // white otherwise. Replaces the old navButtonUi PNGs.
-  const nav = (id: string, label: string, panel: Panel, onClick: () => void) => {
+  // Icon-only squares (paw / backpack / star) from hud.png. A colored plate
+  // shows behind the icon when its panel is open — the icon art itself has no
+  // separate "selected" variant.
+  const navSize = Sbtn(92)
+  const plateSize = navSize + S(10)
+  const nav = (id: string, uvs: number[], panel: Panel, onClick: () => void) => {
     const sel = uiState.panel === panel
     return (
-      <TactileButton
-        id={id}
-        label={label}
-        width={bw}
-        height={bh}
-        bg={sel ? LOC.blue : LOC.tile}
-        textColor={sel ? LOC.white : LOC.body}
-        fontSize={S(20)}
-        radius={S(20)}
-        margin={{ left: S(8), right: S(8) }}
-        onClick={onClick}
-      />
+      <UiEntity
+        uiTransform={{ width: plateSize, height: plateSize, alignItems: 'center', justifyContent: 'center', margin: { left: S(6), right: S(6) }, borderRadius: S(18) }}
+        uiBackground={sel ? { color: LOC.blue } : undefined}
+      >
+        <TactileButton id={id} label="" texture={HUD_SHEET} uvs={uvs} width={navSize} height={navSize} onClick={onClick} />
+      </UiEntity>
     )
   }
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(18), left: 0 }, width: '100%', height: bh, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', pointerFilter: 'none' }}>
-      {nav('nav_pets', 'My Pets', 'roster', () => ui.openRoster())}
-      {nav('nav_inv', 'Inventory', 'inventory', () => ui.openInventory())}
-      {nav('nav_goals', 'Goals', 'goals', () => ui.openGoals())}
+      {nav('nav_pets', NAV_PAW_UVS, 'roster', () => ui.openRoster())}
+      {nav('nav_inv', NAV_INV_UVS, 'inventory', () => ui.openInventory())}
+      {nav('nav_goals', NAV_GOALS_UVS, 'goals', () => ui.openGoals())}
     </UiEntity>
   )
 }
@@ -588,13 +599,16 @@ function speciesColor(s: string): Color {
 
 function SpeciesCard(props: { key?: string; species: string }) {
   const selected = uiState.adoptSpecies === props.species
-  const disc = S(96)
+  const cardW = S(180)
+  const cardH = Math.round(cardW / PET_CARD_ASPECT)
+  const disc = S(78)
   const img = Cfg.speciesImage(props.species)
   return (
-    <UiEntity
-      uiTransform={{ width: S(280), height: S(168), flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: S(8), borderRadius: S(18), padding: S(8) }}
-      uiBackground={{ color: selected ? LOC.blue : LOC.tile }}
-      onMouseDown={() => {
+    <PetGridCard
+      selected={selected}
+      width={cardW}
+      height={cardH}
+      onClick={() => {
         uiState.adoptSpecies = props.species
       }}
     >
@@ -602,8 +616,9 @@ function SpeciesCard(props: { key?: string; species: string }) {
         uiTransform={{ width: disc, height: disc, borderRadius: disc / 2, margin: { bottom: S(10) } }}
         uiBackground={img ? { texture: { src: img }, textureMode: 'stretch' } : { color: speciesColor(props.species) }}
       />
-      <Label value={Cfg.speciesLabel(props.species)} fontSize={S(18)} color={selected ? LOC.white : LOC.body} textAlign="middle-center" uiTransform={{ width: '100%', height: S(26) }} />
-    </UiEntity>
+      <Label value={Cfg.speciesLabel(props.species)} fontSize={S(18)} color={selected ? C.greenDark : PET_UI.ink} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24) }} />
+      <Label value={selected ? 'Selected' : 'Tap to choose'} fontSize={S(13)} color={selected ? C.greenDark : PET_UI.muted} textAlign="middle-center" uiTransform={{ width: '100%', height: S(18), margin: { top: S(2) } }} />
+    </PetGridCard>
   )
 }
 
@@ -613,52 +628,61 @@ function AdoptPanel() {
   const sp = uiState.adoptSpecies
 
   if (uiState.adoptStep === 'pick') {
+    const modalW = S(520)
+    const modalH = Math.round(S(620) / PET_MODAL_ASPECT)
+    const nextW = S(150)
+    const nextH = Math.round(nextW / PET_NEXT_ASPECT)
     return (
-      <LightModal title="Choose a Pet" width={S(720)} height={S(620)} onClose={() => ui.close()}>
-        <Label value="Tap a friend to choose, then Next." fontSize={S(16)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24), margin: { bottom: S(6) } }} />
-        <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignContent: 'flex-start', overflow: 'hidden' }}>
-          {Cfg.SPECIES.map((s) => (
-            <SpeciesCard key={s} species={s} />
-          ))}
+      <PetHudModal title="Choose a Pet" subtitle="Tap a friend to choose your next colony companion." width={modalW} height={modalH} onClose={() => ui.close()}>
+        <UiEntity uiTransform={{ width: '100%', height: '100%', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between' }}>
+          <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignContent: 'flex-start' }}>
+            {Cfg.SPECIES.map((s) => (
+              <SpeciesCard key={s} species={s} />
+            ))}
+          </UiEntity>
+          <UiEntity uiTransform={{ width: '100%', flexDirection: 'column', alignItems: 'center', margin: { top: S(6) } }}>
+            <TactileButton id="adopt_next" label="Next" texture={PET_NEXT_TEXTURE} width={nextW} height={nextH} pulse onClick={() => (uiState.adoptStep = 'name')} />
+          </UiEntity>
         </UiEntity>
-        <UiEntity uiTransform={{ width: '100%', justifyContent: 'center', margin: { top: S(10) } }}>
-          <TactileButton id="adopt_next" label={`Next: ${Cfg.speciesLabel(sp)}  >`} width={S(340)} height={S(70)} bg={LOC.blue} textColor={LOC.white} fontSize={S(24)} radius={S(18)} pulse onClick={() => (uiState.adoptStep = 'name')} />
-        </UiEntity>
-      </LightModal>
+      </PetHudModal>
     )
   }
 
   // Name + confirm step
   const disc = S(120)
+  const modalW = S(560)
+  const modalH = Math.round(modalW / PET_MODAL_ASPECT)
+  const img = Cfg.speciesImage(sp)
   return (
-    <LightModal title="Name your Pet" width={S(680)} height={S(660)} onClose={() => ui.close()}>
-      <UiEntity uiTransform={{ width: '100%', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
-        <UiEntity uiTransform={{ width: disc, height: disc, borderRadius: disc / 2, margin: { top: S(12), bottom: S(10) } }} uiBackground={{ color: speciesColor(sp) }} />
-        <OutlineLabel value={Cfg.speciesLabel(sp)} fontSize={S(26)} color={LOC.title} outlineColor={LOC.titleOutline} width={'100%'} height={S(36)} textAlign="middle-center" />
+    <PetHudModal title="Name your Pet" subtitle="Pick a name before you carry the egg home." width={modalW} height={modalH} onClose={() => ui.close()}>
+      <UiEntity uiTransform={{ width: '100%', height: '100%', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between' }}>
+        <UiEntity uiTransform={{ width: '100%', flexDirection: 'column', alignItems: 'center' }}>
+          <UiEntity uiTransform={{ width: disc, height: disc, borderRadius: disc / 2, margin: { top: S(8), bottom: S(10) } }} uiBackground={img ? { texture: { src: img }, textureMode: 'stretch' } : { color: speciesColor(sp) }} />
+          <Label value={Cfg.speciesLabel(sp)} fontSize={S(24)} color={PET_UI.ink} textAlign="middle-center" uiTransform={{ width: '100%', height: S(32) }} />
         <Input
           placeholder="Type a name..."
           fontSize={S(20)}
-          color={LOC.body}
-          placeholderColor={LOC.dim}
-          uiTransform={{ width: S(440), height: S(60), margin: { top: S(16), bottom: S(12) } }}
+          color={PET_UI.ink}
+          placeholderColor={PET_UI.muted}
+          uiTransform={{ width: S(360), height: S(56), margin: { top: S(14), bottom: S(10) } }}
           uiBackground={{ color: LOC.tile }}
           onChange={(v) => {
             uiState.adoptName = v
           }}
         />
-        {!slotsFree && <Label value="No free pet slots — buy one first." fontSize={S(16)} color={LOC.red} uiTransform={{ width: '100%', height: S(26) }} />}
+        {!slotsFree && <Label value="No free pet slots. Buy one first." fontSize={S(16)} color={LOC.red} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24) }} />}
       </UiEntity>
-      <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', justifyContent: 'center', margin: { top: S(6) } }}>
-        <TactileButton id="adopt_back" label="< Back" width={S(160)} height={S(66)} bg={LOC.neutral} textColor={LOC.body} fontSize={S(20)} radius={S(18)} margin={{ right: S(12) }} onClick={() => (uiState.adoptStep = 'pick')} />
+      <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', justifyContent: 'center', margin: { top: S(10) } }}>
+        <TactileButton id="adopt_back" label="Back" width={S(130)} height={S(56)} bg={LOC.neutral} textColor={PET_UI.ink} fontSize={S(18)} radius={S(18)} margin={{ right: S(10) }} onClick={() => (uiState.adoptStep = 'pick')} />
         {slotsFree ? (
           <TactileButton
             id="adopt_confirm"
             label="Adopt!"
-            width={S(260)}
-            height={S(66)}
-            bg={LOC.green}
+            width={S(200)}
+            height={S(56)}
+            bg={LOC.violet}
             textColor={LOC.white}
-            fontSize={S(26)}
+            fontSize={S(24)}
             radius={S(18)}
             pulse
             onClick={() => {
@@ -669,10 +693,11 @@ function AdoptPanel() {
             }}
           />
         ) : (
-          <TactileButton id="adopt_buyslot" label={`Buy Slot ${Cfg.SLOT_PRICE}`} width={S(260)} height={S(66)} bg={LOC.orange} textColor={LOC.white} fontSize={S(22)} radius={S(18)} onClick={() => actions.buySlot()} />
+          <TactileButton id="adopt_buyslot" label={`Buy Slot ${Cfg.SLOT_PRICE}`} width={S(220)} height={S(56)} bg={LOC.orange} textColor={LOC.white} fontSize={S(20)} radius={S(18)} onClick={() => actions.buySlot()} />
         )}
       </UiEntity>
-    </LightModal>
+      </UiEntity>
+    </PetHudModal>
   )
 }
 
@@ -816,16 +841,38 @@ function ShopPanel() {
 // ---------------------------------------------------------------------------
 // Inventory (use food on the active pet)
 // ---------------------------------------------------------------------------
-// One slot in the inventory grid (count badge on the icon).
-function InvCard(props: { key?: string; id: string; title: string; count: number; color: Color; onUse: () => void }) {
-  const icon = S(64)
+// One slot in the inventory grid — hud3's card template (baked count badge
+// slot + green/gray "Use" button) with the matching food-bowl icon dropped in.
+function InvCard(props: { key?: string; id: string; title: string; bowlUvs: number[]; bowlAspect: number; count: number; onUse: () => void }) {
+  const cardW = S(260)
+  const cardH = Math.round(cardW / INV_CARD_ASPECT)
+  const enabled = props.count > 0
+  const bowlW = Math.round(cardW * 0.46)
+  const bowlH = Math.round(bowlW / props.bowlAspect)
   return (
-    <UiEntity uiTransform={{ width: S(296), height: S(196), flexDirection: 'column', alignItems: 'center', margin: S(6), padding: S(12), borderRadius: S(16) }} uiBackground={{ color: LOC.tile }}>
-      <UiEntity uiTransform={{ width: icon, height: icon, borderRadius: S(14), margin: { top: S(4), bottom: S(8) }, alignItems: 'center', justifyContent: 'center' }} uiBackground={{ color: props.color }}>
-        <Label value={`x${props.count}`} fontSize={S(22)} color={LOC.white} textAlign="middle-center" uiTransform={{ width: icon, height: icon }} />
-      </UiEntity>
-      <Label value={props.title} fontSize={S(17)} color={LOC.body} textAlign="middle-center" uiTransform={{ width: '100%', height: S(28) }} />
-      <TactileButton id={props.id} label="Use" width={S(170)} height={S(48)} bg={props.count > 0 ? LOC.green : LOC.neutral} textColor={props.count > 0 ? LOC.white : LOC.dim} fontSize={S(16)} radius={S(14)} disabled={props.count <= 0} margin={{ top: S(8) }} onClick={() => props.onUse()} />
+    <UiEntity uiTransform={{ width: cardW, height: cardH, margin: S(10), pointerFilter: enabled ? 'block' : 'none' }} onMouseDown={enabled ? props.onUse : undefined}>
+      <UiEntity
+        uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: cardW, height: cardH }}
+        uiBackground={{ texture: { src: INV_SHEET }, textureMode: 'stretch', uvs: enabled ? INV_CARD_ENABLED_UVS : INV_CARD_DISABLED_UVS }}
+      />
+      <Label
+        value={`x${props.count}`}
+        fontSize={S(14)}
+        color={PET_UI.white}
+        textAlign="middle-center"
+        uiTransform={{ positionType: 'absolute', position: { left: Math.round(cardW * 0.726), top: Math.round(cardH * 0.066) }, width: Math.round(cardW * 0.19), height: Math.round(cardH * 0.104) }}
+      />
+      <UiEntity
+        uiTransform={{ positionType: 'absolute', position: { left: Math.round((cardW - bowlW) / 2), top: Math.round(cardH * 0.3) }, width: bowlW, height: bowlH }}
+        uiBackground={{ texture: { src: INV_SHEET }, textureMode: 'stretch', uvs: props.bowlUvs }}
+      />
+      <Label
+        value={props.title}
+        fontSize={S(16)}
+        color={PET_UI.ink}
+        textAlign="middle-center"
+        uiTransform={{ positionType: 'absolute', position: { left: 0, top: Math.round(cardH * 0.62) }, width: cardW, height: Math.round(cardH * 0.1) }}
+      />
     </UiEntity>
   )
 }
@@ -835,115 +882,105 @@ function InventoryPanel() {
   const t1 = p?.inventory.tier1 ?? 0
   const t2 = p?.inventory.tier2 ?? 0
   return (
-    <LightModal title="Inventory" width={S(700)} height={S(520)} onClose={() => ui.close()}>
-      <Label value="Tap Use to feed your active pet." fontSize={S(16)} color={LOC.dim} uiTransform={{ width: '100%', height: S(28), margin: { bottom: S(10) } }} textAlign="middle-center" />
-      <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center' }}>
-        <InvCard key="inv-1" id="use_1" title={Cfg.SHOP_ITEMS[0].label} count={t1} color={C.hunger} onUse={() => { if (useItemLocal(1)) pushToast('Fed your pet!'); actions.useItem(1) }} />
-        <InvCard key="inv-2" id="use_2" title={Cfg.SHOP_ITEMS[1].label} count={t2} color={C.happy} onUse={() => { if (useItemLocal(2)) pushToast('Fed your pet!'); actions.useItem(2) }} />
+    <PetHudModal title="Inventory" subtitle="Tap Use to feed your active pet." width={S(660)} height={S(500)} onClose={() => ui.close()}>
+      <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center' }}>
+        <InvCard key="inv-1" id="use_1" title={Cfg.SHOP_ITEMS[0].label} bowlUvs={INV_BOWL1_UVS} bowlAspect={INV_BOWL1_ASPECT} count={t1} onUse={() => { if (useItemLocal(1)) pushToast('Fed your pet!'); actions.useItem(1) }} />
+        <InvCard key="inv-2" id="use_2" title={Cfg.SHOP_ITEMS[1].label} bowlUvs={INV_BOWL2_UVS} bowlAspect={INV_BOWL2_ASPECT} count={t2} onUse={() => { if (useItemLocal(2)) pushToast('Fed your pet!'); actions.useItem(2) }} />
       </UiEntity>
-    </LightModal>
+    </PetHudModal>
   )
 }
 
 // ---------------------------------------------------------------------------
 // Roster (Pets) — selection system
 // ---------------------------------------------------------------------------
-// One slot in the My Pets 2x2 grid: a pet, an empty "+" (add), or locked (price).
-function SlotCard(props: { key?: number; index: number }) {
+function RosterSlotCard(props: { key?: number; index: number }) {
   const p = clientState.player
   if (!p) return <UiEntity />
-  const cardW = S(280)
-  const cardH = S(168)
-  const disc = S(90)
+
+  const cardW = S(180)
+  const cardH = Math.round(cardW / PET_CARD_ASPECT)
+  const disc = S(78)
   const unlocked = props.index < p.petSlots
   const pet = p.pets[props.index]
 
-  // Locked slot — shows the unlock price. Only the NEXT slot is buyable.
   if (!unlocked) {
     const canUnlock = props.index === p.petSlots
     return (
-      <UiEntity uiTransform={{ width: cardW, height: cardH, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: S(8), borderRadius: S(18), padding: S(8) }} uiBackground={{ color: LOC.neutral }}>
-        <Label value="🔒" fontSize={S(40)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(48) }} />
-        {canUnlock ? (
-          <TactileButton
-            id={`unlock_${props.index}`}
-            label={`Unlock  ${Cfg.SLOT_PRICE}`}
-            width={S(190)}
-            height={S(52)}
-            bg={LOC.orange}
-            textColor={LOC.white}
-            fontSize={S(17)}
-            radius={S(14)}
-            pulse
-            onClick={() => {
-              if (buySlotLocal()) pushToast('Slot unlocked!')
-              else pushToast('Not enough coins')
-              actions.buySlot()
-            }}
-          />
-        ) : (
-          <Label value={`Unlock: ${Cfg.SLOT_PRICE}`} fontSize={S(16)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24) }} />
-        )}
-      </UiEntity>
+      <PetGridCard
+        selected={false}
+        width={cardW}
+        height={cardH}
+        onClick={
+          canUnlock
+            ? () => {
+                if (buySlotLocal()) pushToast('Slot unlocked!')
+                else pushToast('Not enough coins')
+                actions.buySlot()
+              }
+            : undefined
+        }
+      >
+        <UiEntity uiTransform={{ width: S(42), height: S(42), borderRadius: S(21), alignItems: 'center', justifyContent: 'center', margin: { bottom: S(10) } }} uiBackground={{ color: canUnlock ? PET_UI.badge : PET_UI.lock }}>
+          <Label value={canUnlock ? '+' : 'x'} fontSize={S(26)} color={PET_UI.white} textAlign="middle-center" uiTransform={{ width: S(42), height: S(42) }} />
+        </UiEntity>
+        <Label value={canUnlock ? 'Unlock' : 'Locked'} fontSize={S(18)} color={PET_UI.ink} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24) }} />
+        <UiEntity uiTransform={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', margin: { top: S(4) } }}>
+          <PriceDot />
+          <Label value={`${Cfg.SLOT_PRICE}`} fontSize={S(16)} color={PET_UI.muted} textAlign="middle-center" uiTransform={{ width: S(54), height: S(20), margin: { left: S(6) } }} />
+        </UiEntity>
+      </PetGridCard>
     )
   }
 
-  // Empty unlocked slot. The FIRST empty slot holds a just-hatched pet (if any),
-  // which the player keeps or discards; otherwise it's a "+" to adopt.
   if (!pet) {
     const isFirstEmpty = props.index === p.pets.length
     const hatch = p.hatchling
     if (isFirstEmpty && hatch) {
       const img = Cfg.speciesImage(hatch.species)
       return (
-        <UiEntity uiTransform={{ width: cardW, height: cardH, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: S(8), borderRadius: S(18), padding: S(8) }} uiBackground={{ color: LOC.card }}>
+        <PetGridCard selected={false} width={cardW} height={cardH}>
           <UiEntity uiTransform={{ width: S(70), height: S(70), borderRadius: S(35), margin: { bottom: S(6) } }} uiBackground={img ? { texture: { src: img }, textureMode: 'stretch' } : { color: speciesColor(hatch.species) }} />
-          <Label value={`${hatch.name} hatched!`} fontSize={S(15)} color={LOC.body} textAlign="middle-center" uiTransform={{ width: '100%', height: S(22) }} />
+          <Label value={`${hatch.name} hatched!`} fontSize={S(14)} color={PET_UI.ink} textAlign="middle-center" uiTransform={{ width: '100%', height: S(20) }} />
           <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', justifyContent: 'center', margin: { top: S(6) } }}>
-            <TactileButton id="hatch_keep" label="Keep" width={S(120)} height={S(46)} bg={LOC.violet} textColor={LOC.white} fontSize={S(16)} radius={S(12)} margin={{ right: S(4) }} pulse onClick={() => keepHatchling()} />
-            <TactileButton id="hatch_discard" label="Discard" width={S(120)} height={S(46)} bg={LOC.rose} textColor={LOC.white} fontSize={S(16)} radius={S(12)} margin={{ left: S(4) }} onClick={() => discardHatchling()} />
+            <TactileButton id="hatch_keep" label="Keep" width={S(78)} height={S(38)} bg={LOC.violet} textColor={LOC.white} fontSize={S(15)} radius={S(12)} margin={{ right: S(4) }} pulse onClick={() => keepHatchling()} />
+            <TactileButton id="hatch_discard" label="Discard" width={S(84)} height={S(38)} bg={LOC.rose} textColor={LOC.white} fontSize={S(14)} radius={S(12)} margin={{ left: S(4) }} onClick={() => discardHatchling()} />
           </UiEntity>
-        </UiEntity>
+        </PetGridCard>
       )
     }
+
     return (
-      <UiEntity
-        uiTransform={{ width: cardW, height: cardH, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: S(8), borderRadius: S(18), padding: S(8) }}
-        uiBackground={{ color: LOC.tile }}
-        onMouseDown={() => pushToast('Go to the Care Center to adopt a pet!')}
-      >
-        <Label value="+" fontSize={S(72)} color={LOC.blue} textAlign="middle-center" uiTransform={{ width: '100%', height: S(80) }} />
-        <Label value="Add a pet" fontSize={S(17)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24) }} />
-      </UiEntity>
+      <PetGridCard selected={false} width={cardW} height={cardH} onClick={() => pushToast('Go to the Care Center to adopt a pet!')}>
+        <UiEntity uiTransform={{ width: S(42), height: S(42), borderRadius: S(21), alignItems: 'center', justifyContent: 'center', margin: { bottom: S(10) } }} uiBackground={{ color: PET_UI.badge }}>
+          <Label value="+" fontSize={S(28)} color={PET_UI.white} textAlign="middle-center" uiTransform={{ width: S(42), height: S(42) }} />
+        </UiEntity>
+        <Label value="Adopt" fontSize={S(18)} color={PET_UI.ink} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24) }} />
+        <Label value="Go to Care Center" fontSize={S(13)} color={PET_UI.muted} textAlign="middle-center" uiTransform={{ width: '100%', height: S(18), margin: { top: S(2) } }} />
+      </PetGridCard>
     )
   }
 
-  // Filled slot — the pet. Tap to make it the active pet.
   const isActive = pet.id === p.activePetId
   const img = Cfg.speciesImage(pet.species)
   return (
-    <UiEntity
-      uiTransform={{ width: cardW, height: cardH, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: S(8), borderRadius: S(18), padding: S(8) }}
-      uiBackground={{ color: isActive ? LOC.blue : LOC.tile }}
-      onMouseDown={() => switchActivePet(pet.id)}
-    >
+    <PetGridCard selected={isActive} width={cardW} height={cardH} onClick={() => switchActivePet(pet.id)}>
       <UiEntity uiTransform={{ width: disc, height: disc, borderRadius: disc / 2, margin: { bottom: S(8) } }} uiBackground={img ? { texture: { src: img }, textureMode: 'stretch' } : { color: speciesColor(pet.species) }} />
-      <Label value={`${pet.name}  ·  Lv ${pet.petLevel}`} fontSize={S(17)} color={isActive ? LOC.white : LOC.body} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24) }} />
-      <Label value={isActive ? 'Active' : 'Tap to select'} fontSize={S(13)} color={isActive ? LOC.white : LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(20) }} />
-    </UiEntity>
+      <Label value={pet.name} fontSize={S(17)} color={isActive ? C.greenDark : PET_UI.ink} textAlign="middle-center" uiTransform={{ width: '100%', height: S(22) }} />
+      <Label value={`Lv ${pet.petLevel}`} fontSize={S(13)} color={isActive ? C.greenDark : PET_UI.muted} textAlign="middle-center" uiTransform={{ width: '100%', height: S(18), margin: { top: S(2) } }} />
+    </PetGridCard>
   )
 }
 
 function RosterPanel() {
   return (
-    <LightModal title="My Pets" width={S(720)} height={S(620)} onClose={() => ui.close()}>
-      <Label value="Your colony — tap a pet to select it, unlock slots to grow." fontSize={S(16)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24), margin: { bottom: S(8) } }} />
+    <PetHudModal title="My Pets" subtitle="Your colony. Tap a pet to select it and unlock slots to grow." width={S(620)} height={Math.round(S(620) / PET_MODAL_ASPECT)} onClose={() => ui.close()}>
       <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignContent: 'flex-start' }}>
         {[0, 1, 2, 3].map((i) => (
-          <SlotCard key={i} index={i} />
+          <RosterSlotCard key={i} index={i} />
         ))}
       </UiEntity>
-    </LightModal>
+    </PetHudModal>
   )
 }
 
@@ -1106,7 +1143,7 @@ function MeteorRewardPanel() {
 function GoalsPanel() {
   const p = clientState.player
   return (
-    <LightModal title="Goals & Achievements" width={S(680)} height={S(700)} onClose={() => ui.close()}>
+    <PetHudModal title="Goals" subtitle="Check your goals & achievements!" width={S(680)} height={S(600)} onClose={() => ui.close()}>
       <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
         {Cfg.ACHIEVEMENTS.map((a) => {
           const done = (p?.achievements.indexOf(a.id) ?? -1) !== -1
@@ -1123,7 +1160,7 @@ function GoalsPanel() {
           )
         })}
       </UiEntity>
-    </LightModal>
+    </PetHudModal>
   )
 }
 
@@ -1195,16 +1232,23 @@ function DailyRewardPanel() {
 // ---------------------------------------------------------------------------
 // Toasts (screen center)
 // ---------------------------------------------------------------------------
+// Shows one toast at a time from clientState.toasts (a queue) — advances to
+// the next message once the current one expires, instead of stacking every
+// pushed toast on screen at once. Sits below the top HUD bars, off to the
+// side, so it never covers a centered modal.
 function Toasts() {
   const now = Date.now()
-  const active = clientState.toasts.filter((t) => t.until > now)
+  if ((!clientState.currentToast || clientState.currentToast.until <= now) && clientState.toasts.length > 0) {
+    const message = clientState.toasts.shift()!
+    clientState.currentToast = { message, until: now + 3200 }
+  }
+  const t = clientState.currentToast
+  if (!t || t.until <= now) return <UiEntity />
   return (
-    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: '42%', left: '50%' }, margin: { left: -S(180) }, width: S(360), flexDirection: 'column', alignItems: 'center', pointerFilter: 'none' }}>
-      {active.map((t, i) => (
-        <UiEntity key={`toast-${i}`} uiTransform={{ width: S(360), height: S(42), justifyContent: 'center', alignItems: 'center', margin: { bottom: S(5) }, borderRadius: S(21) }} uiBackground={{ color: { r: 0.12, g: 0.1, b: 0.09, a: 0.96 } }}>
-          <Label value={t.message} fontSize={S(15)} color={C.text} textAlign="middle-center" uiTransform={{ width: S(344), height: S(34) }} />
-        </UiEntity>
-      ))}
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: S(84), right: S(16) }, width: S(320), alignItems: 'center', pointerFilter: 'none' }}>
+      <UiEntity uiTransform={{ width: S(320), height: S(42), justifyContent: 'center', alignItems: 'center', borderRadius: S(21) }} uiBackground={{ color: { r: 0.12, g: 0.1, b: 0.09, a: 0.96 } }}>
+        <Label value={t.message} fontSize={S(15)} color={C.text} textAlign="middle-center" uiTransform={{ width: S(304), height: S(34) }} />
+      </UiEntity>
     </UiEntity>
   )
 }
@@ -1214,7 +1258,9 @@ function Toasts() {
 // pill near the top-center. Non-interactive; cleared when its action is done.
 function HintBanner() {
   const h = clientState.hint
-  if (!h) return <UiEntity />
+  // Hidden behind any open panel/modal — it used to float on top of them
+  // (the "toast overlapping the UI" complaint), covering the title card.
+  if (!h || uiState.panel !== 'none' || clientState.dialog.open || clientState.petPanelOpen || clientState.viewingPetAddress || clientState.incomingSwap) return <UiEntity />
   const w = S(620)
   return (
     <UiEntity
@@ -1579,6 +1625,7 @@ function DebugCamPanel() {
   )
 }
 
+
 // ---------------------------------------------------------------------------
 // Feed tree minigame overlay (fruitGame.ts): "how to play" + arrows during
 // arrival/intro (before the player can move freely to catch anything), then a
@@ -1718,89 +1765,178 @@ function LightModal(props: { title: string; width: number; height: number; onClo
   )
 }
 
-function LocationTile(props: { imageSrc: string; label: string; color: Color; onClick: () => void }) {
-  const tileW = S(300)
-  const iconH = S(210)
-  const imageW = S(220)
-  const imageH = S(147)
-  return (
-    <UiEntity
-      uiTransform={{ width: tileW, flexDirection: 'column', alignItems: 'center', margin: { left: S(12), right: S(12) }, pointerFilter: 'block' }}
-      onMouseDown={props.onClick}
-    >
-      {/* Icon area (white rounded card) */}
-      <UiEntity
-        uiTransform={{ width: tileW, height: iconH, alignItems: 'center', justifyContent: 'center', borderRadius: S(22) }}
-        uiBackground={{ color: LOC.tile }}
-      >
-        <UiEntity uiTransform={{ width: imageW, height: imageH }} uiBackground={{ texture: { src: props.imageSrc }, textureMode: 'stretch' }} />
-      </UiEntity>
-      {/* Colored label banner */}
-      <UiEntity
-        uiTransform={{ width: tileW - S(30), height: S(64), alignItems: 'center', justifyContent: 'center', margin: { top: -S(14) }, borderRadius: S(16) }}
-        uiBackground={{ color: props.color }}
-      >
-        <OutlineLabel value={props.label} fontSize={S(24)} color={LOC.white} outlineColor={{ r: 0, g: 0, b: 0, a: 0.35 }} width={'100%'} height={S(34)} textAlign="middle-center" />
-      </UiEntity>
-    </UiEntity>
-  )
-}
-
-function LocationPanel() {
-  if (!uiState.locationOpen) return <UiEntity />
-  const MW = S(760)
-  const MH = S(560)
-  const close = () => (uiState.locationOpen = false)
-  return (
-    <UiEntity
-      uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
-      uiBackground={{ color: { r: 0, g: 0, b: 0, a: 0.5 } }}
-      onMouseDown={() => {}}
-    >
-      <UiEntity
-        uiTransform={{ width: MW, height: MH, flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', padding: { top: S(28), bottom: S(28), left: S(24), right: S(24) }, borderRadius: S(28), pointerFilter: 'block' }}
-        uiBackground={{ color: LOC.card }}
-      >
-        {/* Red X (top-right) */}
-        <UiEntity
-          uiTransform={{ positionType: 'absolute', position: { top: S(18), right: S(18) }, width: S(56), height: S(56), alignItems: 'center', justifyContent: 'center', borderRadius: S(14), pointerFilter: 'block' }}
-          uiBackground={{ color: LOC.red }}
-          onMouseDown={close}
-        >
-          <OutlineLabel value="X" fontSize={S(30)} color={LOC.white} outlineColor={{ r: 0, g: 0, b: 0, a: 0.3 }} width={S(56)} height={S(40)} textAlign="middle-center" />
-        </UiEntity>
-        {/* Title */}
-        <OutlineLabel value="Choose Location!" fontSize={S(52)} color={LOC.title} outlineColor={LOC.titleOutline} width={'100%'} height={S(70)} textAlign="middle-center" />
-        {/* Two options */}
-        <UiEntity uiTransform={{ width: '100%', flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', margin: { top: S(20) } }}>
-          <LocationTile
-            imageSrc="assets/images/carecenter.png"
-            label="ADOPTION CENTER"
-            color={LOC.orange}
-            onClick={() => {
-              close()
-              ui.goCareCenter()
-            }}
-          />
-          <LocationTile
-            imageSrc="assets/images/dome.png"
-            label="HOUSE"
-            color={LOC.blue}
-            onClick={() => {
-              close()
-              ui.goHome()
-            }}
-          />
-        </UiEntity>
-      </UiEntity>
-    </UiEntity>
-  )
-}
-
 // ---------------------------------------------------------------------------
 // Carry-egg-home flow — while carrying an egg, a hint says "take it home"; once
 // the player is home a big centered "Hatch" button starts the rub-to-hatch flow.
 // ---------------------------------------------------------------------------
+const PET_HUD_SHEET = 'assets/images/revamp/hud2.png'
+const PET_NEXT_TEXTURE = 'assets/images/tutorialUi/btn_next.png'
+const PET_HUD_W = 1024
+const PET_HUD_H = 1024
+
+function petHudUvRect(x0: number, y0: number, x1: number, y1: number): number[] {
+  const uL = x0 / PET_HUD_W
+  const uR = x1 / PET_HUD_W
+  const vTop = 1 - y0 / PET_HUD_H
+  const vBottom = 1 - y1 / PET_HUD_H
+  return [uL, vBottom, uL, vTop, uR, vTop, uR, vBottom]
+}
+
+const PET_MODAL_BOX = { x0: 532, y0: 277, x1: 988, y1: 710 }
+const PET_CARD_SELECTED_BOX = { x0: 526, y0: 42, x1: 752, y1: 245 }
+const PET_CARD_PLAIN_BOX = { x0: 531, y0: 745, x1: 757, y1: 947 }
+const PET_CLOSE_PINK_BOX = { x0: 43, y0: 538, x1: 151, y1: 646 }
+
+const PET_MODAL_UVS = petHudUvRect(PET_MODAL_BOX.x0, PET_MODAL_BOX.y0, PET_MODAL_BOX.x1, PET_MODAL_BOX.y1)
+const PET_CARD_SELECTED_UVS = petHudUvRect(PET_CARD_SELECTED_BOX.x0, PET_CARD_SELECTED_BOX.y0, PET_CARD_SELECTED_BOX.x1, PET_CARD_SELECTED_BOX.y1)
+const PET_CARD_PLAIN_UVS = petHudUvRect(PET_CARD_PLAIN_BOX.x0, PET_CARD_PLAIN_BOX.y0, PET_CARD_PLAIN_BOX.x1, PET_CARD_PLAIN_BOX.y1)
+const PET_CLOSE_PINK_UVS = petHudUvRect(PET_CLOSE_PINK_BOX.x0, PET_CLOSE_PINK_BOX.y0, PET_CLOSE_PINK_BOX.x1, PET_CLOSE_PINK_BOX.y1)
+
+const PET_MODAL_ASPECT = (PET_MODAL_BOX.x1 - PET_MODAL_BOX.x0) / (PET_MODAL_BOX.y1 - PET_MODAL_BOX.y0)
+const PET_CARD_ASPECT = (PET_CARD_SELECTED_BOX.x1 - PET_CARD_SELECTED_BOX.x0) / (PET_CARD_SELECTED_BOX.y1 - PET_CARD_SELECTED_BOX.y0)
+const PET_NEXT_ASPECT = 639 / 378
+
+// Inventory item card template (hud3.png) — outlined card with a pink count
+// badge (top-right) and a baked-in "Use" button (green enabled / gray
+// disabled), plus the two food-bowl icons that fill each card.
+const INV_SHEET = 'assets/images/revamp/hud3.png'
+const INV_SHEET_W = 1024
+const INV_SHEET_H = 1024
+function invUvRect(x0: number, y0: number, x1: number, y1: number): number[] {
+  const uL = x0 / INV_SHEET_W
+  const uR = x1 / INV_SHEET_W
+  const vTop = 1 - y0 / INV_SHEET_H
+  const vBottom = 1 - y1 / INV_SHEET_H
+  return [uL, vBottom, uL, vTop, uR, vTop, uR, vBottom]
+}
+const INV_CARD_ENABLED_BOX = { x0: 85, y0: 67, x1: 490, y1: 566 }
+const INV_CARD_DISABLED_BOX = { x0: 516, y0: 67, x1: 921, y1: 566 }
+const INV_BOWL1_BOX = { x0: 148, y0: 655, x1: 378, y1: 829 }
+const INV_BOWL2_BOX = { x0: 593, y0: 636, x1: 816, y1: 831 }
+const INV_CARD_ENABLED_UVS = invUvRect(INV_CARD_ENABLED_BOX.x0, INV_CARD_ENABLED_BOX.y0, INV_CARD_ENABLED_BOX.x1, INV_CARD_ENABLED_BOX.y1)
+const INV_CARD_DISABLED_UVS = invUvRect(INV_CARD_DISABLED_BOX.x0, INV_CARD_DISABLED_BOX.y0, INV_CARD_DISABLED_BOX.x1, INV_CARD_DISABLED_BOX.y1)
+const INV_BOWL1_UVS = invUvRect(INV_BOWL1_BOX.x0, INV_BOWL1_BOX.y0, INV_BOWL1_BOX.x1, INV_BOWL1_BOX.y1)
+const INV_BOWL2_UVS = invUvRect(INV_BOWL2_BOX.x0, INV_BOWL2_BOX.y0, INV_BOWL2_BOX.x1, INV_BOWL2_BOX.y1)
+const INV_CARD_ASPECT = (INV_CARD_ENABLED_BOX.x1 - INV_CARD_ENABLED_BOX.x0) / (INV_CARD_ENABLED_BOX.y1 - INV_CARD_ENABLED_BOX.y0)
+const INV_BOWL1_ASPECT = (INV_BOWL1_BOX.x1 - INV_BOWL1_BOX.x0) / (INV_BOWL1_BOX.y1 - INV_BOWL1_BOX.y0)
+const INV_BOWL2_ASPECT = (INV_BOWL2_BOX.x1 - INV_BOWL2_BOX.x0) / (INV_BOWL2_BOX.y1 - INV_BOWL2_BOX.y0)
+
+// Top HUD bars (name/level, coins, colony pets count) + bottom nav icons
+// (Pets/Inventory/Goals). Same 1024x1024 sheet size as PET_HUD_SHEET above, so
+// petHudUvRect's math applies as-is.
+const HUD_SHEET = 'assets/images/revamp/hud.png'
+const BAR_NAME_BOX = { x0: 56, y0: 838, x1: 731, y1: 988 }
+const BAR_COIN_BOX = { x0: 576, y0: 181, x1: 827, y1: 306 }
+const BAR_PETS_BOX = { x0: 567, y0: 30, x1: 989, y1: 155 }
+const NAV_PAW_BOX = { x0: 34, y0: 612, x1: 238, y1: 817 }
+const NAV_INV_BOX = { x0: 263, y0: 612, x1: 466, y1: 817 }
+const NAV_GOALS_BOX = { x0: 492, y0: 614, x1: 696, y1: 817 }
+
+const BAR_NAME_UVS = petHudUvRect(BAR_NAME_BOX.x0, BAR_NAME_BOX.y0, BAR_NAME_BOX.x1, BAR_NAME_BOX.y1)
+const BAR_COIN_UVS = petHudUvRect(BAR_COIN_BOX.x0, BAR_COIN_BOX.y0, BAR_COIN_BOX.x1, BAR_COIN_BOX.y1)
+const BAR_PETS_UVS = petHudUvRect(BAR_PETS_BOX.x0, BAR_PETS_BOX.y0, BAR_PETS_BOX.x1, BAR_PETS_BOX.y1)
+const NAV_PAW_UVS = petHudUvRect(NAV_PAW_BOX.x0, NAV_PAW_BOX.y0, NAV_PAW_BOX.x1, NAV_PAW_BOX.y1)
+const NAV_INV_UVS = petHudUvRect(NAV_INV_BOX.x0, NAV_INV_BOX.y0, NAV_INV_BOX.x1, NAV_INV_BOX.y1)
+const NAV_GOALS_UVS = petHudUvRect(NAV_GOALS_BOX.x0, NAV_GOALS_BOX.y0, NAV_GOALS_BOX.x1, NAV_GOALS_BOX.y1)
+
+const BAR_NAME_ASPECT = (BAR_NAME_BOX.x1 - BAR_NAME_BOX.x0) / (BAR_NAME_BOX.y1 - BAR_NAME_BOX.y0)
+const BAR_COIN_ASPECT = (BAR_COIN_BOX.x1 - BAR_COIN_BOX.x0) / (BAR_COIN_BOX.y1 - BAR_COIN_BOX.y0)
+const BAR_PETS_ASPECT = (BAR_PETS_BOX.x1 - BAR_PETS_BOX.x0) / (BAR_PETS_BOX.y1 - BAR_PETS_BOX.y0)
+
+const PET_UI = {
+  scrim: { r: 0, g: 0, b: 0, a: 0.38 } as Color,
+  ink: { r: 0.23, g: 0.17, b: 0.15, a: 1 } as Color,
+  muted: { r: 0.48, g: 0.41, b: 0.37, a: 1 } as Color,
+  white: { r: 1, g: 1, b: 1, a: 1 } as Color,
+  badge: { r: 0.42, g: 0.37, b: 0.34, a: 1 } as Color,
+  lock: { r: 0.58, g: 0.52, b: 0.49, a: 1 } as Color,
+  coinOuter: { r: 0.96, g: 0.62, b: 0.19, a: 1 } as Color,
+  coinInner: { r: 1, g: 0.78, b: 0.42, a: 1 } as Color
+}
+
+function PetHudModal(props: { title: string; subtitle?: string; width: number; height: number; onClose: () => void; children?: any }) {
+  const topPad = S(26)
+  const sidePad = S(30)
+  const titleH = S(36)
+  const subtitleH = props.subtitle ? S(38) : 0
+  const bodyTop = props.subtitle ? S(10) : S(18)
+  const bodyH = props.height - topPad - titleH - subtitleH - bodyTop - S(26)
+
+  return (
+    <UiEntity
+      uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
+      uiBackground={{ color: PET_UI.scrim }}
+      onMouseDown={() => {}}
+    >
+      <UiEntity uiTransform={{ width: props.width, height: props.height }}>
+        <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: props.width, height: props.height }} uiBackground={{ texture: { src: PET_HUD_SHEET }, textureMode: 'stretch', uvs: PET_MODAL_UVS }} />
+        <UiEntity
+          uiTransform={{ positionType: 'absolute', position: { top: S(14), right: S(26) }, width: S(42), height: S(42), pointerFilter: 'block' }}
+          uiBackground={{ texture: { src: PET_HUD_SHEET }, textureMode: 'stretch', uvs: PET_CLOSE_PINK_UVS }}
+          onMouseDown={props.onClose}
+        />
+        <UiEntity uiTransform={{ positionType: 'absolute', position: { top: topPad, left: sidePad }, width: props.width - sidePad * 2, height: props.height - topPad - S(24), flexDirection: 'column', alignItems: 'center' }}>
+          <Label value={props.title} fontSize={S(30)} color={PET_UI.ink} textAlign="middle-center" uiTransform={{ width: '100%', height: titleH }} />
+          {props.subtitle ? <Label value={props.subtitle} fontSize={S(15)} color={PET_UI.muted} textAlign="middle-center" textWrap="wrap" uiTransform={{ width: '100%', height: subtitleH, margin: { top: S(4) } }} /> : null}
+          <UiEntity uiTransform={{ width: '100%', height: bodyH, margin: { top: bodyTop }, flexDirection: 'column', alignItems: 'center', overflow: 'hidden' }}>{props.children}</UiEntity>
+        </UiEntity>
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+// Same hud2 card background + pink close button as PetHudModal, but with no
+// built-in title bar — for panels (like the pet status detail) whose content
+// already renders its own header (name/level) inline.
+function PetHudCard(props: { width: number; height: number; onClose: () => void; children?: any }) {
+  const sidePad = S(30)
+  const topPad = S(26)
+  return (
+    <UiEntity
+      uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
+      uiBackground={{ color: PET_UI.scrim }}
+      onMouseDown={() => {}}
+    >
+      <UiEntity uiTransform={{ width: props.width, height: props.height }}>
+        <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: props.width, height: props.height }} uiBackground={{ texture: { src: PET_HUD_SHEET }, textureMode: 'stretch', uvs: PET_MODAL_UVS }} />
+        <UiEntity
+          uiTransform={{ positionType: 'absolute', position: { top: S(14), right: S(26) }, width: S(42), height: S(42), pointerFilter: 'block' }}
+          uiBackground={{ texture: { src: PET_HUD_SHEET }, textureMode: 'stretch', uvs: PET_CLOSE_PINK_UVS }}
+          onMouseDown={props.onClose}
+        />
+        <UiEntity uiTransform={{ positionType: 'absolute', position: { top: topPad, left: sidePad }, width: props.width - sidePad * 2, height: props.height - topPad * 2, flexDirection: 'column', alignItems: 'center', overflow: 'hidden' }}>
+          {props.children}
+        </UiEntity>
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+function PetGridCard(props: { selected: boolean; width: number; height: number; onClick?: () => void; children?: any }) {
+  return (
+    <UiEntity uiTransform={{ width: props.width, height: props.height, margin: { left: S(6), right: S(6), top: S(6), bottom: S(6) } }}>
+      <UiEntity
+        uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: props.width, height: props.height, pointerFilter: props.onClick ? 'block' : 'none' }}
+        uiBackground={{ texture: { src: PET_HUD_SHEET }, textureMode: 'stretch', uvs: props.selected ? PET_CARD_SELECTED_UVS : PET_CARD_PLAIN_UVS }}
+        onMouseDown={props.onClick}
+      />
+      <UiEntity uiTransform={{ positionType: 'absolute', position: { top: S(18), left: S(18) }, width: props.width - S(36), height: props.height - S(36), flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        {props.children}
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+function PriceDot(props: { size?: number }) {
+  const d = props.size ?? S(18)
+  const inner = Math.max(6, Math.round(d * 0.5))
+  return (
+    <UiEntity uiTransform={{ width: d, height: d, borderRadius: d / 2, alignItems: 'center', justifyContent: 'center' }} uiBackground={{ color: PET_UI.coinOuter }}>
+      <UiEntity uiTransform={{ width: inner, height: inner, borderRadius: inner / 2 }} uiBackground={{ color: PET_UI.coinInner }} />
+    </UiEntity>
+  )
+}
+
 function CarryHatchButton() {
   const st = clientState.carryEgg
   if (!st.active) return <UiEntity />
@@ -1854,97 +1990,63 @@ function BathButton() {
 }
 
 // ---------------------------------------------------------------------------
-// Loading gate — blocks all UI/input until the authoritative server answers
-// with our persisted state (the first stateSnapshot, see setup.ts). Nothing
-// else in Root renders while this is up, and pointerFilter 'block' stops
-// clicks from reaching anything underneath.
-// ---------------------------------------------------------------------------
-function LoadingServerOverlay() {
-  const pulse = attentionPulse()
-  const cardW = S(480)
-  const cardH = S(200)
-  return (
-    <UiEntity
-      uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }}
-      uiBackground={{ color: C.scrim }}
-      onMouseDown={() => {}}
-    >
-      <UiEntity
-        uiTransform={{ width: cardW, height: cardH, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: S(24), pointerFilter: 'block' }}
-        uiBackground={{ color: C.panelBg }}
-      >
-        <OutlineLabel
-          value="Loading server..."
-          fontSize={Math.round(S(30) * pulse)}
-          color={C.gold}
-          width={cardW - S(60)}
-          height={S(48)}
-          textAlign="middle-center"
-        />
-      </UiEntity>
-    </UiEntity>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Root
 // ---------------------------------------------------------------------------
 const Root = () => {
-  if (!clientState.serverReady) return <LoadingServerOverlay />
   // In petting mode the camera is locked on the pet — hide the whole HUD so
   // nothing covers it, leaving only the petting overlay (BACK + swipe hint).
-  if (clientState.petting.active) {
-    return (
+  // Hatching also owns the whole screen (egg framed by a fixed camera).
+  // Feed tree minigame also owns the whole screen (cinematic camera under the tree).
+  // Computed as a value (not early-returned) so UI_DEBUG_MODE's browser bar
+  // below can render on top of ANY of these branches, not just the default one.
+  const content =
+    !clientState.serverReady ? (
+      <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'block' }} />
+    ) : clientState.petting.active ? (
       <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
         <PettingOverlay />
       </UiEntity>
-    )
-  }
-  // Hatching also owns the whole screen (egg framed by a fixed camera).
-  if (clientState.hatch.active) {
-    return (
+    ) : clientState.hatch.active ? (
       <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
         <HatchOverlay />
       </UiEntity>
-    )
-  }
-  // Feed tree minigame also owns the whole screen (cinematic camera under the tree).
-  if (clientState.feedGame.active) {
-    return (
+    ) : clientState.feedGame.active ? (
       <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
         <FeedGameOverlay />
       </UiEntity>
+    ) : (
+      <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
+        <ServerStatus />
+        <TopBars />
+        <PetPanel />
+        <RemotePetPanel />
+        <SwapOfferPanel />
+        <SideButtons />
+        <BottomNav />
+        <FetchOverlay />
+        <CarryHatchButton />
+        <BathButton />
+        {uiState.panel === 'adopt' && <AdoptPanel />}
+        {uiState.panel === 'breedName' && <BreedNamePanel />}
+        {uiState.panel === 'shop' && <ShopPanel />}
+        {uiState.panel === 'roster' && <RosterPanel />}
+        {uiState.panel === 'inventory' && <InventoryPanel />}
+        {uiState.panel === 'spin' && <SpinPanel />}
+        {uiState.panel === 'meteor' && <MeteorRewardPanel />}
+        {uiState.panel === 'goals' && <GoalsPanel />}
+        {uiState.panel === 'daily' && <DailyRewardPanel />}
+        <DialogBox />
+        {/* Hints + reward + toasts render LAST so they sit on top of any panel/modal. */}
+        <HintBanner />
+        <RewardPopup />
+        <Toasts />
+      </UiEntity>
     )
-  }
   return (
-  <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
-    <ServerStatus />
-    <ProfileBar />
-    <ColonyBar />
-    <PetPanel />
-    <RemotePetPanel />
-    <SwapOfferPanel />
-    <SideButtons />
-    <BottomNav />
-    <FetchOverlay />
-    <CarryHatchButton />
-    <BathButton />
-    {uiState.panel === 'adopt' && <AdoptPanel />}
-    {uiState.panel === 'breedName' && <BreedNamePanel />}
-    {uiState.panel === 'shop' && <ShopPanel />}
-    {uiState.panel === 'roster' && <RosterPanel />}
-    {uiState.panel === 'inventory' && <InventoryPanel />}
-    {uiState.panel === 'spin' && <SpinPanel />}
-    {uiState.panel === 'meteor' && <MeteorRewardPanel />}
-    {uiState.panel === 'goals' && <GoalsPanel />}
-    {uiState.panel === 'daily' && <DailyRewardPanel />}
-    <DialogBox />
-    <LocationPanel />
-    {/* Hints + reward + toasts render LAST so they sit on top of any panel/modal. */}
-    <HintBanner />
-    <RewardPopup />
-    <Toasts />
-  </UiEntity>
+    <UiEntity uiTransform={{ width: '100%', height: '100%' }}>
+      {content}
+      {UI_DEBUG_MODE && <DebugBrowserBar />}
+    </UiEntity>
   )
 }
 
