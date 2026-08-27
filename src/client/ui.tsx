@@ -107,10 +107,6 @@ export const ui = {
   /** Teleport the player to the Care Center (where adoption happens). */
   goCareCenter(): void {
     void movePlayerTo({ newRelativePosition: CARE_CENTER })
-  },
-  /** Teleport the player to the middle of the home dome. */
-  goHome(): void {
-    void movePlayerTo({ newRelativePosition: HOME_DOME })
   }
 }
 
@@ -124,15 +120,8 @@ export function debugSetUiState(patch: Partial<{ shopTab: 'food' | 'slots'; adop
   Object.assign(uiState, patch)
 }
 
-// Care Center spawn — the adoption area. Shared by the "Choose Location!" modal
-// and the tutorial's Adopt step.
+// Care Center spawn — the adoption area, used by the tutorial's Adopt step.
 const CARE_CENTER = { x: 167.899, y: 5.755, z: 260.964 }
-// Home dome spawn (Dome01, from main.composite). Hardcoded like CARE_CENTER above
-// instead of objectPosition(EntityNames.Dome01_glb) — that reads the entity's live
-// Transform, which can still be Vector3.Zero() if the composite entity hasn't
-// resolved by name yet (the "Choose Location!" modal can open early, right on the
-// first server snapshot) — teleporting the player to scene origin.
-const HOME_DOME = { x: 205.75, y: 0, z: 247.5 }
 
 // ---------------------------------------------------------------------------
 // Top HUD bars — name+level, coins, colony pets count. Three separate pills
