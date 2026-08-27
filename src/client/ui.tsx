@@ -553,29 +553,10 @@ function BottomNav() {
 // ---------------------------------------------------------------------------
 // Side buttons: Spin + Shop (right), Whistle (left)
 // ---------------------------------------------------------------------------
+// Spin and Stay/Whistle are suspended until they get revamped — the logic
+// (ui.openSpin(), setFollow()) stays wired, just not reachable from the HUD.
 function SideButtons() {
-  const p = clientState.player
-  if (!p || clientState.fetch.active || clientState.carryEgg.active || clientState.carryPet.active) return <UiEntity />
-  const hasPet = !!clientState.activePet
-  const w = Sbtn(112)
-  const h = Sbtn(58)
-  const spins = p.spinTickets > 0
-  return (
-    <UiEntity uiTransform={{ width: '100%', height: '100%', positionType: 'absolute', position: { top: 0, left: 0 }, pointerFilter: 'none' }}>
-      {/* right side */}
-      <UiEntity uiTransform={{ positionType: 'absolute', position: { right: S(12), top: S(90) }, width: w, height: h, flexDirection: 'column', alignItems: 'flex-end', pointerFilter: 'none' }}>
-        {/* Daily reward is suspended for now — the meteor is the daily drop. */}
-        <TactileButton id="side_spin" label="Spin" width={w} height={h} bg={spins ? C.pink : C.cardAlt} textColor={spins ? C.outline : C.text} radius={S(20)} pulse={spins} fontSize={S(18)} onClick={() => ui.openSpin()} />
-        {/* Shop is suspended for now — the panel still exists, just unreachable. */}
-      </UiEntity>
-      {/* left side */}
-      {hasPet && (
-        <UiEntity uiTransform={{ positionType: 'absolute', position: { left: S(12), top: 0 }, width: w, height: '100%', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', pointerFilter: 'none' }}>
-          <TactileButton id="side_whistle" label={clientState.followEnabled ? 'Stay' : 'Whistle'} width={w} height={h} bg={C.cardAlt} radius={S(20)} fontSize={S(18)} onClick={() => setFollow(!clientState.followEnabled)} />
-        </UiEntity>
-      )}
-    </UiEntity>
-  )
+  return <UiEntity />
 }
 
 
