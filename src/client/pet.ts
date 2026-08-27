@@ -53,7 +53,7 @@ import { clientState, actions, adoptPet, openDialog, pushToast, switchActivePet,
 import { applyCareLocal } from './sim'
 import { EntityNames } from '../../assets/scene/entity-names'
 import { objectPosition } from './objects'
-import { navStepToward, pointInsideAnyBuilding, nudgeOutsideBuildings } from './nav'
+import { navStepToward, zoneOf, nearWall, pointInsideAnyBuilding, nudgeOutsideBuildings } from './nav'
 import { mobile } from './ui/theme'
 
 type Mode = 'follow' | 'goto' | 'interact' | 'wander' | 'bathhop'
@@ -1001,17 +1001,22 @@ function followTarget(): Vector3 {
 const TRAIL_SPACING = 0.4 // record a new breadcrumb after the player moves this far (m)
 const TRAIL_TELEPORT = 8 // a player jump larger than this = teleport -> reset the trail
 const TRAIL_MAX = 400 // hard cap on stored breadcrumbs (~160 m of path)
+const FOLLOW_SUSPEND_SLACK = 2.0 // how far past follow distance still counts as "near the player"
+const FOLLOW_WALL_KEEP = 2.5 // stay on the breadcrumb trail within this of any wall (clean door crossing)
 let followTrail: Vector3[] = []
 
-/** Append the player's position to the trail (call once per frame). */
+/** Append the player's position to the trail (call once per frame). The full Y is
+ *  kept (not flattened) so the pet inherits the player's HEIGHT along the path —
+ *  it rises where the player walked up onto the raised house / care-center bases. */
 function recordTrail(): void {
-  const pp = flat(playerPos())
+  const src = playerPos()
+  const pp = Vector3.create(src.x, src.y, src.z)
   if (followTrail.length === 0) {
     followTrail.push(pp)
     return
   }
   const last = followTrail[followTrail.length - 1]
-  const d = distFlat(pp, last)
+  const d = distFlat(pp, last) // spacing is horizontal, so height changes don't spam crumbs
   if (d > TRAIL_TELEPORT) {
     followTrail = [pp] // teleport (e.g. Choose Location) -> drop the stale path
     return
@@ -1166,12 +1171,31 @@ function updateLocalPet(dt: number): void {
       // the pet walks the exact route the player took, so it enters through the
       // door instead of trying to cut across a wall.
       const petPos = Transform.get(localPet).position
+      // Suspend the trail when the pet is already CLOSE to the player, in the SAME
+      // zone, and both are clear of any wall: there's no wall between them so it can
+      // just settle by the player instead of retracing their wiggles (kills the
+      // zigzag in the open). Near a wall / different zone we keep the trail so the
+      // door crossing stays clean, and going straight-to-player keeps the height
+      // right (same local ground) — no far-crumb elevation artifact.
+      const pp = playerPos()
+      const nearPlayer = distFlat(petPos, pp) <= C.PET_FOLLOW_DISTANCE + FOLLOW_SUSPEND_SLACK
+      if (nearPlayer && zoneOf(petPos) === zoneOf(pp) && !nearWall(petPos, FOLLOW_WALL_KEEP) && !nearWall(pp, FOLLOW_WALL_KEEP)) {
+        followTrail.length = 0
+      }
       // Drop breadcrumbs we've already reached.
       while (followTrail.length > 0 && distFlat(petPos, followTrail[0]) < C.PET_ARRIVE_DISTANCE) followTrail.shift()
       // Trail the player by the follow distance measured ALONG the path.
       if (trailPathLength(petPos) > C.PET_FOLLOW_DISTANCE + 0.5) {
-        const wp = followTrail.length > 0 ? followTrail[0] : flat(playerPos())
+        const wp = followTrail.length > 0 ? followTrail[0] : playerPos()
+        // stepToward snaps Y back to PET_BASE_Y every frame, so ease the height
+        // from the pet's PREVIOUS Y (captured before the step) toward the
+        // breadcrumb's Y — otherwise the height keeps resetting to 0 each frame and
+        // the pet only ever climbs a fraction of the way, sinking into raised bases.
+        const prevY = petPos.y
         moved = stepToward(localPet, wp, dt, yawOffsetForSpecies(clientState.activePet?.species ?? ''))
+        const tp = Transform.getMutable(localPet)
+        const y = prevY + (wp.y - prevY) * Math.min(1, dt * 8)
+        tp.position = Vector3.create(tp.position.x, y, tp.position.z)
       }
       break
     }

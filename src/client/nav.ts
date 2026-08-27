@@ -159,6 +159,14 @@ export function pointInsideAnyBuilding(p: Vector3): boolean {
   return zoneOf(p) !== null
 }
 
+/** True if p is within `margin` metres of any building's wall (in or out). Follow
+ *  uses this to keep its breadcrumb trail near doorways (for clean crossings) and
+ *  only shortcut straight to the player out in the open, away from walls. */
+export function nearWall(p: Vector3, margin: number): boolean {
+  for (const b of BUILDINGS) if (Math.abs(dist(p, center(b)) - b.radius) < margin) return true
+  return false
+}
+
 /** Extra clearance kept beyond the wall when relocating a home point outdoors. */
 const OUT_MARGIN = 1.0
 
