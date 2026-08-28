@@ -79,6 +79,12 @@ const BATH_HOP_DURATION = 0.45 // seconds
 const BATH_HOP_DISTANCE = 1.2 // metres covered horizontally while hopping out
 const BATH_HOP_HEIGHT = 0.6 // metres, peak arc height
 
+// How far above PET_BASE_Y the pet rests while asleep, so it lies on TOP of
+// the PetBed's cushion instead of at ground level (sinking a bit below the
+// bed's visible surface). Tune this to match the actual model — the sleep
+// clip plays with the pet lifted by exactly this much.
+const SLEEP_BED_LIFT = 0.15
+
 // Wander state (used while the pet is dismissed / told to stay).
 let wanderHome = Vector3.create(199.2, 0, 231.8)
 let wanderTarget: Vector3 | null = null
@@ -456,7 +462,17 @@ function ensureLocalPet(): void {
   }
   if (!localPet) {
     localPet = engine.addEntity()
-    Transform.create(localPet, { position: homeSpawnPos(), scale: petScale(pet.species, stageScaleFor(pet.size)) })
+    // Reconnecting while the pet was left sleeping: resume it AT the bed,
+    // already asleep — otherwise it spawns at the generic home point in
+    // 'follow' mode and walks over to fall asleep right next to the player
+    // instead of staying where it was left.
+    let spawnPos = homeSpawnPos()
+    if (pet.sleeping) {
+      const bed = nudgeOutsideBuildings(objectPosition(EntityNames.PetBed_glb))
+      spawnPos = Vector3.create(bed.x, C.PET_BASE_Y + SLEEP_BED_LIFT, bed.z)
+      mode = 'asleep'
+    }
+    Transform.create(localPet, { position: spawnPos, scale: petScale(pet.species, stageScaleFor(pet.size)) })
     pointerEventsSystem.onPointerDown(
       { entity: localPet, opts: { button: InputAction.IA_POINTER, hoverText: 'Open', maxDistance: 8 } },
       () => {
@@ -1251,7 +1267,14 @@ function updateLocalPet(dt: number): void {
     }
     case 'goto': {
       moveClip = 'run'
-      moved = navStepToward(localPet, target, dt, yawOffsetForSpecies(clientState.activePet?.species ?? ''))
+      // Plain direct-line movement, NOT navStepToward: care-action stations
+      // (feeder/pool/bed) are fixed outdoor props, not behind a door, and
+      // PetBed in particular sits close enough to the home dome's new
+      // wall-avoidance footprint that navStepToward's wall-slide redirected
+      // the pet around the building's ring instead of ever reaching it.
+      // navStepToward is still what FOLLOW uses to trail the player through
+      // doors — this only reverts the queued-errand walk.
+      moved = stepToward(localPet, target, dt, yawOffsetForSpecies(clientState.activePet?.species ?? ''))
       if (distFlat(Transform.get(localPet).position, target) <= C.PET_ARRIVE_DISTANCE) {
         mode = 'interact'
         interactTimer = 1.1
@@ -1286,6 +1309,12 @@ function updateLocalPet(dt: number): void {
     case 'asleep': {
       // Stay put — no follow/wander/goto movement while asleep (`moved` stays 0,
       // so the clip logic below plays 'sleep'). Resume as soon as it wakes.
+      // Lifted onto the bed's cushion (see SLEEP_BED_LIFT) instead of resting
+      // at ground level.
+      const st = Transform.getMutable(localPet)
+      if (Math.abs(st.position.y - (C.PET_BASE_Y + SLEEP_BED_LIFT)) > 0.001) {
+        st.position = Vector3.create(st.position.x, C.PET_BASE_Y + SLEEP_BED_LIFT, st.position.z)
+      }
       if (!clientState.activePet?.sleeping) mode = clientState.followEnabled ? 'follow' : 'wander'
       break
     }

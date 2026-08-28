@@ -3,12 +3,12 @@
 // walk to the object, do the animation for a beat, then a short rest before
 // the next. This stops the pet from teleport-spamming between stations.
 
-import { engine, pointerEventsSystem, inputSystem, InputAction, PointerEventType } from '@dcl/sdk/ecs'
+import { engine, pointerEventsSystem, inputSystem, InputAction, PointerEventType, Transform } from '@dcl/sdk/ecs'
 import { EntityNames } from '../../assets/scene/entity-names'
 import type { CareAction } from '../shared/types'
 import type { PetClip } from '../shared/config'
 import { actionObjectPosition } from './objects'
-import { isBusy, sendPetTo, canQueueCareAction } from './pet'
+import { isBusy, sendPetTo, canQueueCareAction, getLocalPet } from './pet'
 import { applyCareLocal } from './sim'
 import { startFeedTask } from './feed'
 import { startFruitGame } from './fruitGame'
@@ -57,8 +57,15 @@ export function triggerCare(action: CareAction): void {
 function startCare(action: CareAction): void {
   const dest = actionObjectPosition(action)
   if (action === 'sleep') {
-    // TEMP DIAGNOSTIC — remove once the bed-pathing bug is confirmed fixed.
-    pushToast(`DEBUG sleep dest: ${dest.x.toFixed(1)}, ${dest.z.toFixed(1)}`)
+    // TEMP DIAGNOSTIC — one toast shows ~3.2s and disappears too fast to read/
+    // screenshot, so queue the same message several times in a row (toasts
+    // show one at a time) to keep it on screen long enough. Remove once the
+    // bed-pathing bug is confirmed fixed.
+    const pet = getLocalPet()
+    const cur = pet ? Transform.get(pet).position : null
+    const curTxt = cur ? `${cur.x.toFixed(1)}, ${cur.z.toFixed(1)}` : '?'
+    const msg = `DEBUG sleep: from ${curTxt} to ${dest.x.toFixed(1)}, ${dest.z.toFixed(1)}`
+    for (let i = 0; i < 6; i++) pushToast(msg)
   }
   const onBed = action === 'sleep'
   sendPetTo(
