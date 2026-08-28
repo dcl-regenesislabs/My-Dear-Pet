@@ -10,7 +10,7 @@ import { engine, InputAction } from '@dcl/sdk/ecs'
 import * as Cfg from '../shared/config'
 import type { CareAction, Rarity } from '../shared/types'
 import { actions, clientState, discardHatchling, keepHatchling, pushToast, serverConnected, switchActivePet } from './state'
-import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry, startCarryPet, placePetAtStation, cancelCarryPet } from './pet'
+import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry, startCarryPet, placePetAtStation, cancelCarryPet, canStartPetInteraction } from './pet'
 import { throwMeteor } from './play'
 import { triggerCare, careActive, queueLength } from './input'
 import { startFeedTask } from './feed'
@@ -277,6 +277,18 @@ function PetPanel() {
   const halfW = Math.round((contentW - S(8)) / 2)
   const unlocked = Cfg.petStage(pet.size) === 'ADULT'
   const partner = clientState.player?.pets.find((x) => x.id !== pet.id)
+  // Interactions are mutually exclusive: a moment already in progress (carry-
+  // to-bathe, petting, fetch, hatching, or a queued care action) blocks
+  // starting another, and being asleep blocks everything except waking up.
+  const busy = !canStartPetInteraction() && !pet.sleeping
+  const locked = pet.sleeping || busy
+  const guard = (fn: () => void) => () => {
+    if (locked) {
+      pushToast('Your pet is busy right now!')
+      return
+    }
+    fn()
+  }
 
   return (
     <PetHudCard width={S(700)} height={S(480)} onClose={() => (clientState.petPanelOpen = false)}>
@@ -293,7 +305,7 @@ function PetPanel() {
       </UiEntity>
       {/* Care actions (flat, colored per stat) */}
       <UiEntity uiTransform={{ width: contentW, flexDirection: 'row', justifyContent: 'center', margin: { top: S(12) } }}>
-        <TactileButton id="care_feed" label="Feed" width={chipW} height={chipH} bg={C.hunger} textColor={C.outline} fontSize={S(16)} radius={S(14)} margin={{ left: S(3), right: S(3) }} onClick={() => startFeedTask()} />
+        <TactileButton id="care_feed" label="Feed" width={chipW} height={chipH} bg={C.hunger} textColor={C.outline} fontSize={S(16)} radius={S(14)} disabled={locked} margin={{ left: S(3), right: S(3) }} onClick={guard(() => startFeedTask())} />
         <TactileButton
           id="care_bath"
           label="Bath"
@@ -303,12 +315,13 @@ function PetPanel() {
           textColor={C.outline}
           fontSize={S(16)}
           radius={S(14)}
+          disabled={locked}
           margin={{ left: S(3), right: S(3) }}
-          onClick={() => {
+          onClick={guard(() => {
             // Pick the pet up and carry it to the tub (place it there to bathe).
             startCarryPet()
             clientState.petPanelOpen = false
-          }}
+          })}
         />
         <TactileButton
           id="care_sleep"
@@ -319,13 +332,21 @@ function PetPanel() {
           textColor={C.outline}
           fontSize={S(16)}
           radius={S(14)}
+          disabled={!pet.sleeping && busy}
           margin={{ left: S(3), right: S(3) }}
           onClick={() => {
-            // Waking is instant — no walk back to the bed first.
+            // Waking is instant — no walk back to the bed first — and always
+            // allowed, even mid-lock: it's the one way OUT of the sleep lock.
             if (pet.sleeping) {
               pet.sleeping = false
               actions.care('sleep', true)
-            } else care('sleep')
+              return
+            }
+            if (busy) {
+              pushToast('Your pet is busy right now!')
+              return
+            }
+            care('sleep')
           }}
         />
         <TactileButton
@@ -337,17 +358,18 @@ function PetPanel() {
           textColor={C.outline}
           fontSize={S(16)}
           radius={S(14)}
+          disabled={locked}
           margin={{ left: S(3), right: S(3) }}
-          onClick={() => {
+          onClick={guard(() => {
             // Enter Fetch mode: hide the panel and show the centered Fetch button.
             clientState.fetch.active = true
             clientState.petPanelOpen = false
-          }}
+          })}
         />
       </UiEntity>
       {/* Pet + Breed, side by side and equal size. */}
       <UiEntity uiTransform={{ width: contentW, flexDirection: 'row', justifyContent: 'center', margin: { top: S(12) } }}>
-        <TactileButton id="pet_gesture" label="Pet  ·  +Happy" width={halfW} height={S(54)} bg={C.happy} textColor={C.outline} fontSize={S(16)} radius={S(16)} margin={{ right: S(4) }} onClick={() => startPetting()} />
+        <TactileButton id="pet_gesture" label="Pet  ·  +Happy" width={halfW} height={S(54)} bg={C.happy} textColor={C.outline} fontSize={S(16)} radius={S(16)} disabled={locked} margin={{ right: S(4) }} onClick={guard(() => startPetting())} />
         <TactileButton
           id="breed_teaser"
           label={unlocked ? 'Breed' : 'Breed  ·  Adult'}

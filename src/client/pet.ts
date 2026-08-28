@@ -56,7 +56,7 @@ import { objectPosition } from './objects'
 import { navStepToward, zoneOf, nearWall, pointInsideAnyBuilding, nudgeOutsideBuildings } from './nav'
 import { mobile } from './ui/theme'
 
-type Mode = 'follow' | 'goto' | 'interact' | 'wander' | 'bathhop'
+type Mode = 'follow' | 'goto' | 'interact' | 'wander' | 'bathhop' | 'asleep'
 
 let localPet: Entity | null = null
 let localSpecies = ''
@@ -399,6 +399,39 @@ export function isBusy(): boolean {
   return mode === 'goto' || mode === 'interact' || mode === 'bathhop'
 }
 
+/** True while a self-contained interaction (carry-to-bathe, petting, fetch,
+ *  hatching/egg carry) already owns the pet — none of these overlap the
+ *  care-action queue's own busy state, so isBusy() is intentionally NOT here. */
+function otherActivityActive(): boolean {
+  return (
+    clientState.hatch.active ||
+    clientState.carryEgg.active ||
+    clientState.carryPet.active ||
+    clientState.petting.active ||
+    clientState.fetch.active
+  )
+}
+
+/**
+ * Shared gate for STARTING a brand-new interaction (Feed errand, bath carry,
+ * petting, fetch/Play) from scratch: blocked while asleep, while any other
+ * interaction already owns the pet, or while it's mid-walk on a queued care
+ * action. Interactions are meant to be mutually exclusive (one at a time).
+ */
+export function canStartPetInteraction(): boolean {
+  return !clientState.activePet?.sleeping && !otherActivityActive() && !isBusy()
+}
+
+/**
+ * Narrower gate for ENQUEUEING a care action (input.ts's triggerCare): queued
+ * actions are allowed to stack up (that's the point of the queue), so
+ * isBusy() does NOT block here — only a conflicting other activity, or the
+ * pet already being asleep, does.
+ */
+export function canQueueCareAction(): boolean {
+  return !clientState.activePet?.sleeping && !otherActivityActive()
+}
+
 function ensureLocalPet(): void {
   const pet = clientState.activePet
   if (!pet) {
@@ -475,6 +508,10 @@ let petCam: Entity | null = null
 /** Enter petting mode: frame the pet, face it to camera, freeze the avatar. */
 export function startPetting(): void {
   if (!clientState.activePet || !localPet) return
+  if (!canStartPetInteraction()) {
+    pushToast(clientState.activePet.sleeping ? 'Your pet is asleep!' : 'Your pet is busy right now!')
+    return
+  }
   clientState.petting.active = true
   clientState.petting.progress = 0
 
@@ -676,6 +713,10 @@ function detachPetFromHands(): void {
 /** Bath step 1: pick the pet up into the player's hands to carry it to the tub. */
 export function startCarryPet(): void {
   if (!clientState.activePet || !localPet) return
+  if (!canStartPetInteraction()) {
+    pushToast(clientState.activePet.sleeping ? 'Your pet is asleep!' : 'Your pet is busy right now!')
+    return
+  }
   clientState.carryPet = { active: true, atStation: false }
   attachPetToHands(clientState.activePet.species)
   playHoldPetEmote()
@@ -1225,10 +1266,20 @@ function updateLocalPet(dt: number): void {
           bathHopT = BATH_HOP_DURATION
           bathHopFrom = Transform.get(localPet).position
           mode = 'bathhop'
+        } else if (clientState.activePet?.sleeping) {
+          // The sleep care action just toggled `sleeping` true (onArrive, above)
+          // — stay parked on the bed instead of immediately following again.
+          mode = 'asleep'
         } else {
           mode = clientState.followEnabled ? 'follow' : 'wander'
         }
       }
+      break
+    }
+    case 'asleep': {
+      // Stay put — no follow/wander/goto movement while asleep (`moved` stays 0,
+      // so the clip logic below plays 'sleep'). Resume as soon as it wakes.
+      if (!clientState.activePet?.sleeping) mode = clientState.followEnabled ? 'follow' : 'wander'
       break
     }
     case 'bathhop': {
