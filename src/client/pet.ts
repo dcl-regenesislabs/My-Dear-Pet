@@ -396,20 +396,25 @@ export function getLocalPet(): Entity | null {
 
 /** True while the pet is walking to / performing a care action. */
 export function isBusy(): boolean {
-  return mode === 'goto' || mode === 'interact' || mode === 'bathhop'
+  return mode === 'goto' || mode === 'interact' || mode === 'bathhop' || mode === 'asleep'
 }
 
 /** True while a self-contained interaction (carry-to-bathe, petting, fetch,
  *  hatching/egg carry) already owns the pet — none of these overlap the
  *  care-action queue's own busy state, so isBusy() is intentionally NOT here. */
+/** True while something else has taken direct ownership of the pet's
+ *  Transform/parenting (carried in hand to bathe, egg being carried home,
+ *  mid-hatch reveal) — genuinely incompatible with sending it on a queued
+ *  walk, since the pet isn't a free-standing walking entity right now. */
+function petTransformOwnedElsewhere(): boolean {
+  return clientState.hatch.active || clientState.carryEgg.active || clientState.carryPet.active
+}
+
+/** True while a self-contained interaction already owns the moment — the
+ *  above PLUS petting/fetch's camera-lock UI (those don't touch the pet's
+ *  Transform, but they do take over the whole screen). */
 function otherActivityActive(): boolean {
-  return (
-    clientState.hatch.active ||
-    clientState.carryEgg.active ||
-    clientState.carryPet.active ||
-    clientState.petting.active ||
-    clientState.fetch.active
-  )
+  return petTransformOwnedElsewhere() || clientState.petting.active || clientState.fetch.active
 }
 
 /**
@@ -424,12 +429,14 @@ export function canStartPetInteraction(): boolean {
 
 /**
  * Narrower gate for ENQUEUEING a care action (input.ts's triggerCare): queued
- * actions are allowed to stack up (that's the point of the queue), so
- * isBusy() does NOT block here — only a conflicting other activity, or the
- * pet already being asleep, does.
+ * actions are allowed to stack up (that's the point of the queue, and
+ * isBusy() already covers "don't start a 2nd one mid-walk"), and petting/
+ * fetch don't touch the pet's Transform so they don't need to block this —
+ * only something that's ACTUALLY holding the pet elsewhere does, or the pet
+ * already being asleep.
  */
 export function canQueueCareAction(): boolean {
-  return !clientState.activePet?.sleeping && !otherActivityActive()
+  return !clientState.activePet?.sleeping && !petTransformOwnedElsewhere()
 }
 
 function ensureLocalPet(): void {
