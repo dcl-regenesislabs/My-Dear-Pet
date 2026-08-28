@@ -2,12 +2,13 @@
 // local simulation, and request persisted state.
 //
 // INTENTIONAL: this is NOT playable offline. The loading gate in ui.tsx
-// (Root, gated on clientState.serverReady) blocks all UI/input until the
-// FIRST stateSnapshot answers requestState() below. If the server never
-// answers, the player is stuck on "Loading server..." forever — there is no
-// local-only fallback anymore. seedLocalPlayer()/simTick() still run so the
-// data is ready the instant the gate lifts, but nothing is shown or usable
-// before that.
+// (Root -> LoadingGate, gated on clientState.serverReady) blocks all UI/input
+// until the FIRST stateSnapshot answers requestState() below. It stays
+// invisible for a normal (fast) connect; if the server never answers, a small
+// "Still connecting..." message appears after a few seconds and the player is
+// stuck there — there is no local-only fallback anymore. seedLocalPlayer()/
+// simTick() still run so the data is ready the instant the gate lifts, but
+// nothing is shown or usable before that.
 
 import { engine, InputModifier } from '@dcl/sdk/ecs'
 import { room } from '../shared/messages'
@@ -24,7 +25,7 @@ import { setupMeteor } from './meteor'
 import { setupSkybox } from './skybox'
 import { setupEggShake } from './eggShake'
 import { setupPlantSway } from './plantSway'
-import { setupCaretaker } from './caretaker'
+import { setupCaretaker, startCaretakerIntroLock, endCaretakerIntroLock, isCaretakerIntroLocked } from './caretaker'
 import { setupFeedTask } from './feed'
 import { setupFruitGame } from './fruitGame'
 import { setupPetSpeech } from './speech'
@@ -37,11 +38,15 @@ function showIntro(): void {
   if (introTriggered) return
   introTriggered = true
   clientState.introShown = true
-  // First run with no pet: the Caretaker speaks first, then sends the player to
-  // the Care Center to adopt.
+  // First run with no pet: drop the player at the spawn area facing the
+  // Caretaker (deterministic every reload, not the native spawn point's
+  // random-range + camera-only orientation) and freeze them there while the
+  // Caretaker speaks. Once the dialog closes, release the freeze and go
+  // straight into adopting — no further teleport, they stay right where they are.
   if (!clientState.activePet) {
+    startCaretakerIntroLock()
     openCaretakerIntro(() => {
-      ui.goCareCenter()
+      endCaretakerIntroLock()
       ui.openAdopt()
     })
   }
@@ -54,20 +59,20 @@ function registerHandlers(): void {
     try {
       const snap = JSON.parse(data.json) as PlayerSnapshot
       applySnapshot(snap)
-      // Decide intro-vs-"Choose Location!" on the FIRST snapshot ONLY, and only
+      // Decide whether to show the intro on the FIRST snapshot ONLY, and only
       // here — this used to also be guessed from a timer (elapsed >= 2.5s) in case
       // the server was slow, but that guess could fire showIntro() BEFORE this
-      // snapshot arrived and then get contradicted by it, leaving both the
-      // Caretaker intro AND the Location modal open at once. Now that the loading
+      // snapshot arrived and then get contradicted by it. Now that the loading
       // gate (clientState.serverReady) already blocks all UI until this snapshot
       // lands, there's no need to guess early — decide once, for real.
       if (!firstSnapshotSeen) {
         firstSnapshotSeen = true
         if (snap.activePet) {
           introTriggered = true // returning player already has a pet -> skip the tutorial
-          // No "Choose Location" modal / teleport for returning players: they spawn
-          // at the house (scene.json), right where their pets are, so a follow can
-          // never start with a wall between the pet and the player.
+          // No "Choose Location" modal / teleport for returning players — they
+          // just land wherever scene.json's spawn point puts them (currently
+          // near the Caretaker, not the house; see nav.ts's door-pathing
+          // comments if that ever needs to change back).
         } else {
           showIntro()
         }
@@ -186,7 +191,10 @@ export function setupClient(): void {
 
     if (inputFrozen && clientState.serverReady) {
       inputFrozen = false
-      InputModifier.deleteFrom(engine.PlayerEntity)
+      // Don't unfreeze out from under the Caretaker intro lock — it's started
+      // synchronously in the very same stateSnapshot handler that just flipped
+      // serverReady, a few lines before this system tick runs.
+      if (!isCaretakerIntroLocked()) InputModifier.deleteFrom(engine.PlayerEntity)
     }
 
     // Keep asking the server for our saved progress for a while.
