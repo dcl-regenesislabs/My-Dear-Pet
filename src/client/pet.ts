@@ -755,6 +755,13 @@ export function cancelCarryPet(): void {
   detachPetFromHands()
   stopHoldEmote() // drop the hold pose, pet is no longer in hand
   hideArrow()
+  // detachPetFromHands() only reparents back to RootEntity — it doesn't touch
+  // the Transform, which is still PET_HOLD_OFFSET, a small offset LOCAL to the
+  // player's spine bone. Left as-is, that becomes a near-origin WORLD position
+  // once reparented, so the pet vanishes instead of reappearing (#122). Drop
+  // it at the player's feet, the same spot it'll immediately resume following
+  // from.
+  if (localPet) Transform.getMutable(localPet).position = flat(playerPos())
 }
 
 /** Bath step 2: place the pet in the tub and run the clean action. */
