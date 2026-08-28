@@ -8,6 +8,7 @@ import { engine, Transform } from '@dcl/sdk/ecs'
 import { Vector3 } from '@dcl/sdk/math'
 import { EntityNames } from '../../assets/scene/entity-names'
 import type { CareAction } from '../shared/types'
+import { nudgeOutsideBuildings } from './nav'
 
 /** Current world position of a named scene object. Zero() + a console warning
  *  if the entity isn't in the scene (shouldn't happen — these are static). */
@@ -28,8 +29,12 @@ const ACTION_ENTITY: Partial<Record<CareAction, EntityNames>> = {
 }
 
 /** Which object a care action navigates to, read live from the scene.
- *  Vector3.Zero() for actions with no station (currently: play). */
+ *  Vector3.Zero() for actions with no station (currently: play).
+ *  Nudged clear of any building wall it happens to sit close to (PetBed is
+ *  ~0.45m outside the home footprint — inside nav.ts's wall-avoidance margin,
+ *  which made the pet's approach oscillate against the wall instead of
+ *  reaching it) so navStepToward's straight-line case always applies. */
 export function actionObjectPosition(action: CareAction): Vector3 {
   const name = ACTION_ENTITY[action]
-  return name ? objectPosition(name) : Vector3.Zero()
+  return name ? nudgeOutsideBuildings(objectPosition(name)) : Vector3.Zero()
 }

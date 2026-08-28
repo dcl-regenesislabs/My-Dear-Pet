@@ -56,7 +56,7 @@ import { objectPosition } from './objects'
 import { navStepToward, zoneOf, nearWall, pointInsideAnyBuilding, nudgeOutsideBuildings } from './nav'
 import { mobile } from './ui/theme'
 
-type Mode = 'follow' | 'goto' | 'interact' | 'wander' | 'bathhop'
+type Mode = 'follow' | 'goto' | 'interact' | 'wander' | 'bathhop' | 'asleep'
 
 let localPet: Entity | null = null
 let localSpecies = ''
@@ -78,6 +78,12 @@ let bathHopFrom = Vector3.Zero()
 const BATH_HOP_DURATION = 0.45 // seconds
 const BATH_HOP_DISTANCE = 1.2 // metres covered horizontally while hopping out
 const BATH_HOP_HEIGHT = 0.6 // metres, peak arc height
+
+// How far above PET_BASE_Y the pet rests while asleep, so it lies on TOP of
+// the PetBed's cushion instead of at ground level (sinking a bit below the
+// bed's visible surface). Tune this to match the actual model — the sleep
+// clip plays with the pet lifted by exactly this much.
+const SLEEP_BED_LIFT = 0.15
 
 // Wander state (used while the pet is dismissed / told to stay).
 let wanderHome = Vector3.create(199.2, 0, 231.8)
@@ -396,7 +402,47 @@ export function getLocalPet(): Entity | null {
 
 /** True while the pet is walking to / performing a care action. */
 export function isBusy(): boolean {
-  return mode === 'goto' || mode === 'interact' || mode === 'bathhop'
+  return mode === 'goto' || mode === 'interact' || mode === 'bathhop' || mode === 'asleep'
+}
+
+/** True while a self-contained interaction (carry-to-bathe, petting, fetch,
+ *  hatching/egg carry) already owns the pet — none of these overlap the
+ *  care-action queue's own busy state, so isBusy() is intentionally NOT here. */
+/** True while something else has taken direct ownership of the pet's
+ *  Transform/parenting (carried in hand to bathe, egg being carried home,
+ *  mid-hatch reveal) — genuinely incompatible with sending it on a queued
+ *  walk, since the pet isn't a free-standing walking entity right now. */
+function petTransformOwnedElsewhere(): boolean {
+  return clientState.hatch.active || clientState.carryEgg.active || clientState.carryPet.active
+}
+
+/** True while a self-contained interaction already owns the moment — the
+ *  above PLUS petting/fetch's camera-lock UI (those don't touch the pet's
+ *  Transform, but they do take over the whole screen). */
+function otherActivityActive(): boolean {
+  return petTransformOwnedElsewhere() || clientState.petting.active || clientState.fetch.active
+}
+
+/**
+ * Shared gate for STARTING a brand-new interaction (Feed errand, bath carry,
+ * petting, fetch/Play) from scratch: blocked while asleep, while any other
+ * interaction already owns the pet, or while it's mid-walk on a queued care
+ * action. Interactions are meant to be mutually exclusive (one at a time).
+ */
+export function canStartPetInteraction(): boolean {
+  return !clientState.activePet?.sleeping && !otherActivityActive() && !isBusy()
+}
+
+/**
+ * Narrower gate for ENQUEUEING a care action (input.ts's triggerCare): queued
+ * actions are allowed to stack up (that's the point of the queue, and
+ * isBusy() already covers "don't start a 2nd one mid-walk"), and petting/
+ * fetch don't touch the pet's Transform so they don't need to block this —
+ * only something that's ACTUALLY holding the pet elsewhere does, or the pet
+ * already being asleep.
+ */
+export function canQueueCareAction(): boolean {
+  return !clientState.activePet?.sleeping && !petTransformOwnedElsewhere()
 }
 
 function ensureLocalPet(): void {
@@ -416,7 +462,17 @@ function ensureLocalPet(): void {
   }
   if (!localPet) {
     localPet = engine.addEntity()
-    Transform.create(localPet, { position: homeSpawnPos(), scale: petScale(pet.species, stageScaleFor(pet.size)) })
+    // Reconnecting while the pet was left sleeping: resume it AT the bed,
+    // already asleep — otherwise it spawns at the generic home point in
+    // 'follow' mode and walks over to fall asleep right next to the player
+    // instead of staying where it was left.
+    let spawnPos = homeSpawnPos()
+    if (pet.sleeping) {
+      const bed = nudgeOutsideBuildings(objectPosition(EntityNames.PetBed_glb))
+      spawnPos = Vector3.create(bed.x, C.PET_BASE_Y + SLEEP_BED_LIFT, bed.z)
+      mode = 'asleep'
+    }
+    Transform.create(localPet, { position: spawnPos, scale: petScale(pet.species, stageScaleFor(pet.size)) })
     pointerEventsSystem.onPointerDown(
       { entity: localPet, opts: { button: InputAction.IA_POINTER, hoverText: 'Open', maxDistance: 8 } },
       () => {
@@ -475,6 +531,10 @@ let petCam: Entity | null = null
 /** Enter petting mode: frame the pet, face it to camera, freeze the avatar. */
 export function startPetting(): void {
   if (!clientState.activePet || !localPet) return
+  if (!canStartPetInteraction()) {
+    pushToast(clientState.activePet.sleeping ? 'Your pet is asleep!' : 'Your pet is busy right now!')
+    return
+  }
   clientState.petting.active = true
   clientState.petting.progress = 0
 
@@ -676,6 +736,10 @@ function detachPetFromHands(): void {
 /** Bath step 1: pick the pet up into the player's hands to carry it to the tub. */
 export function startCarryPet(): void {
   if (!clientState.activePet || !localPet) return
+  if (!canStartPetInteraction()) {
+    pushToast(clientState.activePet.sleeping ? 'Your pet is asleep!' : 'Your pet is busy right now!')
+    return
+  }
   clientState.carryPet = { active: true, atStation: false }
   attachPetToHands(clientState.activePet.species)
   playHoldPetEmote()
@@ -1203,7 +1267,14 @@ function updateLocalPet(dt: number): void {
     }
     case 'goto': {
       moveClip = 'run'
-      moved = navStepToward(localPet, target, dt, yawOffsetForSpecies(clientState.activePet?.species ?? ''))
+      // Plain direct-line movement, NOT navStepToward: care-action stations
+      // (feeder/pool/bed) are fixed outdoor props, not behind a door, and
+      // PetBed in particular sits close enough to the home dome's new
+      // wall-avoidance footprint that navStepToward's wall-slide redirected
+      // the pet around the building's ring instead of ever reaching it.
+      // navStepToward is still what FOLLOW uses to trail the player through
+      // doors — this only reverts the queued-errand walk.
+      moved = stepToward(localPet, target, dt, yawOffsetForSpecies(clientState.activePet?.species ?? ''))
       if (distFlat(Transform.get(localPet).position, target) <= C.PET_ARRIVE_DISTANCE) {
         mode = 'interact'
         interactTimer = 1.1
@@ -1225,10 +1296,26 @@ function updateLocalPet(dt: number): void {
           bathHopT = BATH_HOP_DURATION
           bathHopFrom = Transform.get(localPet).position
           mode = 'bathhop'
+        } else if (clientState.activePet?.sleeping) {
+          // The sleep care action just toggled `sleeping` true (onArrive, above)
+          // — stay parked on the bed instead of immediately following again.
+          mode = 'asleep'
         } else {
           mode = clientState.followEnabled ? 'follow' : 'wander'
         }
       }
+      break
+    }
+    case 'asleep': {
+      // Stay put — no follow/wander/goto movement while asleep (`moved` stays 0,
+      // so the clip logic below plays 'sleep'). Resume as soon as it wakes.
+      // Lifted onto the bed's cushion (see SLEEP_BED_LIFT) instead of resting
+      // at ground level.
+      const st = Transform.getMutable(localPet)
+      if (Math.abs(st.position.y - (C.PET_BASE_Y + SLEEP_BED_LIFT)) > 0.001) {
+        st.position = Vector3.create(st.position.x, C.PET_BASE_Y + SLEEP_BED_LIFT, st.position.z)
+      }
+      if (!clientState.activePet?.sleeping) mode = clientState.followEnabled ? 'follow' : 'wander'
       break
     }
     case 'bathhop': {

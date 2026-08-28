@@ -7,7 +7,7 @@
 
 import { engine, Entity, Transform } from '@dcl/sdk/ecs'
 import { Vector3 } from '@dcl/sdk/math'
-import { hideArrow, showArrowTo, isBusy } from './pet'
+import { hideArrow, showArrowTo, canStartPetInteraction } from './pet'
 import { EntityNames } from '../../assets/scene/entity-names'
 import { clientState, pushToast } from './state'
 import { ui } from './ui'
@@ -40,8 +40,8 @@ export function startFeedTask(): void {
     ui.openAdopt()
     return
   }
-  if (isBusy()) {
-    pushToast('Your pet is busy — wait a moment!')
+  if (!canStartPetInteraction()) {
+    pushToast(clientState.activePet.sleeping ? 'Your pet is asleep!' : 'Your pet is busy — wait a moment!')
     return
   }
   if (active) {

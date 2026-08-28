@@ -8,7 +8,7 @@ import { EntityNames } from '../../assets/scene/entity-names'
 import type { CareAction } from '../shared/types'
 import type { PetClip } from '../shared/config'
 import { actionObjectPosition } from './objects'
-import { isBusy, sendPetTo } from './pet'
+import { isBusy, sendPetTo, canQueueCareAction } from './pet'
 import { applyCareLocal } from './sim'
 import { startFeedTask } from './feed'
 import { startFruitGame } from './fruitGame'
@@ -41,6 +41,10 @@ export function triggerCare(action: CareAction): void {
   if (!clientState.activePet) {
     pushToast('Adopt a pet first!')
     ui.openAdopt()
+    return
+  }
+  if (!canQueueCareAction()) {
+    pushToast(clientState.activePet.sleeping ? 'Your pet is asleep!' : 'Your pet is busy right now!')
     return
   }
   if (queue.length >= MAX_QUEUE) {
