@@ -56,6 +56,10 @@ export function triggerCare(action: CareAction): void {
 
 function startCare(action: CareAction): void {
   const dest = actionObjectPosition(action)
+  if (action === 'sleep') {
+    // TEMP DIAGNOSTIC — remove once the bed-pathing bug is confirmed fixed.
+    pushToast(`DEBUG sleep dest: ${dest.x.toFixed(1)}, ${dest.z.toFixed(1)}`)
+  }
   const onBed = action === 'sleep'
   sendPetTo(
     dest,
