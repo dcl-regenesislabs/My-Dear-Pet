@@ -726,9 +726,22 @@ function attachPetToHands(species: string): void {
   setLocalTagVisible(false)
 }
 
-/** Detach the pet back into world space (place at the tub, or cancel the carry); restore its tag. */
+/** Detach the pet back into world space (place at the tub, or cancel the carry); restore its tag.
+ *  Reparenting alone leaves the Transform at PET_HOLD_OFFSET — a small offset
+ *  LOCAL to the player's spine bone — which becomes a near-origin WORLD
+ *  position once detached (the pet vanishing bug, #122), so this also resets
+ *  position/rotation here instead of leaving every caller to remember it:
+ *  dropped at its natural follow-slot spot, facing the player, not stacked
+ *  exactly on top of them. placePetAtStation() overwrites both right after
+ *  this returns (hard-placing into the tub instead). */
 function detachPetFromHands(): void {
-  if (localPet) Transform.getMutable(localPet).parent = engine.RootEntity
+  if (localPet) {
+    const t = Transform.getMutable(localPet)
+    t.parent = engine.RootEntity
+    const drop = flat(followTarget())
+    t.position = drop
+    t.rotation = yawToward(drop, playerPos())
+  }
   setLocalTagVisible(true)
   if (carriedPetAnchor) AvatarAttach.deleteFrom(carriedPetAnchor) // stop riding the player's bone between baths
 }
@@ -752,16 +765,9 @@ export function startCarryPet(): void {
 export function cancelCarryPet(): void {
   if (!clientState.carryPet.active) return
   clientState.carryPet = { active: false, atStation: false }
-  detachPetFromHands()
+  detachPetFromHands() // also resets position/rotation — see its doc comment
   stopHoldEmote() // drop the hold pose, pet is no longer in hand
   hideArrow()
-  // detachPetFromHands() only reparents back to RootEntity — it doesn't touch
-  // the Transform, which is still PET_HOLD_OFFSET, a small offset LOCAL to the
-  // player's spine bone. Left as-is, that becomes a near-origin WORLD position
-  // once reparented, so the pet vanishes instead of reappearing (#122). Drop
-  // it at the player's feet, the same spot it'll immediately resume following
-  // from.
-  if (localPet) Transform.getMutable(localPet).position = flat(playerPos())
 }
 
 /** Bath step 2: place the pet in the tub and run the clean action. */
