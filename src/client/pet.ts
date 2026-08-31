@@ -476,6 +476,11 @@ function ensureLocalPet(): void {
     pointerEventsSystem.onPointerDown(
       { entity: localPet, opts: { button: InputAction.IA_POINTER, hoverText: 'Open', maxDistance: 8 } },
       () => {
+        // While a freshly hatched pet is still awaiting the Keep/Discard decision,
+        // the actions panel must stay closed: opening it lets the player run care
+        // actions on a pet that isn't accepted into a slot yet, which bugs out.
+        // The Keep/Discard modal owns this moment until they decide.
+        if (clientState.player?.hatchling) return
         // Clicking the pet opens its control panel. (The "pet for happiness"
         // action is suspended for now — was: actions.petSelf() + petReact().)
         clientState.petPanelOpen = true
