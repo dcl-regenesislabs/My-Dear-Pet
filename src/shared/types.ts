@@ -10,7 +10,14 @@ export type Rarity = 'common' | 'uncommon' | 'rare' | 'ultraRare' | 'legendary'
 /** Per-pet state. Every pet (active or stored) carries its own stats & XP. */
 export interface PetData {
   id: string
-  species: string // e.g. 'PetPanda' (matches assets/scene/Models/<species>/<species>.glb)
+  species: string // the RENDER id (model/clips/scale key). For a cross it's `head_body`.
+  // Breeding genetics: which family the HEAD and the BODY come from ('sprout' |
+  // 'pepito' | 'amebita' | 'fluflito'). Originals have head === body. An offspring
+  // takes its head from the active parent and its body from the partner; `species`
+  // is then derived from this pair. Optional so pets saved before the fields
+  // existed still load — they fall back to being parsed from `species`.
+  head?: string
+  body?: string
   name: string
   rarity: Rarity // cosmetic tier; 'common' for adopted starters, rolled for offspring
   // Core stats, 0-100
