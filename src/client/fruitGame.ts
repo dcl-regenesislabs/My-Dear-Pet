@@ -19,19 +19,18 @@ import {
   VirtualCamera,
   MainCamera,
   InputModifier,
-  AvatarMask,
   AvatarAttach,
   AvatarAnchorPointType,
   TouchScreenControls,
   AudioSource
 } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion } from '@dcl/sdk/math'
-import { movePlayerTo, triggerSceneEmote } from '~system/RestrictedActions'
-import * as RestrictedActions from '~system/RestrictedActions'
+import { movePlayerTo } from '~system/RestrictedActions'
 import { EntityNames } from '../../assets/scene/entity-names'
 import { actions, clientState, pushToast } from './state'
 import { mobile } from './ui/theme'
 import { applyFeedMinigameLocal } from './sim'
+import { triggerHoldEmote, stopHoldEmote } from './holdEmote'
 
 const FRUIT_MODELS = [
   'assets/Models/Fruit01.glb',
@@ -249,23 +248,11 @@ function distFlat(a: Vector3, b: Vector3): number {
 }
 
 function playHoldEmote(): void {
-  console.log('[Client] fruit game: playHoldEmote() firing triggerSceneEmote')
-  void triggerSceneEmote({ src: HOLD_EMOTE, loop: true, mask: AvatarMask.AM_UPPER_BODY })
-    .then(() => console.log('[Client] fruit game: triggerSceneEmote resolved OK'))
-    .catch((err) => console.log('[Client] fruit game: triggerSceneEmote FAILED', err))
+  triggerHoldEmote(HOLD_EMOTE)
 }
-
-/** Guarded: not every client implements stopEmote (see pet.ts's stopHoldEmote). */
-function stopHoldEmote(): void {
-  if (typeof RestrictedActions.stopEmote === 'function') {
-    console.log('[Client] fruit game: stopHoldEmote() firing stopEmote')
-    void RestrictedActions.stopEmote({})
-      .then(() => console.log('[Client] fruit game: stopEmote resolved OK'))
-      .catch((err) => console.log('[Client] fruit game: stopEmote FAILED', err))
-  } else {
-    console.log('[Client] fruit game: stopHoldEmote() — this client has no stopEmote function at all')
-  }
-}
+// stopHoldEmote is imported from ./holdEmote (shared with pet.ts) — see its
+// doc comment for why it also escalates to a full-body emote on mobile/Bevy
+// (issue #115).
 
 /** One-time fixup: push lane_1/lane_2 apart along the line between them, so
  *  the pen they form is wide enough to walk in without clipping both sides

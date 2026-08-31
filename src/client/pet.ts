@@ -30,8 +30,7 @@ import {
   MainCamera,
   InputModifier,
   AvatarAttach,
-  AvatarAnchorPointType,
-  AvatarMask
+  AvatarAnchorPointType
 } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion } from '@dcl/sdk/math'
 import * as C from '../shared/config'
@@ -47,14 +46,13 @@ import {
   type PetClip
 } from '../shared/config'
 import type { PetData } from '../shared/types'
-import { triggerSceneEmote } from '~system/RestrictedActions'
-import * as RestrictedActions from '~system/RestrictedActions'
 import { clientState, actions, adoptPet, openDialog, pushToast, switchActivePet, showHint, clearHint } from './state'
 import { applyCareLocal } from './sim'
 import { EntityNames } from '../../assets/scene/entity-names'
 import { objectPosition } from './objects'
 import { navStepToward, zoneOf, nearWall, pointInsideAnyBuilding, nudgeOutsideBuildings } from './nav'
 import { mobile } from './ui/theme'
+import { triggerHoldEmote, stopHoldEmote } from './holdEmote'
 
 type Mode = 'follow' | 'goto' | 'interact' | 'wander' | 'bathhop' | 'asleep'
 
@@ -669,19 +667,11 @@ let carryPrevPos: Vector3 | null = null
 let carryMoving = false
 
 function playHoldEmote(): void {
-  void triggerSceneEmote({ src: HOLD_EMOTE, loop: true, mask: AvatarMask.AM_UPPER_BODY }).catch(() => {})
+  triggerHoldEmote(HOLD_EMOTE)
 }
-
-/** Stop the current hold emote. Guarded: not every client implements stopEmote yet
- *  (e.g. the mobile/Godot explorer's ~system/RestrictedActions shim has no
- *  stopEmote export as of this writing) — calling an undefined import throws
- *  synchronously, before .catch can attach, which would break whatever runs
- *  right after this call. */
-function stopHoldEmote(): void {
-  if (typeof RestrictedActions.stopEmote === 'function') {
-    void RestrictedActions.stopEmote({}).catch(() => {})
-  }
-}
+// stopHoldEmote is imported from ./holdEmote (shared with fruitGame.ts) —
+// see its doc comment for why it also escalates to a full-body emote on
+// mobile/Bevy (issue #115).
 
 // ---------------------------------------------------------------------------
 // Holding the pet in hand — attached to the player's lower-spine bone
@@ -708,7 +698,7 @@ let carryPetPrevPos: Vector3 | null = null
 let carryPetMoving = false
 
 function playHoldPetEmote(): void {
-  void triggerSceneEmote({ src: HOLD_PET_EMOTE, loop: true, mask: AvatarMask.AM_UPPER_BODY }).catch(() => {})
+  triggerHoldEmote(HOLD_PET_EMOTE)
 }
 
 /** Parent the pet to the player's spine bone, offset out in front (carrying pose); hide its tag. */

@@ -91,6 +91,12 @@ export function mobile(): boolean {
   return isMobileRuntime
 }
 
+/** True on the Bevy (web) explorer — reports platform:"web" agent:"bevy", so
+ *  mobile()'s platform/agent heuristics don't catch it on their own. */
+export function bevy(): boolean {
+  return isBevyRuntime
+}
+
 /**
  * Mobile keeps the pre-7.26 HUD sizing by expanding the virtual canvas in lockstep
  * with the reported pixel density, while opting out of the new safe-area inset so
