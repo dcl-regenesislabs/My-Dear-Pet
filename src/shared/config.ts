@@ -203,6 +203,87 @@ export function scaleForSpecies(species: string): number {
   return SPECIES_SCALE[species] ?? 1
 }
 
+// ---------------------------------------------------------------------------
+// Breeding genetics — head/body crosses.
+//
+// Every pet has a HEAD family and a BODY family. Originals share both; a bred
+// offspring takes the active parent's head and the partner's body. The rendered
+// `species` id encodes the pair (`head_body`, or `head-original` when they match)
+// and every one of the 16 combinations is wired below — model, clips, scale — so a
+// cross renders on ANY client (needed because pets are swapped between players).
+//
+// The model files follow one rule (verified against disk): Sprout-headed crosses
+// live in models/sprouts/ (sprout_<body>.glb), the rest in assets/Models/
+// (<Head>_<Body>.glb). The animation clips of a cross GLB always use the HEAD
+// family's prefix, so clips = familyClips(<Head>).
+// ---------------------------------------------------------------------------
+export const FAMILIES = ['sprout', 'pepito', 'amebita', 'fluflito'] as const
+export type Family = (typeof FAMILIES)[number]
+
+function cap(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+function isFamily(s: string): s is Family {
+  return (FAMILIES as readonly string[]).indexOf(s) !== -1
+}
+
+// Legacy/base species id -> (head, body). Backfills head/body for pets saved before
+// those fields existed, and lets us read a parent's genetics from its species.
+const SPECIES_PARTS: Record<string, [Family, Family]> = {
+  'sprout-original': ['sprout', 'sprout'],
+  'pepito-original': ['pepito', 'pepito'],
+  'amebita-original': ['amebita', 'amebita'],
+  'fluflito-original': ['fluflito', 'fluflito'],
+  // old scaffolding ids (all rode the Sprout rig)
+  'sprout-amebita': ['sprout', 'amebita'],
+  'sprout-fluflito': ['sprout', 'fluflito'],
+  'sprout-pepito': ['sprout', 'pepito']
+}
+
+/** The (head, body) families a species id represents. */
+export function speciesParts(species: string): { head: Family; body: Family } {
+  const p = SPECIES_PARTS[species]
+  if (p) return { head: p[0], body: p[1] }
+  const us = species.indexOf('_')
+  if (us >= 0) {
+    const h = species.slice(0, us)
+    const b = species.slice(us + 1)
+    if (isFamily(h) && isFamily(b)) return { head: h, body: b }
+  }
+  return { head: species as Family, body: species as Family } // non-family (alien): itself
+}
+
+/** A pet's head/body — the stored fields, or parsed from its species (legacy). */
+export function petHead(pet: { head?: string; species: string }): Family {
+  return (pet.head as Family | undefined) ?? speciesParts(pet.species).head
+}
+export function petBody(pet: { body?: string; species: string }): Family {
+  return (pet.body as Family | undefined) ?? speciesParts(pet.species).body
+}
+
+/** Render species id for a head/body pair (originals collapse to `<fam>-original`). */
+export function crossSpecies(head: Family, body: Family): string {
+  return head === body ? `${head}-original` : `${head}_${body}`
+}
+
+/** Model file for a cross (head !== body), by the on-disk naming rule. */
+function crossModelFile(head: Family, body: Family): string {
+  return head === 'sprout' ? `models/sprouts/sprout_${body}.glb` : `assets/Models/${cap(head)}_${cap(body)}.glb`
+}
+
+// Wire every cross (head !== body) into the render maps. Originals are already
+// listed above; this fills in the 12 crossings so any bred/swapped pet renders.
+for (const head of FAMILIES) {
+  for (const body of FAMILIES) {
+    if (head === body) continue
+    const id = `${head}_${body}`
+    MODEL_OVERRIDES[id] = crossModelFile(head, body)
+    SPECIES_CLIPS[id] = familyClips(cap(head)) // cross clips use the HEAD family's prefix
+    SPECIES_SCALE[id] = 1.6
+    SPECIES_LABEL[id] = `${cap(head)}-${cap(body)}`
+  }
+}
+
 // Per-species yaw offset (degrees) — corrects models whose "forward" axis differs
 // from the walk direction (e.g. the alien faces sideways). Default 0.
 const SPECIES_YAW_OFFSET: Record<string, number> = {

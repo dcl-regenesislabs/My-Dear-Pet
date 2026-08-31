@@ -41,9 +41,12 @@ function now(): number {
 
 function newPet(species: string, name: string): PetData {
   const t = now()
+  const parts = C.speciesParts(species) // head/body families (originals: head === body)
   return {
     id: `pet_${t}_${Math.floor(Math.random() * 100000)}`,
     species,
+    head: parts.head,
+    body: parts.body,
     name: name || C.speciesLabel(species),
     rarity: 'common',
     hunger: C.NEW_PET_STATS.hunger,
@@ -375,7 +378,9 @@ export function breed(p: PlayerData, partnerId: string, name = ''): { notes: Not
   }
 
   const rarity = rollRarity(a, b)
-  const species = Math.random() < 0.5 ? a.species : b.species // TODO: real genetics
+  // Genetics: the offspring wears the ACTIVE pet's head and the PARTNER's body
+  // (config.crossSpecies encodes the pair; newPet reads head/body back from it).
+  const species = C.crossSpecies(C.petHead(a), C.petBody(b))
   const gen = Math.max(a.generation, b.generation) + 1 // Gen-1 for the first cross
   const chosen = name.trim() || C.speciesLabel(species)
   const child = newPet(species, `Gen-${gen} ${chosen}`)
