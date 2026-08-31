@@ -9,7 +9,7 @@ import ReactEcs, { ReactEcsRenderer, Label, UiEntity, Input } from '@dcl/sdk/rea
 import { engine, InputAction } from '@dcl/sdk/ecs'
 import * as Cfg from '../shared/config'
 import type { CareAction, Rarity } from '../shared/types'
-import { actions, clientState, discardHatchling, keepHatchling, pushToast, serverConnected, switchActivePet } from './state'
+import { actions, clientState, discardHatchling, keepHatchling, pushToast, serverConnected, switchActivePet, hasPendingHatchling } from './state'
 import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry, startCarryPet, placePetAtStation, cancelCarryPet, canStartPetInteraction } from './pet'
 import { throwMeteor } from './play'
 import { triggerCare, careActive, queueLength } from './input'
@@ -52,7 +52,7 @@ const uiState = {
 export const ui = {
   openAdopt(): void {
     // One hatchling at a time: finish (keep/discard) the current one first.
-    if (clientState.player?.hatchling) {
+    if (hasPendingHatchling()) {
       pushToast('Place or discard your current pet first.')
       return
     }
@@ -106,6 +106,7 @@ export const ui = {
   },
   close(): void {
     uiState.panel = 'none'
+    uiState.adoptName = '' // don't carry a half-typed name into the next adoption
   }
 }
 
@@ -272,7 +273,7 @@ function PetPanel() {
   // Never show the actions panel while a hatchling is still pending Keep/Discard —
   // its actions would run on a pet that isn't accepted into a slot yet (bug). The
   // Keep/Discard modal owns this moment.
-  if (!pet || !clientState.petPanelOpen || clientState.player?.hatchling) return <UiEntity />
+  if (!pet || !clientState.petPanelOpen || hasPendingHatchling()) return <UiEntity />
 
   const care = (a: CareAction) => triggerCare(a)
   const contentW = S(700) - S(30) * 2 // LightModal inner width (card minus padding)
@@ -461,7 +462,7 @@ function RemotePetPanel() {
         margin={{ top: S(10) }}
         onClick={() => {
           // Offer YOUR active pet for theirs; the server forwards it for approval.
-          if (!clientState.activePet || clientState.player?.hatchling) {
+          if (!clientState.activePet || hasPendingHatchling()) {
             pushToast('Select one of your pets first to offer it.')
             return
           }
@@ -670,7 +671,7 @@ function AdoptPanel() {
         {slotsFree && !named && <Label value="Give your pet a name to continue." fontSize={S(16)} color={LOC.orange} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24) }} />}
       </UiEntity>
       <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', justifyContent: 'center', margin: { top: S(10) } }}>
-        <TactileButton id="adopt_back" label="Back" width={S(130)} height={S(56)} bg={LOC.neutral} textColor={PET_UI.ink} fontSize={S(18)} radius={S(18)} margin={{ right: S(10) }} onClick={() => (uiState.adoptStep = 'pick')} />
+        <TactileButton id="adopt_back" label="Back" width={S(130)} height={S(56)} bg={LOC.neutral} textColor={PET_UI.ink} fontSize={S(18)} radius={S(18)} margin={{ right: S(10) }} onClick={() => { uiState.adoptName = ''; uiState.adoptStep = 'pick' }} />
         {slotsFree ? (
           <TactileButton
             id="adopt_confirm"
