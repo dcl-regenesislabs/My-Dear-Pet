@@ -3,20 +3,20 @@
   "runtimeVersion": "7",
   "display": {
     "title": "Marsh Colony",
-    "description": "Empty Scene Template",
+    "description": "A Tamagotchi-style pet care game for Decentraland (SDK7) — adopt a pet, keep it fed, clean, rested and happy, earn coins from its happiness, and raise it in a shared social Care Center",
     "favicon": "favicon_asset",
     "navmapThumbnail": "assets/images/thumbnail.png"
   },
-  "owner": "",
+  "owner": "RGL",
   "contact": {
-    "name": "SDK",
+    "name": "RGL",
     "email": ""
   },
   "main": "bin/index.js",
   "tags": [],
   "authoritativeMultiplayer": true,
   "worldConfiguration": {
-    "name": "thecodingcave.dcl.eth"
+    "name": "marshcolony.dcl.eth"
   },
   "logsPermissions": [],
   "scene": {
