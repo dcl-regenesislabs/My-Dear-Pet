@@ -5,12 +5,23 @@ on:
     types: [published]
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'dev-docs/**'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'dev-docs/**'
   workflow_dispatch:
 
 env:
-  DCL_PRIVATE_KEY: ${{ secrets.DCL_WORLDS_PRIVATE_KEY }}
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   DEPLOY_ENV: ${{ github.event_name == 'push' && 'testing' || 'production' }}
+
+concurrency:
+  group: world-deploy-${{ github.event_name == 'push' && 'testing' || 'production' }}
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -24,15 +35,12 @@ jobs:
           # Temporary pin: newer Node security releases trigger node-fetch v2
           # "Premature close" errors that break @dcl/sdk-commands deploys.
           node-version: 22.22.0
-          cache: npm
       - name: Install npm packages
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install
-          fi
+        run: npm ci --ignore-scripts
       - name: Build scene
         run: npm run build
       - name: Deploy scene
+        if: github.event_name != 'pull_request'
         run: npm run deploy:${{ env.DEPLOY_ENV }}
+        env:
+          DCL_PRIVATE_KEY: ${{ secrets.DCL_WORLDS_PRIVATE_KEY }}
