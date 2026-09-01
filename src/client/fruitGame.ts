@@ -229,13 +229,6 @@ let localForward = Vector3.create(0, 0, 1)
 let pendingCamPos = Vector3.Zero()
 let pendingLookTarget = Vector3.Zero()
 
-// Movement-tolerant re-apply for the masked "hold" emote — some clients cancel
-// a masked emote on movement with no lifecycle event to detect it. Same fix
-// pet.ts uses for the egg-carry pose: re-trigger right when the player
-// transitions from moving to stopped.
-let carryPrevPos: Vector3 | null = null
-let carryMoving = false
-
 function playerPos(): Vector3 {
   const t = Transform.getOrNull(engine.PlayerEntity)
   return t ? t.position : Vector3.Zero()
@@ -250,9 +243,7 @@ function distFlat(a: Vector3, b: Vector3): number {
 function playHoldEmote(): void {
   triggerHoldEmote(HOLD_EMOTE)
 }
-// stopHoldEmote is imported from ./holdEmote (shared with pet.ts) — see its
-// doc comment for why it also escalates to a full-body emote on mobile/Bevy
-// (issue #115).
+// stopHoldEmote is imported from ./holdEmote (shared with pet.ts).
 
 /** One-time fixup: push lane_1/lane_2 apart along the line between them, so
  *  the pen they form is wide enough to walk in without clipping both sides
@@ -403,16 +394,6 @@ function fruitTick(): void {
   }
 }
 
-function updateHoldPose(): void {
-  const pp = playerPos()
-  if (carryPrevPos) {
-    const moving = distFlat(pp, carryPrevPos) > 0.02
-    if (carryMoving && !moving) playHoldEmote() // just stopped -> re-apply the pose
-    carryMoving = moving
-  }
-  carryPrevPos = Vector3.create(pp.x, pp.y, pp.z)
-}
-
 /** Arrival: just a timer gate — the zoom-in already started in startFruitGame
  *  and has had time to settle by now. Time-based, not distance-based: we
  *  can't script the avatar's own walk, so this doesn't wait on player
@@ -538,8 +519,6 @@ function finalizeAndClose(): void {
   }
   clientState.feedGame.active = false
   phase = 'idle'
-  carryPrevPos = null
-  carryMoving = false
 }
 
 /** Bail out early (Back button, only shown before 'results') — submits
@@ -587,7 +566,6 @@ function tick(dt: number): void {
     logIfOutOfBounds()
   } else if (phase === 'catching') {
     fruitTick()
-    updateHoldPose()
     logIfOutOfBounds()
     const st = clientState.feedGame
     st.timeLeft = Math.max(0, st.timeLeft - dt)
