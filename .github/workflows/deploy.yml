@@ -1,0 +1,38 @@
+name: Deploy
+
+on:
+  release:
+    types: [published]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  DCL_PRIVATE_KEY: ${{ secrets.DCL_WORLDS_PRIVATE_KEY }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  DEPLOY_ENV: ${{ github.event_name == 'push' && 'testing' || 'production' }}
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Temporary pin: newer Node security releases trigger node-fetch v2
+          # "Premature close" errors that break @dcl/sdk-commands deploys.
+          node-version: 22.22.0
+          cache: npm
+      - name: Install npm packages
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+      - name: Build scene
+        run: npm run build
+      - name: Deploy scene
+        run: npm run deploy:${{ env.DEPLOY_ENV }}
