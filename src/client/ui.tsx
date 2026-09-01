@@ -9,7 +9,7 @@ import ReactEcs, { ReactEcsRenderer, Label, UiEntity, Input } from '@dcl/sdk/rea
 import { engine, InputAction } from '@dcl/sdk/ecs'
 import * as Cfg from '../shared/config'
 import type { CareAction, Rarity } from '../shared/types'
-import { actions, clientState, discardHatchling, keepHatchling, pushToast, serverConnected, switchActivePet } from './state'
+import { actions, clientState, discardHatchling, keepHatchling, pushToast, serverConnected, switchActivePet, hasPendingHatchling } from './state'
 import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry, startCarryPet, placePetAtStation, cancelCarryPet, canStartPetInteraction } from './pet'
 import { throwMeteor } from './play'
 import { triggerCare, careActive, queueLength } from './input'
@@ -52,7 +52,7 @@ const uiState = {
 export const ui = {
   openAdopt(): void {
     // One hatchling at a time: finish (keep/discard) the current one first.
-    if (clientState.player?.hatchling) {
+    if (hasPendingHatchling()) {
       pushToast('Place or discard your current pet first.')
       return
     }
@@ -106,6 +106,7 @@ export const ui = {
   },
   close(): void {
     uiState.panel = 'none'
+    uiState.adoptName = '' // don't carry a half-typed name into the next adoption
   }
 }
 
@@ -269,7 +270,11 @@ function PetIdentityRow(props: { species: string; rarity: Rarity; size: number; 
 
 function PetPanel() {
   const pet = clientState.activePet
-  if (!pet || !clientState.petPanelOpen) return <UiEntity />
+  // Never show the actions panel while a hatchling is still pending Keep/Discard —
+  // its actions would run on a pet that isn't accepted into a slot yet (bug). The
+  // Keep/Discard modal owns this moment.
+  if (!pet || !clientState.petPanelOpen || hasPendingHatchling()) return <UiEntity />
+
   const care = (a: CareAction) => triggerCare(a)
   const contentW = S(700) - S(30) * 2 // LightModal inner width (card minus padding)
   const chipW = Math.floor((contentW - S(30)) / 4) // 4 care buttons across, with slack
@@ -457,7 +462,7 @@ function RemotePetPanel() {
         margin={{ top: S(10) }}
         onClick={() => {
           // Offer YOUR active pet for theirs; the server forwards it for approval.
-          if (!clientState.activePet || clientState.player?.hatchling) {
+          if (!clientState.activePet || hasPendingHatchling()) {
             pushToast('Select one of your pets first to offer it.')
             return
           }
@@ -641,6 +646,10 @@ function AdoptPanel() {
   const modalW = S(560)
   const modalH = Math.round(modalW / PET_MODAL_ASPECT)
   const img = Cfg.speciesImage(sp)
+  // A name is REQUIRED — the Adopt button stays disabled until one is typed, so
+  // players can't skip past the input (many missed it and got stuck wondering why
+  // nothing happened).
+  const named = uiState.adoptName.trim().length > 0
   return (
     <PetHudModal title="Name your Pet" subtitle="Pick a name before you carry the egg home." width={modalW} height={modalH} onClose={() => ui.close()}>
       <UiEntity uiTransform={{ width: '100%', height: '100%', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -659,9 +668,10 @@ function AdoptPanel() {
           }}
         />
         {!slotsFree && <Label value="No free pet slots. Buy one first." fontSize={S(16)} color={LOC.red} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24) }} />}
+        {slotsFree && !named && <Label value="Give your pet a name to continue." fontSize={S(16)} color={LOC.orange} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24) }} />}
       </UiEntity>
       <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', justifyContent: 'center', margin: { top: S(10) } }}>
-        <TactileButton id="adopt_back" label="Back" width={S(130)} height={S(56)} bg={LOC.neutral} textColor={PET_UI.ink} fontSize={S(18)} radius={S(18)} margin={{ right: S(10) }} onClick={() => (uiState.adoptStep = 'pick')} />
+        <TactileButton id="adopt_back" label="Back" width={S(130)} height={S(56)} bg={LOC.neutral} textColor={PET_UI.ink} fontSize={S(18)} radius={S(18)} margin={{ right: S(10) }} onClick={() => { uiState.adoptName = ''; uiState.adoptStep = 'pick' }} />
         {slotsFree ? (
           <TactileButton
             id="adopt_confirm"
@@ -673,9 +683,10 @@ function AdoptPanel() {
             fontSize={S(24)}
             radius={S(18)}
             pulse
+            disabled={!named}
             onClick={() => {
               // Adoption gives an egg to carry home; you hatch it there (rub/tap).
-              startCarryEgg(sp, uiState.adoptName)
+              startCarryEgg(sp, uiState.adoptName.trim())
               uiState.adoptName = ''
               ui.close()
             }}

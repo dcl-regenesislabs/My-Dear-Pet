@@ -12,7 +12,7 @@ import { isBusy, sendPetTo, canQueueCareAction } from './pet'
 import { applyCareLocal } from './sim'
 import { startFeedTask } from './feed'
 import { startFruitGame } from './fruitGame'
-import { actions, clientState, debugGrowAdultLocal, pushToast } from './state'
+import { actions, clientState, debugGrowAdultLocal, pushToast, hasPendingHatchling } from './state'
 import { ui } from './ui'
 
 const ACTION_CLIP: Record<CareAction, PetClip> = {
@@ -44,7 +44,13 @@ export function triggerCare(action: CareAction): void {
     return
   }
   if (!canQueueCareAction()) {
-    pushToast(clientState.activePet.sleeping ? 'Your pet is asleep!' : 'Your pet is busy right now!')
+    pushToast(
+      hasPendingHatchling()
+        ? 'Keep or discard your new pet first!'
+        : clientState.activePet.sleeping
+          ? 'Your pet is asleep!'
+          : 'Your pet is busy right now!'
+    )
     return
   }
   if (queue.length >= MAX_QUEUE) {

@@ -46,7 +46,7 @@ import {
   type PetClip
 } from '../shared/config'
 import type { PetData } from '../shared/types'
-import { clientState, actions, adoptPet, openDialog, pushToast, switchActivePet, showHint, clearHint } from './state'
+import { clientState, actions, adoptPet, openDialog, pushToast, switchActivePet, showHint, clearHint, hasPendingHatchling } from './state'
 import { applyCareLocal } from './sim'
 import { EntityNames } from '../../assets/scene/entity-names'
 import { objectPosition } from './objects'
@@ -428,7 +428,7 @@ function otherActivityActive(): boolean {
  * action. Interactions are meant to be mutually exclusive (one at a time).
  */
 export function canStartPetInteraction(): boolean {
-  return !clientState.activePet?.sleeping && !otherActivityActive() && !isBusy()
+  return !hasPendingHatchling() && !clientState.activePet?.sleeping && !otherActivityActive() && !isBusy()
 }
 
 /**
@@ -440,7 +440,7 @@ export function canStartPetInteraction(): boolean {
  * already being asleep.
  */
 export function canQueueCareAction(): boolean {
-  return !clientState.activePet?.sleeping && !petTransformOwnedElsewhere()
+  return !hasPendingHatchling() && !clientState.activePet?.sleeping && !petTransformOwnedElsewhere()
 }
 
 function ensureLocalPet(): void {
@@ -474,6 +474,14 @@ function ensureLocalPet(): void {
     pointerEventsSystem.onPointerDown(
       { entity: localPet, opts: { button: InputAction.IA_POINTER, hoverText: 'Open', maxDistance: 8 } },
       () => {
+        // While a freshly hatched pet is still awaiting the Keep/Discard decision,
+        // the actions panel must stay closed: opening it lets the player run care
+        // actions on a pet that isn't accepted into a slot yet, which bugs out.
+        // The Keep/Discard modal owns this moment until they decide.
+        if (hasPendingHatchling()) {
+          pushToast('Keep or discard your new pet first!')
+          return
+        }
         // Clicking the pet opens its control panel. (The "pet for happiness"
         // action is suspended for now — was: actions.petSelf() + petReact().)
         clientState.petPanelOpen = true

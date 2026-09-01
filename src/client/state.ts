@@ -140,6 +140,16 @@ export function markServerAlive(): void {
 }
 
 /**
+ * True while a freshly hatched pet is still awaiting the player's Keep/Discard
+ * decision. During this window the hatchling IS the active pet but isn't in a slot
+ * yet, so opening its panel or running care/interactions on it bugs out — every
+ * interaction entry point and the panel gate on this. Single source of truth.
+ */
+export function hasPendingHatchling(): boolean {
+  return !!clientState.player?.hatchling
+}
+
+/**
  * True while the authoritative server has answered recently. False means we're
  * running on the local simulation only — progress won't persist.
  */
