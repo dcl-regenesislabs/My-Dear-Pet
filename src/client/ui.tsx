@@ -5,7 +5,7 @@
 //  - SIDES: Spin + Shop (right), Whistle (left)
 // Reads the client mirror of authoritative server state.
 
-import ReactEcs, { ReactEcsRenderer, Label, UiEntity, Input } from '@dcl/sdk/react-ecs'
+import ReactEcs, { ReactEcsRenderer, Label, ScreenInsetArea, UiEntity, Input } from '@dcl/sdk/react-ecs'
 import { engine, InputAction } from '@dcl/sdk/ecs'
 import * as Cfg from '../shared/config'
 import type { CareAction, Rarity } from '../shared/types'
@@ -1244,11 +1244,15 @@ function Toasts() {
   const t = clientState.currentToast
   if (!t || t.until <= now) return <UiEntity />
   return (
-    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: S(84), right: S(16) }, width: S(320), alignItems: 'center', pointerFilter: 'none' }}>
-      <UiEntity uiTransform={{ width: S(320), height: S(42), justifyContent: 'center', alignItems: 'center', borderRadius: S(21) }} uiBackground={{ color: { r: 0.12, g: 0.1, b: 0.09, a: 0.96 } }}>
-        <Label value={t.message} fontSize={S(15)} color={C.text} textAlign="middle-center" uiTransform={{ width: S(304), height: S(34) }} />
+    <ScreenInsetArea>
+      <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
+        <UiEntity uiTransform={{ positionType: 'absolute', position: { top: S(84), right: S(16) }, width: S(320), alignItems: 'center', pointerFilter: 'none' }}>
+          <UiEntity uiTransform={{ width: S(320), height: S(42), justifyContent: 'center', alignItems: 'center', borderRadius: S(21) }} uiBackground={{ color: { r: 0.12, g: 0.1, b: 0.09, a: 0.96 } }}>
+            <Label value={t.message} fontSize={S(15)} color={C.text} textAlign="middle-center" uiTransform={{ width: S(304), height: S(34) }} />
+          </UiEntity>
+        </UiEntity>
       </UiEntity>
-    </UiEntity>
+    </ScreenInsetArea>
   )
 }
 
@@ -1646,67 +1650,71 @@ function FeedGameOverlay() {
   const countdownNum = Math.max(1, Math.min(COUNTDOWN_S, Math.ceil(COUNTDOWN_S - (Date.now() - st.countdownAt) / 1000)))
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'none' }}>
-      <BackButton onClick={() => cancelFruitGame()} position={{ top: S(96), right: S(24) }} />
-      <UiEntity
-        uiTransform={
-          catching
-            ? {
-                positionType: 'absolute',
-                position: { top: S(160), right: S(24) },
-                width: S(320),
-                height: S(70),
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: S(20),
-                pointerFilter: 'none'
-              }
-            : {
-                positionType: 'absolute',
-                position: { top: S(90), left: '50%' },
-                margin: { left: -S(220) },
-                width: S(440),
-                height: S(120),
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: S(20),
-                pointerFilter: 'none'
-              }
-        }
-        uiBackground={{ color: C.panelBg }}
-      >
-        {catching ? (
-          <Label
-            value={`Fruits: ${st.caught}   ${Math.ceil(st.timeLeft)}s`}
-            fontSize={flashing ? S(34) : S(28)}
-            color={flashing ? C.gold : C.hunger}
-            textAlign="middle-center"
-            uiTransform={{ width: '100%', height: S(36) }}
-          />
-        ) : countdown ? (
-          <Label value={`${countdownNum}`} fontSize={S(72)} color={C.gold} textAlign="middle-center" uiTransform={{ width: '100%', height: '100%' }} />
-        ) : (
-          <UiEntity uiTransform={{ width: '100%', height: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-            <Label value="◀" fontSize={S(36)} color={C.gold} textAlign="middle-center" uiTransform={{ width: S(50), height: S(50) }} />
-            <Label
-              value="Move left and right to catch the food falling from the tree!"
-              fontSize={S(22)}
-              color={C.text}
-              textAlign="middle-center"
-              textWrap="wrap"
-              uiTransform={{ width: S(320), height: S(100) }}
-            />
-            <Label value="▶" fontSize={S(36)} color={C.gold} textAlign="middle-center" uiTransform={{ width: S(50), height: S(50) }} />
+      <ScreenInsetArea>
+        <UiEntity uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}>
+          <BackButton onClick={() => cancelFruitGame()} position={{ top: S(96), right: S(24) }} />
+          <UiEntity
+            uiTransform={
+              catching
+                ? {
+                    positionType: 'absolute',
+                    position: { top: S(160), right: S(24) },
+                    width: S(320),
+                    height: S(70),
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: S(20),
+                    pointerFilter: 'none'
+                  }
+                : {
+                    positionType: 'absolute',
+                    position: { top: S(90), left: '50%' },
+                    margin: { left: -S(220) },
+                    width: S(440),
+                    height: S(120),
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: S(20),
+                    pointerFilter: 'none'
+                  }
+            }
+            uiBackground={{ color: C.panelBg }}
+          >
+            {catching ? (
+              <Label
+                value={`Fruits: ${st.caught}   ${Math.ceil(st.timeLeft)}s`}
+                fontSize={flashing ? S(34) : S(28)}
+                color={flashing ? C.gold : C.hunger}
+                textAlign="middle-center"
+                uiTransform={{ width: '100%', height: S(36) }}
+              />
+            ) : countdown ? (
+              <Label value={`${countdownNum}`} fontSize={S(72)} color={C.gold} textAlign="middle-center" uiTransform={{ width: '100%', height: '100%' }} />
+            ) : (
+              <UiEntity uiTransform={{ width: '100%', height: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                <Label value="◀" fontSize={S(36)} color={C.gold} textAlign="middle-center" uiTransform={{ width: S(50), height: S(50) }} />
+                <Label
+                  value="Move left and right to catch the food falling from the tree!"
+                  fontSize={S(22)}
+                  color={C.text}
+                  textAlign="middle-center"
+                  textWrap="wrap"
+                  uiTransform={{ width: S(320), height: S(100) }}
+                />
+                <Label value="▶" fontSize={S(36)} color={C.gold} textAlign="middle-center" uiTransform={{ width: S(50), height: S(50) }} />
+              </UiEntity>
+            )}
           </UiEntity>
-        )}
-      </UiEntity>
-      {introPhase ? (
-        <UiEntity uiTransform={{ positionType: 'absolute', position: { top: S(220), left: '50%' }, margin: { left: -S(110) }, width: S(220), height: S(70), pointerFilter: 'none' }}>
-          <TactileButton id="feed_start" label="Start" width={S(220)} height={S(70)} bg={C.green} textColor={C.outline} fontSize={S(28)} radius={S(24)} pulse onClick={() => startCatchingCountdown()} />
+          {introPhase ? (
+            <UiEntity uiTransform={{ positionType: 'absolute', position: { top: S(220), left: '50%' }, margin: { left: -S(110) }, width: S(220), height: S(70), pointerFilter: 'none' }}>
+              <TactileButton id="feed_start" label="Start" width={S(220)} height={S(70)} bg={C.green} textColor={C.outline} fontSize={S(28)} radius={S(24)} pulse onClick={() => startCatchingCountdown()} />
+            </UiEntity>
+          ) : null}
+          {mobile() ? <MoveArrowButton side="left" /> : null}
+          {mobile() ? <MoveArrowButton side="right" /> : null}
+          <DebugCamPanel />
         </UiEntity>
-      ) : null}
-      {mobile() ? <MoveArrowButton side="left" /> : null}
-      {mobile() ? <MoveArrowButton side="right" /> : null}
-      <DebugCamPanel />
+      </ScreenInsetArea>
     </UiEntity>
   )
 }
