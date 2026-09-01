@@ -17,6 +17,7 @@ import { DEV_SKIP_SERVER_GATE, type SpinReward } from '../shared/config'
 import { actions, applyPresence, applySnapshot, clientState, markServerAlive, pushToast, resolveMyAddress } from './state'
 import { evaluateStreak, seedLocalPlayer, simTick } from './sim'
 import { setupUi, ui } from './ui'
+import { applyDefaultTouchControls } from './touchControls'
 import { openCaretakerIntro } from './ui/dialog'
 import { setupInput } from './input'
 import { setupPetSystems, startCarryEgg } from './pet'
@@ -160,6 +161,7 @@ export function setupClient(): void {
   evaluateStreak() // advance / reset the 7-day login streak
   registerHandlers()
   setupUi()
+  applyDefaultTouchControls()
   setupInput()
   setupPetSystems() // renders + simulates remote pets from server `presence`
   setupPlay() // Play action: throw an animated meteorite forward

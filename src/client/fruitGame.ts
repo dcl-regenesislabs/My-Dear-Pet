@@ -21,13 +21,13 @@ import {
   InputModifier,
   AvatarAttach,
   AvatarAnchorPointType,
-  TouchScreenControls,
   AudioSource
 } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion } from '@dcl/sdk/math'
 import { movePlayerTo } from '~system/RestrictedActions'
 import { EntityNames } from '../../assets/scene/entity-names'
 import { actions, clientState, pushToast } from './state'
+import { applyDefaultTouchControls, applyFruitGameTouchControls } from './touchControls'
 import { mobile } from './ui/theme'
 import { applyFeedMinigameLocal } from './sim'
 import { triggerHoldEmote, stopHoldEmote } from './holdEmote'
@@ -529,9 +529,7 @@ function finalizeAndClose(): void {
   if (MainCamera.has(engine.CameraEntity)) MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: undefined })
   if (InputModifier.has(engine.PlayerEntity)) InputModifier.deleteFrom(engine.PlayerEntity)
   setLaneColliders(false)
-  TouchScreenControls.showAll()
-  TouchScreenControls.showJoystick()
-  TouchScreenControls.showCrosshair()
+  applyDefaultTouchControls()
   if (drawerEntity) VisibilityComponent.getMutable(drawerEntity).visible = false
   for (const e of groundClutter) {
     Tween.deleteFrom(e)
@@ -768,9 +766,7 @@ export function startFruitGame(mascotaId: string): void {
   // buttons in FeedGameOverlay from the very start — no-op on platforms
   // without touch controls. Shown from the first "Move left/right" hint, not
   // just once catching begins, so mobile players see them right away.
-  TouchScreenControls.hideAll()
-  TouchScreenControls.hideJoystick()
-  TouchScreenControls.hideCrosshair()
+  applyFruitGameTouchControls()
 
   // Arrival camera: cut straight to the wide cinematic_point framing (looking
   // at the now-arrived avatar) — computed only from cinematic_point/
