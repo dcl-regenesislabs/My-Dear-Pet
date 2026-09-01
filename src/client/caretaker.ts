@@ -66,7 +66,7 @@ function ensureClickCollider(caretaker: Entity): void {
 // the player at the spawn area's center facing the Caretaker (matching the
 // spawn point's own cameraTarget in main.composite) every single time, then
 // freezes them until they've finished talking (setup.ts's showIntro).
-const INTRO_SPAWN_POS = Vector3.create(155.9199981689453, 0, 247.05999755859375)
+const INTRO_SPAWN_POS = Vector3.create(155.9199981689453, 0.5, 247.05999755859375)
 // The Caretaker's OLD position (before it got moved further along its own
 // facing direction) — kept as the look-at anchor on purpose, per request.
 const INTRO_LOOK_AT = Vector3.create(153.5, 1.5, 247.25)
