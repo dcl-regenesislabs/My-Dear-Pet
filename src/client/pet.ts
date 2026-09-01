@@ -663,23 +663,18 @@ const EGG_HAND_SCALE = 0.6 // back to the previous size (looks big in hand, that
 const EGG_HAND_ROTATION = Quaternion.fromEulerDegrees(90, 0, 0)
 // Looping "hold" emote played while carrying (poses the arms as if cradling the
 // egg). Masked to the upper body so the legs keep using normal walk/run
-// locomotion on clients that support the mask — the emote isn't cancelled by
-// movement there. NOT every client implements the mask yet (as of this writing
-// the mobile/Godot explorer ignores it and still cancels the emote on movement,
-// same as before masks existed), so carryPrevPos/carryMoving below re-apply the
-// pose whenever the player stops, exactly like the pre-mask fallback — a no-op
-// restart on clients where the mask already kept it playing.
+// locomotion — the client auto-replays a looping masked emote on its own if
+// something momentarily interrupts it, so this is triggered ONCE per carry
+// and never re-applied on movement changes (see holdEmote.ts's stopHoldEmote
+// doc comment for why a manual re-trigger would race the deliberate stop —
+// issue #115).
 // Scene emotes must end in '_emote.glb' (Unity enforces this naming convention).
 const HOLD_EMOTE = 'models/hold_emote.glb'
-let carryPrevPos: Vector3 | null = null
-let carryMoving = false
 
 function playHoldEmote(): void {
   triggerHoldEmote(HOLD_EMOTE)
 }
-// stopHoldEmote is imported from ./holdEmote (shared with fruitGame.ts) —
-// see its doc comment for why it also escalates to a full-body emote on
-// mobile/Bevy (issue #115).
+// stopHoldEmote is imported from ./holdEmote (shared with fruitGame.ts).
 
 // ---------------------------------------------------------------------------
 // Holding the pet in hand — attached to the player's lower-spine bone
@@ -700,10 +695,6 @@ const PET_HAND_SCALE = 0.4
 const BATH_RADIUS = 3 // how close to the tub before the Bath button appears
 
 let carriedPetAnchor: Entity | null = null
-// Fallback for clients that don't support the upper-body mask yet (same as
-// carryPrevPos/carryMoving above) — re-apply the pose once the player stops.
-let carryPetPrevPos: Vector3 | null = null
-let carryPetMoving = false
 
 function playHoldPetEmote(): void {
   triggerHoldEmote(HOLD_PET_EMOTE)
@@ -755,8 +746,6 @@ export function startCarryPet(): void {
   attachPetToHands(clientState.activePet.species)
   playHoldPetEmote()
   showArrowTo(objectPosition(EntityNames.PetPool_glb))
-  carryPetPrevPos = null
-  carryPetMoving = false
 }
 
 /** Cancel the bath carry (BACK): drop the flow, the pet just resumes following. */
@@ -878,34 +867,21 @@ export function startCarryEgg(species: string, name: string, isBreed = false): v
   GltfContainer.createOrReplace(carriedEgg, { src: EGG_MODEL })
   Animator.createOrReplace(carriedEgg, { states: [{ clip: 'Idle', playing: true, loop: true }] })
 
-  carryPrevPos = null
-  carryMoving = false
   playHoldEmote() // pose the arms as if holding the egg
 
   openDialog('Your Egg', ['Take it home and hatch it! Walk back to your house, then tap Hatch.'], 'Got it!')
 }
 
-/** Per-frame while carrying: flag whether the player is home (drives the button),
- *  and re-apply the hold pose on clients that don't support the upper-body mask
- *  and so still cancel it on movement. */
+/** Per-frame while carrying: flag whether the player is home (drives the Hatch button). */
 function updateCarryEgg(): void {
   const st = clientState.carryEgg
-  if (!st.active) {
-    carryPrevPos = null
-    return
-  }
+  if (!st.active) return
   const pp = playerPos()
   const home = objectPosition(EntityNames.HomeDome01_glb)
   st.atHome = distFlat(pp, home) <= C.HOME_RADIUS
   // Guide arrow points home until you're there (where the Hatch button shows).
   if (st.atHome) hideArrow()
   else showArrowTo(home)
-  if (carryPrevPos) {
-    const moving = distFlat(pp, carryPrevPos) > 0.02
-    if (carryMoving && !moving) playHoldEmote() // just stopped -> re-apply the hold pose
-    carryMoving = moving
-  }
-  carryPrevPos = Vector3.create(pp.x, pp.y, pp.z)
 }
 
 /** Hatch button pressed at home: drop the carried egg and start the rub flow. */
@@ -1200,19 +1176,12 @@ function updateLocalPet(dt: number): void {
   // Carrying the pet to the bath: it's attached to the player's spine bone (see
   // attachPetToHands), so its pose is handled by the renderer. Its tag is hidden
   // for the duration (attachPetToHands/detachPetFromHands) — here we just flag
-  // proximity to the tub, and re-apply the hold pose on clients that don't
-  // support the upper-body mask yet and so still cancel it on movement.
+  // proximity to the tub.
   if (clientState.carryPet.active && clientState.activePet) {
     Transform.getMutable(localPet).scale = Vector3.scale(Vector3.One(), PET_HAND_SCALE)
     setClip(localPet, 'idle')
     const pp = playerPos()
     clientState.carryPet.atStation = distFlat(pp, objectPosition(EntityNames.PetPool_glb)) <= BATH_RADIUS
-    if (carryPetPrevPos) {
-      const moving = distFlat(pp, carryPetPrevPos) > 0.02
-      if (carryPetMoving && !moving) playHoldPetEmote() // just stopped -> re-apply the hold pose
-      carryPetMoving = moving
-    }
-    carryPetPrevPos = Vector3.create(pp.x, pp.y, pp.z)
     return
   }
 
