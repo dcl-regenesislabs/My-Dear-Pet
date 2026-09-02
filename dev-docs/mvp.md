@@ -13,7 +13,8 @@ one pet. Players must feed, clean, exercise, and rest their pet to keep it
 healthy and happy. Happiness generates passive currency, used to buy better
 food/items from the in-scene Shop. The Care Center is a social hub — you see
 other players and their pets in the same space, can pet/treat their pets for
-a social score, and (later) breed pets together.
+a social score, and can breed new pets through a solo genetics loop. Direct
+player-to-player breeding/trade is still blocked.
 
 **Design pillars:**
 - Solo-core loop (your pet, your responsibility) wrapped in a social space
@@ -39,6 +40,8 @@ In scope for MVP:
 - Shop with 1–2 food tiers, bought with earned currency
 - Happiness-based passive currency generation
 - Pet follow/whistle (call & dismiss)
+- Solo breeding + genetics: create offspring with visible cosmetic trait
+  inheritance via the shipped self-serve breeding loop
 - Basic social interaction: pet/treat other players' pets, capped bonus,
   contributes to a separate "Giving" score
 - Caretaker Level (player XP) + Pet XP (per-pet) — dual track, both
@@ -50,13 +53,13 @@ In scope for MVP:
 - Persistence via Decentraland Auth Server (wallet-keyed pet state)
 
 Explicitly OUT of scope for MVP (future rings):
-- Breeding mechanic
+- Peer-to-peer breeding with other players' pets (blocked; not yet functional)
 - Cosmetic items / accessories
 - Functional shop upgrades (bigger bowl, etc.)
 - Leaderboards (Giving score + Caretaker score) — design is sketched below,
   build later
 - Cross-scene pet following (pet exists only within Care Center parcel)
-- Currency earned from breeding (depends on future rings)
+- Trading / breeding-fee economy (depends on future rings)
 - Pet evolution via model swap (see Section 3 — sizes only for MVP)
 
 Note: multiple pets is now partially in-scope for MVP — see Section 6a
@@ -68,6 +71,9 @@ Daily Streak, Spin Wheel) are in-scope for MVP at a structural/stubbed
 level — see Section 6b. Exact unlock tables and reward tuning are deferred,
 but the data model (XP fields, level fields, streak counter, achievement
 flags) should be built now so it's not retrofitted later.
+
+Note: scope review updated on Sep 1, 2026 — solo breeding + genetics are part
+of the shipped MVP. Only direct P2P breeding/trade remains blocked.
 
 ---
 
@@ -198,6 +204,7 @@ social. Skippable for returning players.
 10. Progression (Caretaker/Pet XP, achievements, streak, spin wheel).
 11. Caretaker NPC tutorial.
 12. Social (treat/pet others) + Giving score.
+13. Solo breeding + genetics loop + offspring collection.
 
 ---
 
@@ -227,9 +234,12 @@ social. Skippable for returning players.
 - [x] Ring 10: progression (Caretaker XP, Pet XP, achievements, streak, spin wheel)
 - [x] Ring 11: Caretaker NPC tutorial (dialogue panel)
 - [x] Ring 12: social layer (remote pets rendered near owners; Giving score)
+- [x] Ring 13: solo breeding + genetics (self-serve breeding loop + offspring collection)
 
 MVP foundation is built, compiles clean, and the authoritative server boots
-without errors in preview. Remaining work is tuning + polish, not new systems.
+without errors in preview. Remaining work is tuning + polish; direct P2P
+breeding/trade is still blocked, but the solo breeding/genetics MVP loop is
+shipped.
 
 ---
 
