@@ -1,17 +1,29 @@
-// Play action (Fetch): the player "throws" an animated meteorite forward; it
-// arcs out ahead of the avatar while tumbling and lands. Then the pet runs to
-// it, grabs it, carries it back to the player and drops it — which applies the
+// Play action (Fetch): the player taps the Fetch button; the avatar plays a
+// throw emote and, once the arm swings forward, an animated meteorite arcs
+// out ahead of the avatar while tumbling and lands. Then the pet runs to it,
+// grabs it, carries it back to the player and drops it — which applies the
 // normal "play" reward. (The old play action — pet walks to the ball — is
 // suspended; see input.ts / ui.tsx.)
 
-import { engine, Entity, Transform, GltfContainer } from '@dcl/sdk/ecs'
+import { engine, Entity, Transform, GltfContainer, AvatarMask } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion } from '@dcl/sdk/math'
+import { triggerSceneEmote } from '~system/RestrictedActions'
 import * as C from '../shared/config'
 import { getLocalPet, sendPetTo } from './pet'
 import { applyCareLocal } from './sim'
 import { actions, clientState } from './state'
 
 const MODEL = 'models/meteorite_animated.glb'
+// Scene emotes must end in '_emote.glb' (Unity enforces this naming
+// convention — see pet.ts's HOLD_EMOTE comment); a differently-named file
+// silently gets rejected (triggerSceneEmote resolves success:false, no
+// error). This clip (no mesh, same Avatar_* skeleton as the real avatar) is a
+// single 0.67s wind-up-and-throw action. Played masked AM_UPPER_BODY like
+// every other scene emote in this codebase (holdEmote.ts) — an unmasked
+// full-body trigger was rejected the same way (success:false), so masked is
+// the only version that actually plays.
+const THROW_EMOTE = 'models/throw_ball_emote.glb'
+const THROW_RELEASE_DELAY = 0.4 // seconds from triggering the emote to the arm's forward release point (read off the clip's own keyframes) — when the meteorite actually spawns/launches
 const FLIGHT_TIME = 1.1 // seconds in the air
 const THROW_DISTANCE = 9 // metres forward from the avatar
 const ARC_HEIGHT = 3.2 // peak height of the throw arc
@@ -28,14 +40,40 @@ type Phase = 'fly' | 'wait' | 'carry' | 'dropped'
 type Flight = { entity: Entity; from: Vector3; to: Vector3; t: number; phase: Phase; spin: number }
 let flight: Flight | null = null
 
-/** Spawn a meteorite and hurl it forward; the pet fetches it once it lands. */
+/** Fetch button tapped: play the throw emote right away, and actually
+ *  spawn/launch the meteorite once the emote's arm swings forward
+ *  (THROW_RELEASE_DELAY later) so the ball leaves the hand instead of
+ *  popping into existence mid wind-up. The pet fetches it once it lands. */
 export function throwMeteor(): void {
   if (flight) return // a fetch is already in progress — ignore extra throws
   const pt = Transform.getOrNull(engine.PlayerEntity)
   if (!pt) return
-  // Avatar forward, flattened to the ground plane.
-  const forward = Vector3.rotate(Vector3.create(0, 0, 1), pt.rotation)
-  const dir = Vector3.normalize(Vector3.create(forward.x, 0, forward.z))
+  const dir = flatForward(pt.rotation)
+  clientState.fetch.busy = true // block the Fetch button until the pet drops it
+  void triggerSceneEmote({ src: THROW_EMOTE, loop: false, mask: AvatarMask.AM_UPPER_BODY })
+    .then((res) => {
+      if (!res.success) console.log('[Client] throw emote: triggerSceneEmote resolved with success:false')
+    })
+    .catch((err) => console.log('[Client] throw emote: triggerSceneEmote threw', err))
+
+  let t = 0
+  const fire = (dt: number): void => {
+    t += dt
+    if (t >= THROW_RELEASE_DELAY) {
+      launchMeteor(dir)
+      engine.removeSystem(fire)
+    }
+  }
+  engine.addSystem(fire)
+}
+
+/** Actually spawns the meteorite and starts its flight, in the given (flat,
+ *  normalized) direction — split out from throwMeteor() so the spawn can be
+ *  delayed to match the throw emote's release point. */
+function launchMeteor(dir: Vector3): void {
+  if (flight) return
+  const pt = Transform.getOrNull(engine.PlayerEntity)
+  if (!pt) return
   const from = Vector3.create(pt.position.x + dir.x * 0.7, pt.position.y + 1.4, pt.position.z + dir.z * 0.7)
   const to = Vector3.create(pt.position.x + dir.x * THROW_DISTANCE, C.PET_BASE_Y + 0.35, pt.position.z + dir.z * THROW_DISTANCE)
 
@@ -43,7 +81,12 @@ export function throwMeteor(): void {
   Transform.createOrReplace(entity, { position: from, scale: Vector3.scale(Vector3.One(), SCALE) })
   GltfContainer.createOrReplace(entity, { src: MODEL })
   flight = { entity, from, to, t: 0, phase: 'fly', spin: 0 }
-  clientState.fetch.busy = true // block the Fetch button until the pet drops it
+}
+
+/** Avatar forward, flattened to the ground plane and normalized. */
+function flatForward(rotation: Quaternion): Vector3 {
+  const fwd = Vector3.rotate(Vector3.create(0, 0, 1), rotation)
+  return Vector3.normalize(Vector3.create(fwd.x, 0, fwd.z))
 }
 
 /** Position the carried meteorite at the pet's "mouth" (in front + up a bit). */
