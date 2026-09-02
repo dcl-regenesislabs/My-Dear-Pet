@@ -531,22 +531,29 @@ export function growSize(size: number): number {
 // (see sizeForCareCount) and crosses 3 thresholds over a couple of days. Each
 // stage renders at a fixed, chunky size, and its name shows in the health bar.
 // ---------------------------------------------------------------------------
-export type PetStage = 'JUNIOR' | 'TEEN' | 'ADULT'
+export type PetStage = 'JUNIOR' | 'TEENAGER' | 'ADULT'
 
 // Size thresholds along the SIZE_BASE..SIZE_MAX (0.55..1.1) growth range.
-export const PET_STAGE_TEEN_SIZE = 0.73 // grown this big -> TEEN
+export const PET_STAGE_TEEN_SIZE = 0.73 // grown this big -> TEENAGER
 export const PET_STAGE_ADULT_SIZE = 0.92 // grown this big -> ADULT
 
 /** Which growth stage a pet's current size falls into. */
 export function petStage(size: number): PetStage {
   if (size >= PET_STAGE_ADULT_SIZE) return 'ADULT'
-  if (size >= PET_STAGE_TEEN_SIZE) return 'TEEN'
+  if (size >= PET_STAGE_TEEN_SIZE) return 'TEENAGER'
   return 'JUNIOR'
+}
+
+/** User-facing label for a growth stage. */
+export function petStageLabel(size: number): string {
+  const stage = petStage(size)
+  if (stage === 'TEENAGER') return 'Teenager'
+  return stage.charAt(0) + stage.slice(1).toLowerCase()
 }
 
 // Each stage renders at one fixed size, so pets visibly snap between 3 sizes.
 // The range is deliberately wide so a JUNIOR reads as a tiny baby next to an ADULT.
-const STAGE_SCALE: Record<PetStage, number> = { JUNIOR: 0.35, TEEN: 0.45, ADULT: 0.7 }
+const STAGE_SCALE: Record<PetStage, number> = { JUNIOR: 0.7, TEENAGER: 0.9, ADULT: 1.4 }
 
 /** Discrete display scale for a pet's current growth stage. */
 export function stageScaleFor(size: number): number {

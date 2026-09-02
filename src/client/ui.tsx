@@ -246,7 +246,7 @@ function StatRow(props: { label: string; value: number; color: Color; width: num
 // its LightModal title already shows the name/level.
 function PetIdentityRow(props: { species: string; rarity: Rarity; size: number; width: number; name?: string; level?: number }) {
   const img = Cfg.speciesImage(props.species)
-  const stage = Cfg.petStage(props.size)
+  const stage = Cfg.petStageLabel(props.size)
   const rc = Cfg.RARITY_COLOR[props.rarity] ?? Cfg.RARITY_COLOR.common
   const rarityColor: Color = { r: rc.r, g: rc.g, b: rc.b, a: 1 }
   const discSize = S(84)
@@ -281,7 +281,8 @@ function PetPanel() {
   const chipH = S(60)
   const halfW = Math.round((contentW - S(8)) / 2)
   const unlocked = Cfg.petStage(pet.size) === 'ADULT'
-  const partner = clientState.player?.pets.find((x) => x.id !== pet.id)
+  const otherPets = clientState.player?.pets.filter((x) => x.id !== pet.id) ?? []
+  const partner = otherPets.find((x) => Cfg.petStage(x.size) === 'ADULT')
   // Interactions are mutually exclusive: a moment already in progress (carry-
   // to-bathe, petting, fetch, hatching, or a queued care action) blocks
   // starting another, and being asleep blocks everything except waking up.
@@ -391,14 +392,12 @@ function PetPanel() {
               pushToast('Grow your pet to Adult to unlock breeding!')
               return
             }
-            if (!partner) {
+            if (otherPets.length === 0) {
               pushToast('You need a second pet to breed with.')
               return
             }
-            // The server requires BOTH parents to be Adult — check the partner
-            // here so a JUNIOR partner shows a hint instead of a server error.
-            if (Cfg.petStage(partner.size) !== 'ADULT') {
-              pushToast(`${partner.name} must also grow to Adult to breed.`)
+            if (!partner) {
+              pushToast('You need a second Adult pet to breed with.')
               return
             }
             // Name the offspring first (like adoption), then breed on confirm.
