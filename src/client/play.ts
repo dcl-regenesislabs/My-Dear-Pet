@@ -1,11 +1,15 @@
-// Play action (Fetch): the player taps the Fetch button; the avatar plays a
-// throw emote and, once the arm swings forward, an animated meteorite arcs
-// out ahead of the avatar while tumbling and lands. Then the pet runs to it,
+// Play action (Fetch): as soon as Fetch mode is opened, a meteorite appears
+// attached to the player's right hand (same AvatarAttach trick pet.ts uses to
+// carry the egg). Tapping the Fetch button plays a throw emote — the ball
+// stays in the hand through the wind-up — and right as the throw is
+// finishing, the held ball is swapped for a free-flying one that arcs out
+// ahead of the avatar while tumbling and lands. Then the pet runs to it,
 // grabs it, carries it back to the player and drops it — which applies the
-// normal "play" reward. (The old play action — pet walks to the ball — is
-// suspended; see input.ts / ui.tsx.)
+// normal "play" reward, and a fresh ball reappears in the hand for the next
+// throw. (The old play action — pet walks to the ball — is suspended; see
+// input.ts / ui.tsx.)
 
-import { engine, Entity, Transform, GltfContainer, AvatarMask } from '@dcl/sdk/ecs'
+import { engine, Entity, Transform, GltfContainer, AvatarMask, AvatarAttach, AvatarAnchorPointType } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion } from '@dcl/sdk/math'
 import { triggerSceneEmote } from '~system/RestrictedActions'
 import * as C from '../shared/config'
@@ -23,7 +27,7 @@ const MODEL = 'models/meteorite_animated.glb'
 // full-body trigger was rejected the same way (success:false), so masked is
 // the only version that actually plays.
 const THROW_EMOTE = 'models/throw_ball_emote.glb'
-const THROW_RELEASE_DELAY = 0.4 // seconds from triggering the emote to the arm's forward release point (read off the clip's own keyframes) — when the meteorite actually spawns/launches
+const THROW_RELEASE_DELAY = 0.5 // seconds from triggering the emote to release — near the end of the 0.67s clip, just past the arm's forward-most point (read off the clip's own keyframes) — when the held ball is swapped for the free-flying one
 const FLIGHT_TIME = 1.1 // seconds in the air
 const THROW_DISTANCE = 9 // metres forward from the avatar
 const ARC_HEIGHT = 3.2 // peak height of the throw arc
@@ -32,6 +36,9 @@ const LINGER = 2.0 // seconds resting on the ground if there's no pet to fetch
 const SCALE = 0.35
 const CARRY_HEIGHT = 0.45 // how high off the pet the carried meteorite floats
 const CARRY_FORWARD = 0.6 // how far in front of the pet (a bit past its face)
+// Held-ball local offset in the hand anchor's space — approximate, same idea as
+// pet.ts's EGG_HAND_OFFSET; likely needs a visual tuning pass once seen in-client.
+const HAND_BALL_OFFSET = Vector3.create(0.12, 0.05, 0.05)
 
 // 'fly' = arcing through the air. 'wait' = grounded, pet running to it.
 // 'carry' = pet bringing it back. 'dropped' = left on the floor by the avatar,
@@ -39,11 +46,13 @@ const CARRY_FORWARD = 0.6 // how far in front of the pet (a bit past its face)
 type Phase = 'fly' | 'wait' | 'carry' | 'dropped'
 type Flight = { entity: Entity; from: Vector3; to: Vector3; t: number; phase: Phase; spin: number }
 let flight: Flight | null = null
+let handAnchor: Entity | null = null // empty attached to the right-hand bone, alive while Fetch mode is open
+let handBall: Entity | null = null // the visible held meteorite, child of handAnchor; absent while one is in flight
 
-/** Fetch button tapped: play the throw emote right away, and actually
- *  spawn/launch the meteorite once the emote's arm swings forward
- *  (THROW_RELEASE_DELAY later) so the ball leaves the hand instead of
- *  popping into existence mid wind-up. The pet fetches it once it lands. */
+/** Fetch button tapped: play the throw emote right away — the ball stays in
+ *  the hand through the wind-up (see carryBallSystem) — and swap it for a
+ *  free-flying one once the emote is finishing (THROW_RELEASE_DELAY later).
+ *  The pet fetches it once it lands. */
 export function throwMeteor(): void {
   if (flight) return // a fetch is already in progress — ignore extra throws
   const pt = Transform.getOrNull(engine.PlayerEntity)
@@ -178,6 +187,38 @@ function landed(): void {
   )
 }
 
+/** Keeps a meteorite visibly in the player's right hand for the whole time
+ *  Fetch mode is open and no ball is currently in flight/being fetched —
+ *  same AvatarAttach(AAPT_RIGHT_HAND) approach pet.ts uses for the carried
+ *  egg. `handAnchor` stays alive for the Fetch session; `handBall` (the
+ *  visible model) comes and goes each throw. */
+function carryBallSystem(): void {
+  const wantAnchor = clientState.fetch.active
+  if (wantAnchor && !handAnchor) {
+    handAnchor = engine.addEntity()
+    Transform.createOrReplace(handAnchor, {})
+    AvatarAttach.createOrReplace(handAnchor, { anchorPointId: AvatarAnchorPointType.AAPT_RIGHT_HAND })
+  } else if (!wantAnchor && handAnchor) {
+    if (handBall) {
+      engine.removeEntity(handBall)
+      handBall = null
+    }
+    engine.removeEntity(handAnchor)
+    handAnchor = null
+  }
+
+  const wantBall = wantAnchor && !flight
+  if (wantBall && !handBall && handAnchor) {
+    handBall = engine.addEntity()
+    Transform.createOrReplace(handBall, { parent: handAnchor, position: HAND_BALL_OFFSET, scale: Vector3.scale(Vector3.One(), SCALE) })
+    GltfContainer.createOrReplace(handBall, { src: MODEL })
+  } else if (!wantBall && handBall) {
+    engine.removeEntity(handBall)
+    handBall = null
+  }
+}
+
 export function setupPlay(): void {
   engine.addSystem(flightSystem)
+  engine.addSystem(carryBallSystem)
 }
