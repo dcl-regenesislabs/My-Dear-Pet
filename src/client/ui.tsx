@@ -12,6 +12,7 @@ import type { CareAction, Rarity } from '../shared/types'
 import { actions, clientState, discardHatchling, keepHatchling, pushToast, serverConnected, switchActivePet, hasPendingHatchling } from './state'
 import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry, startCarryPet, placePetAtStation, cancelCarryPet, canStartPetInteraction } from './pet'
 import { throwMeteor } from './play'
+import { musicState, playSong, setMusicVolume, SONGS, type SongId, toggleMute } from './music'
 import { triggerCare, careActive, queueLength } from './input'
 import { startFeedTask } from './feed'
 import {
@@ -35,7 +36,7 @@ import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './
 import { endCaretakerIntroLock } from './caretaker'
 import { DebugBrowserBar, UI_DEBUG_MODE } from './ui/debugBrowser'
 
-export type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor' | 'breedName'
+export type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor' | 'breedName' | 'jukebox'
 
 const uiState = {
   panel: 'none' as Panel,
@@ -79,6 +80,9 @@ export const ui = {
   },
   openMeteorReward(): void {
     uiState.panel = 'meteor'
+  },
+  openJukebox(): void {
+    uiState.panel = 'jukebox'
   },
   // Auto-open the daily reward only when the screen is idle (no clashing popup).
   tryAutoOpenDaily(): void {
@@ -571,6 +575,40 @@ function SideButtons() {
   return <UiEntity />
 }
 
+// ---------------------------------------------------------------------------
+// Jukebox HUD button (mid-right) — the entry point to the track picker.
+// ---------------------------------------------------------------------------
+// The cozy-farm jukebox hangs off a clickable Boombox model in the scene; there
+// is no such prop in this composite, so the colony gets a HUD button instead.
+// It sits on the mid-right edge — the slot this file's header reserves for side
+// buttons, and currently the only free one: the top-right is crossed by the
+// toast pill (top S(84), 320 wide, anchored right) and the bottom-right by
+// ServerStatus. Same gating as BottomNav: hidden during dialogs and the
+// full-screen flows (fetch / carry / hatch) that own the whole screen.
+function MusicButton() {
+  if (clientState.dialog.open || clientState.fetch.active || clientState.carryEgg.active || clientState.carryPet.active || clientState.hatch.active) {
+    return <UiEntity />
+  }
+  const size = Sbtn(52)
+  const muted = musicState.muted
+  return (
+    <UiEntity
+      uiTransform={{ positionType: 'absolute', position: { top: '40%', right: S(16) }, width: size, height: size, pointerFilter: 'none' }}
+    >
+      <TactileButton
+        id="hud_music"
+        label="♪"
+        width={size}
+        height={size}
+        bg={muted ? C.cardAlt : C.pink}
+        textColor={muted ? C.dim : C.text}
+        fontSize={Math.round(size * 0.5)}
+        radius={Math.round(size / 2)}
+        onClick={() => ui.openJukebox()}
+      />
+    </UiEntity>
+  )
+}
 
 function CoinIcon(props: { accent?: Color; size?: number }) {
   const d = props.size ?? S(26)
@@ -1225,6 +1263,106 @@ function DailyRewardPanel() {
         )}
       </UiEntity>
     </PanelShell>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Jukebox — ambient track picker (ported from the cozy-farm jukebox)
+// ---------------------------------------------------------------------------
+// Purely client-side: switching a track, muting or changing the volume never
+// touches the authoritative server (see music.ts). The volume ladder is 5 steps
+// instead of cozy-farm's 10 — this panel is roughly half as wide, so 10 buttons
+// would land below a comfortable touch target on mobile.
+const VOLUME_STEPS = [20, 40, 60, 80, 100]
+// NOT module-level consts: S() reads the async-resolved platform, so anything
+// computed at import time would be frozen at desktop scale.
+const songRowH = () => S(62)
+const songRowGap = () => S(8)
+
+function SongRow(props: { key?: string; id: SongId; label: string; playing: boolean }) {
+  return (
+    <UiEntity
+      uiTransform={{ width: '100%', height: songRowH(), flexDirection: 'row', alignItems: 'center', padding: { left: S(12), right: S(12) }, margin: { bottom: songRowGap() }, borderRadius: S(12), pointerFilter: 'block' }}
+      uiBackground={{ color: props.playing ? LOC.blue : LOC.tile }}
+      onMouseDown={() => {
+        if (!props.playing) playSong(props.id)
+      }}
+    >
+      <UiEntity
+        uiTransform={{ width: S(40), height: S(40), borderRadius: S(20), margin: { right: S(12) }, alignItems: 'center', justifyContent: 'center' }}
+        uiBackground={{ color: props.playing ? LOC.white : LOC.neutral }}
+      >
+        <Label value="♪" fontSize={S(20)} color={props.playing ? LOC.blue : LOC.dim} textAlign="middle-center" uiTransform={{ width: S(40), height: S(40) }} />
+      </UiEntity>
+      <UiEntity uiTransform={{ flex: 1, height: '100%', flexDirection: 'column', justifyContent: 'center' }}>
+        <Label value={props.label} fontSize={S(18)} color={props.playing ? LOC.white : LOC.body} textAlign="middle-left" textWrap="nowrap" uiTransform={{ width: '100%', height: S(24) }} />
+        {props.playing && (
+          <Label
+            value={musicState.muted ? 'Muted' : 'Now playing'}
+            fontSize={S(13)}
+            color={musicState.muted ? LOC.neutral : LOC.white}
+            textAlign="middle-left"
+            textWrap="nowrap"
+            uiTransform={{ width: '100%', height: S(18) }}
+          />
+        )}
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+function VolumeStep(props: { key?: string; pct: number; active: boolean; width: number }) {
+  return (
+    <UiEntity
+      uiTransform={{ width: props.width, height: S(44), margin: { left: S(3), right: S(3) }, alignItems: 'center', justifyContent: 'center', borderRadius: S(10), pointerFilter: 'block' }}
+      uiBackground={{ color: props.active ? LOC.orange : LOC.tile }}
+      onMouseDown={() => {
+        if (!props.active) setMusicVolume(props.pct / 100)
+      }}
+    >
+      <Label value={`${props.pct}%`} fontSize={S(14)} color={props.active ? LOC.white : LOC.dim} textAlign="middle-center" textWrap="nowrap" uiTransform={{ width: '100%', height: S(20) }} />
+    </UiEntity>
+  )
+}
+
+function JukeboxPanel() {
+  const modalW = S(620)
+  const modalH = Math.round(modalW / PET_MODAL_ASPECT)
+  const muted = musicState.muted
+  // Snap the live volume to the nearest ladder step so exactly one button reads
+  // as selected even when the value isn't on the ladder (the 42% default isn't).
+  const volPct = musicState.volume * 100
+  const activeStep = VOLUME_STEPS.reduce((best, pct) => (Math.abs(pct - volPct) < Math.abs(best - volPct) ? pct : best))
+  const stepW = Math.round((modalW - S(60)) / VOLUME_STEPS.length) - S(6)
+  return (
+    <PetHudModal title="Jukebox" subtitle="Pick the colony's ambient track." width={modalW} height={modalH} onClose={() => ui.close()}>
+      <UiEntity uiTransform={{ width: '100%', height: SONGS.length * (songRowH() + songRowGap()), flexDirection: 'column' }}>
+        {SONGS.map((song) => (
+          <SongRow key={song.id} id={song.id} label={song.label} playing={song.id === musicState.currentSongId} />
+        ))}
+      </UiEntity>
+
+      <Label value="Volume" fontSize={S(15)} color={PET_UI.muted} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24), margin: { top: S(6) } }} />
+      <UiEntity uiTransform={{ width: '100%', height: S(44), flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}>
+        {VOLUME_STEPS.map((pct) => (
+          <VolumeStep key={`vol-${pct}`} pct={pct} active={pct === activeStep} width={stepW} />
+        ))}
+      </UiEntity>
+
+      <UiEntity uiTransform={{ flex: 1, width: '100%', justifyContent: 'center', alignItems: 'flex-end', margin: { top: S(10) } }}>
+        <TactileButton
+          id="jukebox_mute"
+          label={muted ? 'Unmute music' : 'Mute music'}
+          width={S(280)}
+          height={S(56)}
+          bg={muted ? LOC.red : LOC.neutral}
+          textColor={muted ? LOC.white : LOC.body}
+          fontSize={S(19)}
+          radius={S(14)}
+          onClick={() => toggleMute()}
+        />
+      </UiEntity>
+    </PetHudModal>
   )
 }
 
@@ -2059,6 +2197,7 @@ const Root = () => {
         <RemotePetPanel />
         <SwapOfferPanel />
         <SideButtons />
+        <MusicButton />
         <BottomNav />
         <FetchOverlay />
         <CarryHatchButton />
@@ -2075,6 +2214,7 @@ const Root = () => {
         {uiState.panel === 'meteor' && <MeteorRewardPanel />}
         {uiState.panel === 'goals' && <GoalsPanel />}
         {uiState.panel === 'daily' && <DailyRewardPanel />}
+        {uiState.panel === 'jukebox' && <JukeboxPanel />}
         <DialogBox />
         {/* Hints + reward + toasts render LAST so they sit on top of any panel/modal. */}
         <HintBanner />

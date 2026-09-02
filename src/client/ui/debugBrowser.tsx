@@ -13,6 +13,7 @@ import * as Cfg from '../../shared/config'
 import type { PetData, PlayerData, PresenceEntry, Rarity, SwapOfferPayload } from '../../shared/types'
 import { clientState, openDialog, pushToast } from '../state'
 import { debugForcePanel, debugSetUiState, type Panel } from '../ui'
+import { playSong, setMusicVolume, setMuted } from '../music'
 import { CARETAKER_TIPS, caretakerIntro } from './dialog'
 import { C, S, TactileButton } from './theme'
 
@@ -293,6 +294,18 @@ const DEBUG_SCREENS: DebugScreen[] = [
       const today = Math.floor(Date.now() / Cfg.DAY_MS)
       clientState.streak = { count: 3, lastDay: today, claimedDay: v === 1 ? today : today - 1 }
       debugForcePanel('daily')
+    }
+  },
+  {
+    id: 'jukebox',
+    label: 'Jukebox Panel',
+    variants: ['Marshy Marsh (default)', 'Swampy Marsh', 'Muted · low volume'],
+    activate: (v) => {
+      applyFixturePlayer(fakePlayer(), fakePet())
+      playSong(v === 1 ? 'swampy_marsh' : 'marshy_marsh')
+      setMuted(v === 2)
+      setMusicVolume(v === 2 ? 0.2 : 0.42)
+      debugForcePanel('jukebox')
     }
   },
   {
