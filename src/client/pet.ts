@@ -791,8 +791,10 @@ export function placePetAtStation(): void {
 const ARROW_MODEL = 'models/arrow_indicator.glb'
 const ARROW_LEAD = 1 // metres ahead of the player, toward the target
 const ARROW_GROUND_CLEARANCE = 0.05 // desired world height above the floor (~player's feet at rest)
+const ARROW_INDOOR_LIFT = 0.6 // extra world height indoors so the arrow clears raised floors / trim
 const ARROW_YAW_OFFSET = 180 // model points backwards; flip it to point at the target
 const ARROW_SCALE = 1 // tune the arrow size
+const CARE_CENTER_ARROW_RADIUS = 4.5 // arrow-only footprint around the Care Center interior
 let arrow: Entity | null = null
 let arrowTarget: Vector3 | null = null
 
@@ -803,6 +805,12 @@ export function hideArrow(): void {
   arrowTarget = null
 }
 
+function playerNeedsIndoorArrowLift(pos: Vector3): boolean {
+  if (zoneOf(pos) !== null) return true
+  const caretaker = engine.getEntityOrNullByName(EntityNames.Caretaker_glb)
+  if (!caretaker || !Transform.has(caretaker)) return false
+  return distFlat(pos, Transform.get(caretaker).position) <= CARE_CENTER_ARROW_RADIUS
+}
 // Parented to the player (body-fixed, same trick as AvatarAttach) instead of
 // positioned each frame from a world-space read of the player's Transform — that
 // read lags behind the avatar's actual (render-smooth) movement and looked
@@ -844,7 +852,9 @@ function updateArrow(): void {
   // Parenting fixes horizontal jitter, but a fixed local Y would ride up with the
   // player during a jump (local space moves with the parent on every axis). Cancel
   // the player's current height so the arrow stays near the actual ground instead.
-  const localY = ARROW_GROUND_CLEARANCE - pt.position.y
+  // Indoors, add a small fixed lift so the same floor arrow stays visible over the
+  // house / Care Center floors without turning into a floating waypoint.
+  const localY = ARROW_GROUND_CLEARANCE + (playerNeedsIndoorArrowLift(pt.position) ? ARROW_INDOOR_LIFT : 0) - pt.position.y
   const t = Transform.getMutable(arrow)
   t.position = Vector3.create(Math.sin(rad) * ARROW_LEAD, localY, Math.cos(rad) * ARROW_LEAD)
   t.rotation = Quaternion.fromEulerDegrees(0, localYaw + ARROW_YAW_OFFSET, 0)
@@ -1505,3 +1515,4 @@ export function setupPetSystems(): void {
     updateHints()
   })
 }
+
