@@ -137,11 +137,17 @@ elapsed real time, apply decay before render. Server-authoritative.
   happiness = higher earn rate.
 - **Shop (MVP):** 2 food tiers. Tier 1 cheap/moderate Hunger; Tier 2
   pricier/full Hunger + small Happiness.
+- **Rarity potion:** a coin sink bought in the Shop's Potions tab. Toggle it on
+  when you breed and it is consumed by that roll, adding a flat bonus to the
+  breeding score (parents' condition + d10) so rare/legendary hatches get more
+  likely — never guaranteed. Tuning: `RARITY_POTION_PRICE`,
+  `BREEDING_POTION_BONUS`.
 
 ## 6a. Inventory & Pet Storage
 
 - **Items inventory:** consumables (food tiers). Select → use on a pet →
-  consumed.
+  consumed. Rarity potions are held in the same inventory but are spent from
+  the breeding panel, not on a pet.
 - **Pet storage:** start 1 active slot; more via milestone AND/OR purchase.
   Only the active pet is rendered; switching is a UI action. Inactive pets
   still decay.

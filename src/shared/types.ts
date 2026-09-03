@@ -44,7 +44,7 @@ export interface PlayerData {
   address: string
   // Economy
   currency: number
-  inventory: { tier1: number; tier2: number } // food consumables
+  inventory: { tier1: number; tier2: number; rarityPotions: number } // food consumables + rarity potions
   // Progression
   caretakerXp: number
   caretakerLevel: number

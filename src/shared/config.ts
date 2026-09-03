@@ -495,6 +495,18 @@ export const BREEDING_RARITY_THRESHOLDS: [Rarity, number][] = [
   ['uncommon', 4]
 ]
 
+// ---------------------------------------------------------------------------
+// Rarity potion — a purchasable coin sink that tilts ONE breeding roll toward
+// the rare end. Bought in the Shop, consumed by the breed that uses it.
+// ---------------------------------------------------------------------------
+export const RARITY_POTION_LABEL = 'Rarity Potion'
+export const RARITY_POTION_PRICE = 150
+/** Points the potion adds to the breeding score (same scale as the d10 + care
+ *  bonus). Deliberately NOT a multiple of the 2-point gap between thresholds:
+ *  a potion shifts the odds (roughly doubles the legendary chance) instead of
+ *  guaranteeing a flat one-tier jump, so the roll stays a surprise. */
+export const BREEDING_POTION_BONUS = 1.5
+
 /** Display name for each rarity tier (shown on the pet, colored by RARITY_COLOR). */
 export function rarityLabel(r: Rarity): string {
   const labels: Record<Rarity, string> = {

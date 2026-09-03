@@ -29,7 +29,7 @@ import {
   debugCamIsClosePreview,
   debugCamPrint
 } from './fruitGame'
-import { buyItemLocal, buySlotLocal, claimStreak, dailyClaimable, dailyLadderDay, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
+import { buyItemLocal, buyPotionLocal, buySlotLocal, claimStreak, dailyClaimable, dailyLadderDay, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
 import { sway, startAnimSystem, attentionPulse } from './ui/anim'
 import { C, Color, getUiRendererConfig, mobile, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, TactileButton } from './ui/theme'
 import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './ui/dialog'
@@ -37,10 +37,11 @@ import { endCaretakerIntroLock } from './caretaker'
 import { DebugBrowserBar, UI_DEBUG_MODE } from './ui/debugBrowser'
 
 export type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor' | 'breedName' | 'jukebox'
+export type ShopTabId = 'food' | 'slots'
 
 const uiState = {
   panel: 'none' as Panel,
-  shopTab: 'food' as 'food' | 'slots',
+  shopTab: 'food' as ShopTabId,
   adoptStep: 'pick' as 'pick' | 'name',
   adoptSpecies: Cfg.SPECIES[0],
   adoptName: '',
@@ -48,6 +49,8 @@ const uiState = {
   // the offspring (the server prefixes it "Gen-N ").
   breedPartnerId: '',
   breedName: '',
+  // Spend a rarity potion on this breed? Reset every time the panel opens.
+  breedUsePotion: false,
   // Roster page being viewed. Pet slots are unlimited, so the grid can hold more
   // cards than the modal fits and has to page through them.
   rosterPage: 0
@@ -124,7 +127,7 @@ export const ui = {
 export function debugForcePanel(panel: Panel): void {
   uiState.panel = panel
 }
-export function debugSetUiState(patch: Partial<{ shopTab: 'food' | 'slots'; adoptStep: 'pick' | 'name'; rosterPage: number }>): void {
+export function debugSetUiState(patch: Partial<{ shopTab: ShopTabId; adoptStep: 'pick' | 'name'; breedUsePotion: boolean; rosterPage: number }>): void {
   Object.assign(uiState, patch)
 }
 
@@ -411,6 +414,7 @@ function PetPanel() {
             // Name the offspring first (like adoption), then breed on confirm.
             uiState.breedPartnerId = partner.id
             uiState.breedName = ''
+            uiState.breedUsePotion = false
             uiState.panel = 'breedName'
             clientState.petPanelOpen = false
           }}
@@ -758,10 +762,15 @@ function AdoptPanel() {
 
 // Breeding: name the offspring before crossing. The species + rarity are the
 // server's surprise inside the egg; the name is prefixed "Gen-N" server-side.
+// A rarity potion (bought in the Shop) can be spent on this roll to tilt the
+// odds toward rare/legendary — it is consumed server-side by this breed only.
 function BreedNamePanel() {
   if (uiState.panel !== 'breedName') return <UiEntity />
+  const potions = clientState.player?.inventory.rarityPotions ?? 0
+  const hasPotion = potions > 0
+  const usingPotion = hasPotion && uiState.breedUsePotion
   return (
-    <LightModal title="Name your Offspring" width={S(680)} height={S(560)} onClose={() => ui.close()}>
+    <LightModal title="Name your Offspring" width={S(680)} height={S(660)} onClose={() => ui.close()}>
       <UiEntity uiTransform={{ width: '100%', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
         <Label value="🥚" fontSize={S(90)} textAlign="middle-center" uiTransform={{ width: '100%', height: S(120), margin: { top: S(6) } }} />
         <Label value="Cross your two Adults — the species and rarity are a surprise inside the egg!" fontSize={S(17)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: S(520), height: S(48) }} />
@@ -777,6 +786,28 @@ function BreedNamePanel() {
           }}
         />
         <Label value="It hatches named  Gen-1  +  your name." fontSize={S(14)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(22) }} />
+        <TactileButton
+          id="breed_potion"
+          label={`${usingPotion ? '✓ ' : ''}${Cfg.RARITY_POTION_LABEL}  x${potions}`}
+          width={S(400)}
+          height={S(60)}
+          bg={usingPotion ? LOC.violet : LOC.neutral}
+          textColor={usingPotion ? LOC.white : LOC.body}
+          fontSize={S(19)}
+          radius={S(18)}
+          disabled={!hasPotion}
+          margin={{ top: S(10) }}
+          onClick={() => {
+            uiState.breedUsePotion = !uiState.breedUsePotion
+          }}
+        />
+        <Label
+          value={hasPotion ? 'Tap to spend one potion on this roll — better rare/legendary odds.' : 'No potions — buy one in your Inventory to boost your rare/legendary odds.'}
+          fontSize={S(14)}
+          color={LOC.dim}
+          textAlign="middle-center"
+          uiTransform={{ width: S(520), height: S(22), margin: { top: S(4) } }}
+        />
       </UiEntity>
       <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', justifyContent: 'center', margin: { top: S(6) } }}>
         <TactileButton id="breed_back" label="< Back" width={S(160)} height={S(66)} bg={LOC.neutral} textColor={LOC.body} fontSize={S(20)} radius={S(18)} margin={{ right: S(12) }} onClick={() => ui.close()} />
@@ -791,8 +822,9 @@ function BreedNamePanel() {
           radius={S(18)}
           pulse
           onClick={() => {
-            actions.breed(uiState.breedPartnerId, uiState.breedName)
+            actions.breed(uiState.breedPartnerId, uiState.breedName, usingPotion)
             uiState.breedName = ''
+            uiState.breedUsePotion = false
             ui.close()
           }}
         />
@@ -802,9 +834,9 @@ function BreedNamePanel() {
 }
 
 // ---------------------------------------------------------------------------
-// Shop (tabbed: Food / Slots)
+// Shop (tabbed: Food / Pet Slots / Potions)
 // ---------------------------------------------------------------------------
-function ShopTab(props: { id: 'food' | 'slots'; label: string }) {
+function ShopTab(props: { id: ShopTabId; label: string }) {
   const active = uiState.shopTab === props.id
   return (
     <TactileButton
@@ -900,17 +932,23 @@ function ShopPanel() {
 // ---------------------------------------------------------------------------
 // One slot in the inventory grid — hud3's card template (baked count badge
 // slot + green/gray "Use" button) with the matching food-bowl icon dropped in.
-function InvCard(props: { key?: string; id: string; title: string; bowlUvs: number[]; bowlAspect: number; count: number; onUse: () => void }) {
-  const cardW = S(260)
+// One card, two uses: food is TAPPED to use (enabled while count > 0), the potion
+// is TAPPED to buy (enabled while affordable). Same art/size for all three so the
+// row stays uniform — the potion reuses the Magic Kibble bowl image as a stand-in.
+// Narrow enough that three fit inside the original inventory modal.
+function InvCard(props: { key?: string; id: string; title: string; bowlUvs?: number[]; bowlSrc?: string; bowlAspect: number; bowlScale?: number; bowlTop?: number; count: number; enabled: boolean; onClick: () => void }) {
+  const cardW = S(180)
   const cardH = Math.round(cardW / INV_CARD_ASPECT)
-  const enabled = props.count > 0
-  const bowlW = Math.round(cardW * 0.46)
+  // bowlScale = art width as a fraction of the card; bowlTop = its vertical spot.
+  // Defaults match the food bowls; the potion overrides them (bigger + higher).
+  const bowlW = Math.round(cardW * (props.bowlScale ?? 0.46))
   const bowlH = Math.round(bowlW / props.bowlAspect)
+  const bowlTop = Math.round(cardH * (props.bowlTop ?? 0.3))
   return (
-    <UiEntity uiTransform={{ width: cardW, height: cardH, margin: S(10), pointerFilter: enabled ? 'block' : 'none' }} onMouseDown={enabled ? props.onUse : undefined}>
+    <UiEntity uiTransform={{ width: cardW, height: cardH, margin: S(6), pointerFilter: props.enabled ? 'block' : 'none' }} onMouseDown={props.enabled ? props.onClick : undefined}>
       <UiEntity
         uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: cardW, height: cardH }}
-        uiBackground={{ texture: { src: INV_SHEET }, textureMode: 'stretch', uvs: enabled ? INV_CARD_ENABLED_UVS : INV_CARD_DISABLED_UVS }}
+        uiBackground={{ texture: { src: INV_SHEET }, textureMode: 'stretch', uvs: props.enabled ? INV_CARD_ENABLED_UVS : INV_CARD_DISABLED_UVS }}
       />
       <Label
         value={`x${props.count}`}
@@ -920,8 +958,14 @@ function InvCard(props: { key?: string; id: string; title: string; bowlUvs: numb
         uiTransform={{ positionType: 'absolute', position: { left: Math.round(cardW * 0.726), top: Math.round(cardH * 0.066) }, width: Math.round(cardW * 0.19), height: Math.round(cardH * 0.104) }}
       />
       <UiEntity
-        uiTransform={{ positionType: 'absolute', position: { left: Math.round((cardW - bowlW) / 2), top: Math.round(cardH * 0.3) }, width: bowlW, height: bowlH }}
-        uiBackground={{ texture: { src: INV_SHEET }, textureMode: 'stretch', uvs: props.bowlUvs }}
+        uiTransform={{ positionType: 'absolute', position: { left: Math.round((cardW - bowlW) / 2), top: bowlTop }, width: bowlW, height: bowlH }}
+        uiBackground={
+          // A standalone icon (potion.png) uses the whole image; a food bowl is a
+          // cropped region of the shared HUD spritesheet.
+          props.bowlSrc
+            ? { texture: { src: props.bowlSrc }, textureMode: 'stretch' }
+            : { texture: { src: INV_SHEET }, textureMode: 'stretch', uvs: props.bowlUvs }
+        }
       />
       <Label
         value={props.title}
@@ -938,11 +982,17 @@ function InventoryPanel() {
   const p = clientState.player
   const t1 = p?.inventory.tier1 ?? 0
   const t2 = p?.inventory.tier2 ?? 0
+  const potions = p?.inventory.rarityPotions ?? 0
+  // The Rarity Potion is the only way to buy the breeding consumable while the
+  // Shop is suspended (SideButtons() is empty). It's TAPPED to buy (150 coins) —
+  // it's spent later by the breed that toggles it on, not "used" from here.
+  const canAffordPotion = (p?.currency ?? 0) >= Cfg.RARITY_POTION_PRICE
   return (
-    <PetHudModal title="Inventory" subtitle="Tap Use to feed your active pet." width={S(660)} height={S(500)} onClose={() => ui.close()}>
+    <PetHudModal title="Inventory" subtitle="Tap food to feed your pet, or tap the potion to buy one for breeding." width={S(660)} height={S(500)} onClose={() => ui.close()}>
       <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center' }}>
-        <InvCard key="inv-1" id="use_1" title={Cfg.SHOP_ITEMS[0].label} bowlUvs={INV_BOWL1_UVS} bowlAspect={INV_BOWL1_ASPECT} count={t1} onUse={() => { if (useItemLocal(1)) pushToast('Fed your pet!'); actions.useItem(1) }} />
-        <InvCard key="inv-2" id="use_2" title={Cfg.SHOP_ITEMS[1].label} bowlUvs={INV_BOWL2_UVS} bowlAspect={INV_BOWL2_ASPECT} count={t2} onUse={() => { if (useItemLocal(2)) pushToast('Fed your pet!'); actions.useItem(2) }} />
+        <InvCard key="inv-1" id="use_1" title={Cfg.SHOP_ITEMS[0].label} bowlUvs={INV_BOWL1_UVS} bowlAspect={INV_BOWL1_ASPECT} count={t1} enabled={t1 > 0} onClick={() => { if (useItemLocal(1)) pushToast('Fed your pet!'); actions.useItem(1) }} />
+        <InvCard key="inv-2" id="use_2" title={Cfg.SHOP_ITEMS[1].label} bowlUvs={INV_BOWL2_UVS} bowlAspect={INV_BOWL2_ASPECT} count={t2} enabled={t2 > 0} onClick={() => { if (useItemLocal(2)) pushToast('Fed your pet!'); actions.useItem(2) }} />
+        <InvCard key="inv-potion" id="buy_potion" title={`${Cfg.RARITY_POTION_LABEL}  ${Cfg.RARITY_POTION_PRICE}`} bowlSrc="assets/images/revamp/potion.png" bowlAspect={1} bowlScale={0.56} bowlTop={0.18} count={potions} enabled={canAffordPotion} onClick={() => { if (buyPotionLocal()) { pushToast('Bought a Rarity Potion!'); actions.buyPotion() } else pushToast('Not enough coins!') }} />
       </UiEntity>
     </PetHudModal>
   )
