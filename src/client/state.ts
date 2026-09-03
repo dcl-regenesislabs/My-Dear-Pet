@@ -4,7 +4,7 @@
 import { getPlayer } from '@dcl/sdk/players'
 import { room } from '../shared/messages'
 import type { CareAction, PetData, PlayerData, PlayerSnapshot, PresenceEntry, SwapOfferPayload } from '../shared/types'
-import { levelForXp, NEW_PET_STATS, SERVER_TIMEOUT_MS, SIZE_BASE, SIZE_MAX, SLOT_PRICE, speciesLabel, xpForLevel, type SpinReward } from '../shared/config'
+import { levelForXp, NEW_PET_STATS, SERVER_TIMEOUT_MS, SIZE_BASE, SIZE_MAX, slotPrice, speciesLabel, xpForLevel, type SpinReward } from '../shared/config'
 
 export type DialogState = {
   open: boolean
@@ -387,6 +387,6 @@ export function debugGrowAdultLocal(): void {
   pet.size = SIZE_MAX
   pet.petXp = Math.max(pet.petXp, xpForLevel(5))
   pet.petLevel = levelForXp(pet.petXp)
-  if (clientState.player) clientState.player.currency = Math.max(clientState.player.currency, SLOT_PRICE)
+  if (clientState.player) clientState.player.currency = Math.max(clientState.player.currency, slotPrice(clientState.player.petSlots))
   actions.debugGrowAdult()
 }
