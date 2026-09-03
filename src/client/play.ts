@@ -14,7 +14,7 @@ import { engine, Entity, Transform, MeshRenderer, Material, AvatarMask, AvatarAt
 import { Vector3, Quaternion, Color4 } from '@dcl/sdk/math'
 import { triggerSceneEmote } from '~system/RestrictedActions'
 import * as C from '../shared/config'
-import { getLocalPet, sendPetTo } from './pet'
+import { getLocalPet, sendPetTo, getLogicalClip } from './pet'
 import { applyCareLocal } from './sim'
 import { actions, clientState } from './state'
 
@@ -22,7 +22,7 @@ const TENNIS_YELLOW = Color4.create(0.85, 0.98, 0.2, 1)
 
 /** Placeholder ball look: a plain tennis-yellow sphere. Swap for a textured
  *  sphere (Material.Texture.Common) once real ball art lands. */
-function applyBallShape(entity: Entity): void {
+export function applyBallShape(entity: Entity): void {
   MeshRenderer.setSphere(entity)
   Material.setPbrMaterial(entity, { albedoColor: TENNIS_YELLOW })
 }
@@ -36,32 +36,62 @@ function applyBallShape(entity: Entity): void {
 // full-body trigger was rejected the same way (success:false), so masked is
 // the only version that actually plays.
 const THROW_EMOTE = 'models/throw_ball_emote.glb'
-// These are `let`, not `const` — see debugBall* below, a runtime calibration
-// panel (toggle with the "1" hotkey, input.ts) for exactly the values that
-// are hardest to get right without seeing them in-client: where the ball
-// sits in the hand, where it launches from, and when. Values below are
-// calibrated in-client via that panel; if they ever need retuning, use the
-// panel's "Print values" button and hardcode the numbers back here.
-let THROW_RELEASE_DELAY = 0.2 // seconds from triggering the emote to release
-let HAND_BALL_X = 0.07 // held-ball offset in the hand anchor's local space — same idea as pet.ts's EGG_HAND_OFFSET
-let HAND_BALL_Y = 0.07
-let HAND_BALL_Z = -0.01
+const THROW_RELEASE_DELAY = 0.2 // seconds from triggering the emote to release
+const HAND_BALL_X = 0.07 // held-ball offset in the hand anchor's local space — same idea as pet.ts's EGG_HAND_OFFSET
+const HAND_BALL_Y = 0.07
+const HAND_BALL_Z = -0.01
 // Launch point approximation: forward + to the RIGHT of center (a real right
 // hand isn't on the centerline) + roughly hand/shoulder height, so the
 // released ball reads as leaving the hand instead of popping out of the
 // chest. There's no way to read the AvatarAttach hand bone's actual world
 // position back out of ECS state, so this is a hand-tuned estimate.
-let HAND_FORWARD_OFFSET = 0.17
-let HAND_RIGHT_OFFSET = 0.26
-let HAND_HEIGHT = 1.68
+const HAND_FORWARD_OFFSET = 0.17
+const HAND_RIGHT_OFFSET = 0.26
+const HAND_HEIGHT = 1.68
 const FLIGHT_TIME = 1.1 // seconds in the air
 const THROW_DISTANCE = 9 // metres forward from the avatar
 const ARC_HEIGHT = 3.2 // peak height of the throw arc
 const SPIN_SPEED = 540 // deg/sec tumble while flying
 const LINGER = 2.0 // seconds resting on the ground if there's no pet to fetch
-const SCALE = 0.14 // ball diameter in metres — was 0.35 (tuned for the old meteorite mesh), way too big for a primitive sphere at scale 1 = 1m
-const CARRY_HEIGHT = 0.45 // how high off the pet the carried meteorite floats
-const CARRY_FORWARD = 0.6 // how far in front of the pet (a bit past its face)
+export const SCALE = 0.14 // ball diameter in metres — was 0.35 (tuned for the old meteorite mesh), way too big for a primitive sphere at scale 1 = 1m
+const GROUND_REST_Y = SCALE / 2 // ball's centre height when resting on the ground (its radius) — was a flat 0.35/0.2 tuned for the old, bigger mesh; floated well above the floor once the ball shrank
+
+// Pet-carry offset (where the ball sits relative to the pet while it's
+// bringing it back) — PER SPECIES, since the 4 pets have different body
+// proportions (see Cfg.SPECIES_SCALE) and one fixed offset didn't fit all of
+// them — AND per animation state (idle vs walk), since a walk cycle's bob
+// shifts the mouth/hold point vs standing still. Calibrated in-client;
+// species/state combos not yet tuned fall back to DEFAULT_CARRY_OFFSET, and
+// the 3 sprout-family breeding variants share sprout-original's entry (same
+// rig/proportions, see Cfg.SPROUT_SPECIES). In practice the real "pet carries
+// the ball back" sequence is in 'walk' almost the whole time (it's actively
+// walking home), so 'walk' is the default state when unspecified.
+export type AnimState = 'idle' | 'walk'
+export type CarryOffset = { forward: number; right: number; height: number }
+export const DEFAULT_CARRY_OFFSET: CarryOffset = { forward: 0.6, right: 0, height: 0.45 }
+export const CARRY_OFFSET_BY_SPECIES: Partial<Record<string, Partial<Record<AnimState, CarryOffset>>>> = {
+  'sprout-original': {
+    idle: { forward: 0.18, right: -0.5, height: 0.49 },
+    walk: { forward: 0.1, right: -0.58, height: 0.59 }
+  },
+  'pepito-original': {
+    idle: { forward: 0.16, right: -0.38, height: 0.43 },
+    walk: { forward: -0.28, right: -0.3, height: 0.35 }
+  },
+  'amebita-original': {
+    idle: { forward: 0.1, right: -0.4, height: 0.53 },
+    walk: { forward: -0.14, right: -0.54, height: 0.71 }
+  },
+  'fluflito-original': {
+    idle: { forward: 0.14, right: -0.46, height: 0.59 },
+    walk: { forward: -0.08, right: -0.44, height: 0.63 }
+  }
+}
+
+export function carryOffsetForSpecies(species: string, state: AnimState = 'walk'): CarryOffset {
+  const key = C.SPROUT_SPECIES.includes(species) ? C.SPROUT_BASE : species
+  return CARRY_OFFSET_BY_SPECIES[key]?.[state] ?? DEFAULT_CARRY_OFFSET
+}
 // Decaying bounces after the primary landing, before the pet is sent to
 // fetch it — each bounce keeps BOUNCE_DECAY of the previous one's height,
 // forward travel and duration, continuing in the same throw direction.
@@ -103,11 +133,7 @@ export function throwMeteor(): void {
   if (!pt) return
   const dir = flatForward(pt.rotation)
   clientState.fetch.busy = true // block the Fetch button until the pet drops it
-  void triggerSceneEmote({ src: THROW_EMOTE, loop: false, mask: AvatarMask.AM_UPPER_BODY })
-    .then((res) => {
-      if (!res.success) console.log('[Client] throw emote: triggerSceneEmote resolved with success:false')
-    })
-    .catch((err) => console.log('[Client] throw emote: triggerSceneEmote threw', err))
+  void triggerSceneEmote({ src: THROW_EMOTE, loop: false, mask: AvatarMask.AM_UPPER_BODY }).catch(() => {})
 
   let t = 0
   const fire = (dt: number): void => {
@@ -133,7 +159,7 @@ function launchMeteor(dir: Vector3): void {
     pt.position.y + HAND_HEIGHT,
     pt.position.z + dir.z * HAND_FORWARD_OFFSET + right.z * HAND_RIGHT_OFFSET
   )
-  const to = Vector3.create(pt.position.x + dir.x * THROW_DISTANCE, C.PET_BASE_Y + 0.35, pt.position.z + dir.z * THROW_DISTANCE)
+  const to = Vector3.create(pt.position.x + dir.x * THROW_DISTANCE, C.PET_BASE_Y + GROUND_REST_Y, pt.position.z + dir.z * THROW_DISTANCE)
 
   const entity = engine.addEntity()
   Transform.createOrReplace(entity, { position: from, scale: Vector3.scale(Vector3.One(), SCALE) })
@@ -141,28 +167,37 @@ function launchMeteor(dir: Vector3): void {
   flight = { entity, from, to, t: 0, phase: 'fly', spin: 0, dir, bounceIndex: 0, bounceHeight: FIRST_BOUNCE_HEIGHT, bounceForward: FIRST_BOUNCE_FORWARD, bounceDuration: FIRST_BOUNCE_DURATION }
 }
 
-/** Avatar forward, flattened to the ground plane and normalized. */
-function flatForward(rotation: Quaternion): Vector3 {
+/** Forward from a rotation, flattened to the ground plane and normalized. */
+export function flatForward(rotation: Quaternion): Vector3 {
   const fwd = Vector3.rotate(Vector3.create(0, 0, 1), rotation)
   return Vector3.normalize(Vector3.create(fwd.x, 0, fwd.z))
 }
 
-/** Avatar right, flattened to the ground plane and normalized. */
-function flatRight(rotation: Quaternion): Vector3 {
+/** Right from a rotation, flattened to the ground plane and normalized. */
+export function flatRight(rotation: Quaternion): Vector3 {
   const r = Vector3.rotate(Vector3.create(1, 0, 0), rotation)
   return Vector3.normalize(Vector3.create(r.x, 0, r.z))
 }
 
-/** Position the carried meteorite at the pet's "mouth" (in front + up a bit). */
-function carryPose(pet: Entity): Vector3 {
-  const t = Transform.get(pet)
-  const fwd = Vector3.rotate(Vector3.create(0, 0, 1), t.rotation)
-  const flat = Vector3.normalize(Vector3.create(fwd.x, 0, fwd.z))
+/** World position for a carry offset relative to a pet's (position, rotation)
+ *  — deliberately NOT scaled by the pet's own render scale (Junior/Teenager/
+ *  Adult, species multiplier): the ball is a fixed real-world size held near
+ *  the mouth, not something that grows with the pet. */
+function carryWorldPos(petTransform: { position: Vector3; rotation: Quaternion }, off: CarryOffset): Vector3 {
+  const flat = flatForward(petTransform.rotation)
+  const right = flatRight(petTransform.rotation)
   return Vector3.create(
-    t.position.x + flat.x * CARRY_FORWARD,
-    t.position.y + CARRY_HEIGHT,
-    t.position.z + flat.z * CARRY_FORWARD
+    petTransform.position.x + flat.x * off.forward + right.x * off.right,
+    petTransform.position.y + off.height,
+    petTransform.position.z + flat.z * off.forward + right.z * off.right
   )
+}
+
+/** Position the carried meteorite at the pet's "mouth" (in front + up a bit). */
+function carryPose(pet: Entity, species: string): Vector3 {
+  const t = Transform.get(pet)
+  const state: AnimState = getLogicalClip(pet) === 'idle' ? 'idle' : 'walk'
+  return carryWorldPos(t, carryOffsetForSpecies(species, state))
 }
 
 /** Pet reached the player: drop the ball on the floor, grant the play reward,
@@ -171,7 +206,7 @@ function dropFetch(): void {
   if (!flight) return
   const pet = getLocalPet()
   const at = pet ? Transform.get(pet).position : flight.to
-  Transform.getMutable(flight.entity).position = Vector3.create(at.x, C.PET_BASE_Y + 0.2, at.z)
+  Transform.getMutable(flight.entity).position = Vector3.create(at.x, C.PET_BASE_Y + GROUND_REST_Y, at.z)
   flight.phase = 'dropped'
   flight.t = 0
   clientState.fetch.busy = false // ready to throw again
@@ -223,7 +258,7 @@ function flightSystem(dt: number): void {
     }
   } else if (flight.phase === 'carry') {
     const pet = getLocalPet()
-    if (pet) Transform.getMutable(flight.entity).position = carryPose(pet)
+    if (pet) Transform.getMutable(flight.entity).position = carryPose(pet, clientState.activePet?.species ?? '')
   } else if (flight.phase === 'dropped') {
     if (flight.t >= LINGER) {
       engine.removeEntity(flight.entity)
@@ -294,115 +329,19 @@ function carryBallSystem(): void {
   const wantBall = wantAnchor && !flight
   if (wantBall && !handBall && handAnchor) {
     handBall = engine.addEntity()
-    Transform.createOrReplace(handBall, { parent: handAnchor, scale: Vector3.scale(Vector3.One(), SCALE) })
+    Transform.createOrReplace(handBall, {
+      parent: handAnchor,
+      position: Vector3.create(HAND_BALL_X, HAND_BALL_Y, HAND_BALL_Z),
+      scale: Vector3.scale(Vector3.One(), SCALE)
+    })
     applyBallShape(handBall)
   } else if (!wantBall && handBall) {
     engine.removeEntity(handBall)
     handBall = null
   }
-  // Re-applied every frame (not just on creation) so debugBallAdjust()'s
-  // nudges show up on the held ball immediately, without a re-throw.
-  if (handBall) Transform.getMutable(handBall).position = Vector3.create(HAND_BALL_X, HAND_BALL_Y, HAND_BALL_Z)
-}
-
-// ---------------------------------------------------------------------------
-// DEBUG ball calibration panel. While Fetch mode is open, nudges the
-// module-level position/timing constants above; the held ball (carryBallSystem)
-// and a live marker at the computed launch point (debugBallPreviewSystem)
-// both re-read them every frame, so changes are visible immediately — no
-// re-throw needed to check the held-ball offset or the launch point, though
-// the release delay and flight itself still need an actual throw to judge.
-// Once the numbers feel right, call debugBallPrint() (logs to console) and
-// hardcode them back into the `let`s above.
-// ---------------------------------------------------------------------------
-export type DebugBallKey = 'ballX' | 'ballY' | 'ballZ' | 'forward' | 'right' | 'height' | 'releaseDelay'
-let debugMarker: Entity | null = null
-
-export function debugBallAvailableKeys(): DebugBallKey[] {
-  return ['ballX', 'ballY', 'ballZ', 'forward', 'right', 'height', 'releaseDelay']
-}
-
-export function debugBallLabel(key: DebugBallKey): string {
-  switch (key) {
-    case 'ballX': return 'Held: out'
-    case 'ballY': return 'Held: up'
-    case 'ballZ': return 'Held: fwd'
-    case 'forward': return 'Launch: fwd'
-    case 'right': return 'Launch: right'
-    case 'height': return 'Launch: height'
-    case 'releaseDelay': return 'Release delay (s)'
-  }
-}
-
-export function debugBallValue(key: DebugBallKey): number {
-  switch (key) {
-    case 'ballX': return HAND_BALL_X
-    case 'ballY': return HAND_BALL_Y
-    case 'ballZ': return HAND_BALL_Z
-    case 'forward': return HAND_FORWARD_OFFSET
-    case 'right': return HAND_RIGHT_OFFSET
-    case 'height': return HAND_HEIGHT
-    case 'releaseDelay': return THROW_RELEASE_DELAY
-  }
-}
-
-export function debugBallAdjust(key: DebugBallKey, delta: number): void {
-  switch (key) {
-    case 'ballX': HAND_BALL_X += delta; break
-    case 'ballY': HAND_BALL_Y += delta; break
-    case 'ballZ': HAND_BALL_Z += delta; break
-    case 'forward': HAND_FORWARD_OFFSET += delta; break
-    case 'right': HAND_RIGHT_OFFSET += delta; break
-    case 'height': HAND_HEIGHT += delta; break
-    case 'releaseDelay': THROW_RELEASE_DELAY = Math.max(0, THROW_RELEASE_DELAY + delta); break
-  }
-}
-
-export function debugBallPrint(): void {
-  console.log(
-    '[Client] ball debug values:',
-    `HAND_BALL_X=${HAND_BALL_X.toFixed(2)}`,
-    `HAND_BALL_Y=${HAND_BALL_Y.toFixed(2)}`,
-    `HAND_BALL_Z=${HAND_BALL_Z.toFixed(2)}`,
-    `HAND_FORWARD_OFFSET=${HAND_FORWARD_OFFSET.toFixed(2)}`,
-    `HAND_RIGHT_OFFSET=${HAND_RIGHT_OFFSET.toFixed(2)}`,
-    `HAND_HEIGHT=${HAND_HEIGHT.toFixed(2)}`,
-    `THROW_RELEASE_DELAY=${THROW_RELEASE_DELAY.toFixed(2)}`
-  )
-}
-
-/** Bright magenta marker at the current computed launch point — only while the
- *  debug panel is open and Fetch mode is active — so HAND_FORWARD_OFFSET/
- *  HAND_RIGHT_OFFSET/HAND_HEIGHT can be tuned by watching it move, without
- *  needing to actually throw each time. */
-function debugBallPreviewSystem(): void {
-  const want = clientState.debugBallPanelOpen && clientState.fetch.active
-  if (!want) {
-    if (debugMarker) {
-      engine.removeEntity(debugMarker)
-      debugMarker = null
-    }
-    return
-  }
-  const pt = Transform.getOrNull(engine.PlayerEntity)
-  if (!pt) return
-  const dir = flatForward(pt.rotation)
-  const right = flatRight(pt.rotation)
-  const pos = Vector3.create(
-    pt.position.x + dir.x * HAND_FORWARD_OFFSET + right.x * HAND_RIGHT_OFFSET,
-    pt.position.y + HAND_HEIGHT,
-    pt.position.z + dir.z * HAND_FORWARD_OFFSET + right.z * HAND_RIGHT_OFFSET
-  )
-  if (!debugMarker) {
-    debugMarker = engine.addEntity()
-    MeshRenderer.setSphere(debugMarker)
-    Material.setPbrMaterial(debugMarker, { albedoColor: Color4.create(1, 0, 1, 1) })
-  }
-  Transform.createOrReplace(debugMarker, { position: pos, scale: Vector3.scale(Vector3.One(), 0.08) })
 }
 
 export function setupPlay(): void {
   engine.addSystem(flightSystem)
   engine.addSystem(carryBallSystem)
-  engine.addSystem(debugBallPreviewSystem)
 }

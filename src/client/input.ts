@@ -92,13 +92,6 @@ function setupCareQueue(): void {
 // there is no key "5".
 function setupDebugHotkeys(): void {
   engine.addSystem(() => {
-    // "1": toggle the Fetch ball position/timing calibration panel (play.ts's
-    // debugBall*) — shows while Fetch mode is active, +/- buttons per value,
-    // plus a live magenta marker at the current computed launch point.
-    if (inputSystem.isTriggered(InputAction.IA_ACTION_3, PointerEventType.PET_DOWN)) {
-      clientState.debugBallPanelOpen = !clientState.debugBallPanelOpen
-      pushToast(clientState.debugBallPanelOpen ? 'DEBUG: ball panel ON' : 'DEBUG: ball panel OFF')
-    }
     // "2": jump straight into the Feed tree minigame, skipping the walk-to-tree
     // errand — for iterating on the minigame itself without the walk each time.
     if (inputSystem.isTriggered(InputAction.IA_ACTION_4, PointerEventType.PET_DOWN)) {

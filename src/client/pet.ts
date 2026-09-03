@@ -65,6 +65,7 @@ let interactTimer = 0
 let interactClip: PetClip = 'idle'
 const curClip = new Map<Entity, string>() // entity -> the GLB clip name currently playing
 const entitySpecies = new Map<Entity, string>() // entity -> species, so setClip can resolve its clip names
+const lastLogicalClip = new Map<Entity, PetClip>() // entity -> the LOGICAL clip last requested via setClip (curClip stores the resolved GLB name instead)
 
 // Bath exit hop — placePetAtStation teleports the pet straight into the tub, which
 // sits above/inside walled geometry. Walking straight out afterward (normal 'follow'
@@ -339,20 +340,30 @@ function ensureAnimator(e: Entity, species: string): void {
     states: clipsForSpecies(species).map((clip) => ({ clip, playing: clip === idle, loop: true, speed: 1, weight: 1 }))
   })
   curClip.set(e, idle)
+  lastLogicalClip.set(e, 'idle')
 }
 
 function forgetAnimator(e: Entity): void {
   curClip.delete(e)
   entitySpecies.delete(e)
+  lastLogicalClip.delete(e)
 }
 
 /** Play a logical clip, resolved to whatever this entity's species calls it. */
 function setClip(e: Entity, clip: PetClip): void {
+  lastLogicalClip.set(e, clip)
   const name = clipForSpecies(entitySpecies.get(e) ?? '', clip)
   if (curClip.get(e) === name) return
   curClip.set(e, name)
   const a = Animator.getMutable(e)
   for (const s of a.states) s.playing = s.clip === name
+}
+
+/** The last LOGICAL clip requested via setClip (not the resolved GLB name) —
+ *  e.g. so a caller can tell idle from walk without knowing per-species clip
+ *  names. Undefined until setClip has been called at least once. */
+export function getLogicalClip(e: Entity): PetClip | undefined {
+  return lastLogicalClip.get(e)
 }
 
 // ---------------------------------------------------------------------------
