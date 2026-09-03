@@ -421,7 +421,7 @@ export const PET_OTHER_COOLDOWN_MS = 4000
 // Currency — passive income, accrued per second. Happiness is the ONLY source:
 // a neglected pet earns nothing ("caring well IS the economy"). Since happiness
 // decays while you're away, a long absence self-limits what you earn.
-// Calibrated against the shop scale (kibble 15 / feast 40 / slot 250).
+// Calibrated against the shop scale (kibble 15 / feast 40 / first extra slot 50).
 // ---------------------------------------------------------------------------
 export const CURRENCY_BASE_PER_SEC = 0 // no floor: an unhappy pet earns zero
 export const CURRENCY_HAPPINESS_BONUS_PER_SEC = 0.0028 // multiplied by happiness/100
@@ -446,11 +446,28 @@ export const SHOP_ITEMS: ShopItem[] = [
 ]
 
 // ---------------------------------------------------------------------------
-// Pet storage slots.
+// Pet storage slots — UNLIMITED. There is no cap: the colony grows as far as a
+// player is willing to pay for it. Slot 1 is free, and every extra slot is
+// bought with an egg whose price steps up, so early pets are cheap enough to
+// keep the first session moving while a big roster stays a long-term goal.
+//
+// Pacing: passive income is ~0.28 coins/sec at full happiness plus
+// COINS_PER_ACTION per care action, so the 50-coin second egg lands a few
+// minutes in (and the coin counter visibly climbs toward it from second one).
 // ---------------------------------------------------------------------------
 export const STARTING_SLOTS = 1
-export const MAX_SLOTS = 4 // 4 slots total: 1 free, 3 unlocked with currency
-export const SLOT_PRICE = 250 // currency to buy an extra slot directly
+/** Price of the first purchasable slot (slot 2). */
+export const SLOT_PRICE_BASE = 50
+/** Added to the price for each slot already bought past the free starting one. */
+export const SLOT_PRICE_STEP = 25
+
+/** Coin price to unlock the NEXT slot for a player who currently has `slots`.
+ *  50 -> 75 -> 100 -> ... — linear per slot, so the running total to reach N
+ *  pets grows quadratically. Tune with the two constants above. */
+export function slotPrice(slots: number): number {
+  const bought = Math.max(0, slots - STARTING_SLOTS)
+  return SLOT_PRICE_BASE + SLOT_PRICE_STEP * bought
+}
 
 // ---------------------------------------------------------------------------
 // XP & leveling — data-driven so unlock rewards can grow post-MVP.

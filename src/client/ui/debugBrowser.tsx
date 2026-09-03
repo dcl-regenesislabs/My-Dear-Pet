@@ -206,17 +206,17 @@ const DEBUG_SCREENS: DebugScreen[] = [
   {
     id: 'shop',
     label: 'Shop Panel',
-    variants: ['Food tab · can afford', 'Food tab · broke', 'Slots tab · maxed out', 'Potions tab'],
+    variants: ['Food tab · can afford', 'Food tab · broke', 'Slots tab · stepped-up price'],
     activate: (v) => {
-      applyFixturePlayer(fakePlayer({ currency: v === 1 ? 0 : 500, petSlots: v === 2 ? Cfg.MAX_SLOTS : 1 }), fakePet())
-      debugSetUiState({ shopTab: v === 2 ? 'slots' : v === 3 ? 'potions' : 'food' })
+      applyFixturePlayer(fakePlayer({ currency: v === 1 ? 0 : 500, petSlots: v === 2 ? 6 : 1 }), fakePet())
+      debugSetUiState({ shopTab: v === 2 ? 'slots' : 'food' })
       debugForcePanel('shop')
     }
   },
   {
     id: 'roster',
     label: 'Roster (My Pets) Panel',
-    variants: ['1 slot, empty', '2 pets filled', 'Pending hatchling', 'All 4 slots full'],
+    variants: ['1 slot, empty', '2 pets filled', 'Pending hatchling', '6 pets · paged grid'],
     activate: (v) => {
       if (v === 1) {
         const a = fakePet({ id: 'p1', name: 'Buddy' })
@@ -225,8 +225,9 @@ const DEBUG_SCREENS: DebugScreen[] = [
       } else if (v === 2) {
         applyFixturePlayer(fakePlayer({ petSlots: 1, pets: [], activePetId: '', hatchling: fakePet({ id: 'hatch1', name: 'New Egg' }) }), null)
       } else if (v === 3) {
-        const pets = [0, 1, 2, 3].map((i) => fakePet({ id: `p${i}`, name: `Pet ${i + 1}` }))
-        applyFixturePlayer(fakePlayer({ petSlots: 4, pets, activePetId: pets[0].id }), pets[0])
+        // Past one page — exercises the pager now that slots are uncapped.
+        const pets = [0, 1, 2, 3, 4, 5].map((i) => fakePet({ id: `p${i}`, name: `Pet ${i + 1}` }))
+        applyFixturePlayer(fakePlayer({ petSlots: 6, pets, activePetId: pets[0].id }), pets[0])
       } else {
         applyFixturePlayer(fakePlayer({ petSlots: 1, pets: [], activePetId: '' }), null)
       }

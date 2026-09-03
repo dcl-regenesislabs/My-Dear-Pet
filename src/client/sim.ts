@@ -158,10 +158,13 @@ function bumpCounter(p: PlayerData, key: string): void {
 // ---------------------------------------------------------------------------
 // Local economy (applies immediately; the server snapshot corrects when alive)
 // ---------------------------------------------------------------------------
+/** Mirrors server buySlot: no cap, and the price steps up per slot owned. */
 export function buySlotLocal(): boolean {
   const p = clientState.player
-  if (!p || p.petSlots >= Cfg.MAX_SLOTS || p.currency < Cfg.SLOT_PRICE) return false
-  p.currency -= Cfg.SLOT_PRICE
+  if (!p) return false
+  const price = Cfg.slotPrice(p.petSlots)
+  if (p.currency < price) return false
+  p.currency -= price
   p.petSlots += 1
   return true
 }
@@ -231,8 +234,7 @@ function rollReward(): { reward: Cfg.SpinReward; index: number } {
       p.inventory.tier2 += reward.amount
       break
     case 'slotChance':
-      if (p.petSlots < Cfg.MAX_SLOTS) p.petSlots += reward.amount
-      else p.currency += 200
+      p.petSlots += reward.amount
       break
   }
   return { reward, index }

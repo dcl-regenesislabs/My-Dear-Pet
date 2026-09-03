@@ -271,7 +271,7 @@ function applyLevelReward(p: PlayerData, r: C.LevelReward, notes: Notify[]): voi
       p.currency += r.amount
       break
     case 'slot':
-      p.petSlots = Math.min(C.MAX_SLOTS, p.petSlots + r.amount)
+      p.petSlots += r.amount
       break
     case 'spinTicket':
       p.spinTickets += r.amount
@@ -411,8 +411,9 @@ export function debugGrowAdult(p: PlayerData): Notify[] {
   pet.size = C.SIZE_MAX // Adult (>= PET_STAGE_ADULT_SIZE)
   pet.petXp = Math.max(pet.petXp, C.xpForLevel(5))
   pet.petLevel = C.levelForXp(pet.petXp)
-  p.currency = Math.max(p.currency, C.SLOT_PRICE) // enough to unlock pet slot 2
-  return [{ kind: 'adopt', message: `DEBUG: ${pet.name} is now Adult (Lv ${pet.petLevel}), +${C.SLOT_PRICE} coins — breeding + slot 2 unlocked.` }]
+  const nextSlot = C.slotPrice(p.petSlots)
+  p.currency = Math.max(p.currency, nextSlot) // enough to unlock the next pet slot
+  return [{ kind: 'adopt', message: `DEBUG: ${pet.name} is now Adult (Lv ${pet.petLevel}), ${nextSlot} coins — breeding + slot ${p.petSlots + 1} unlocked.` }]
 }
 
 /** Shared tail for a completed (non-sleep) care action: apply the stat effects,
@@ -662,10 +663,13 @@ export function buyPotion(p: PlayerData): Notify[] {
   return [{ kind: 'shop', message: `Bought a ${C.RARITY_POTION_LABEL}` }]
 }
 
+/** Buy the next pet slot. Slots are unlimited — each one just costs more than
+ *  the last (see C.slotPrice), so the price read here MUST be the one for the
+ *  player's current slot count, not a flat constant. */
 export function buySlot(p: PlayerData): Notify[] {
-  if (p.petSlots >= C.MAX_SLOTS) return [{ kind: 'error', message: 'Max slots reached' }]
-  if (p.currency < C.SLOT_PRICE) return [{ kind: 'error', message: 'Not enough coins' }]
-  p.currency -= C.SLOT_PRICE
+  const price = C.slotPrice(p.petSlots)
+  if (p.currency < price) return [{ kind: 'error', message: 'Not enough coins' }]
+  p.currency -= price
   p.petSlots += 1
   return [{ kind: 'shop', message: `Unlocked pet slot ${p.petSlots}!` }]
 }
@@ -695,8 +699,7 @@ function rollAndApplyReward(p: PlayerData): { reward: C.SpinReward; index: numbe
       p.inventory.tier2 += reward.amount
       break
     case 'slotChance':
-      if (p.petSlots < C.MAX_SLOTS) p.petSlots += reward.amount
-      else p.currency += 200
+      p.petSlots += reward.amount
       break
   }
   return { reward, index }

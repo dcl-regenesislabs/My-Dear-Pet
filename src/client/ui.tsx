@@ -37,7 +37,7 @@ import { endCaretakerIntroLock } from './caretaker'
 import { DebugBrowserBar, UI_DEBUG_MODE } from './ui/debugBrowser'
 
 export type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor' | 'breedName' | 'jukebox'
-export type ShopTabId = 'food' | 'slots' | 'potions'
+export type ShopTabId = 'food' | 'slots'
 
 const uiState = {
   panel: 'none' as Panel,
@@ -50,7 +50,10 @@ const uiState = {
   breedPartnerId: '',
   breedName: '',
   // Spend a rarity potion on this breed? Reset every time the panel opens.
-  breedUsePotion: false
+  breedUsePotion: false,
+  // Roster page being viewed. Pet slots are unlimited, so the grid can hold more
+  // cards than the modal fits and has to page through them.
+  rosterPage: 0
 }
 
 export const ui = {
@@ -68,6 +71,7 @@ export const ui = {
   },
   openRoster(): void {
     uiState.panel = 'roster'
+    uiState.rosterPage = 0
   },
   openInventory(): void {
     uiState.panel = 'inventory'
@@ -123,7 +127,7 @@ export const ui = {
 export function debugForcePanel(panel: Panel): void {
   uiState.panel = panel
 }
-export function debugSetUiState(patch: Partial<{ shopTab: ShopTabId; adoptStep: 'pick' | 'name'; breedUsePotion: boolean }>): void {
+export function debugSetUiState(patch: Partial<{ shopTab: ShopTabId; adoptStep: 'pick' | 'name'; breedUsePotion: boolean; rosterPage: number }>): void {
   Object.assign(uiState, patch)
 }
 
@@ -659,6 +663,7 @@ function SpeciesCard(props: { key?: string; species: string }) {
 function AdoptPanel() {
   const p = clientState.player
   const slotsFree = p ? p.pets.length < p.petSlots : true
+  const nextSlotPrice = Cfg.slotPrice(p ? p.petSlots : Cfg.STARTING_SLOTS)
   const sp = uiState.adoptSpecies
 
   if (uiState.adoptStep === 'pick') {
@@ -733,7 +738,21 @@ function AdoptPanel() {
             }}
           />
         ) : (
-          <TactileButton id="adopt_buyslot" label={`Buy Slot ${Cfg.SLOT_PRICE}`} width={S(220)} height={S(56)} bg={LOC.orange} textColor={LOC.white} fontSize={S(20)} radius={S(18)} onClick={() => actions.buySlot()} />
+          <TactileButton
+            id="adopt_buyslot"
+            label={`Buy Slot ${nextSlotPrice}`}
+            width={S(220)}
+            height={S(56)}
+            bg={LOC.orange}
+            textColor={LOC.white}
+            fontSize={S(20)}
+            radius={S(18)}
+            onClick={() => {
+              if (buySlotLocal()) pushToast('Slot unlocked!')
+              else pushToast('Not enough coins')
+              actions.buySlot()
+            }}
+          />
         )}
       </UiEntity>
       </UiEntity>
@@ -783,7 +802,7 @@ function BreedNamePanel() {
           }}
         />
         <Label
-          value={hasPotion ? 'Tap to spend one potion on this roll — better rare/legendary odds.' : 'No potions — buy one in the Shop to boost your rare/legendary odds.'}
+          value={hasPotion ? 'Tap to spend one potion on this roll — better rare/legendary odds.' : 'No potions — buy one in your Inventory to boost your rare/legendary odds.'}
           fontSize={S(14)}
           color={LOC.dim}
           textAlign="middle-center"
@@ -853,6 +872,9 @@ function ShopCard(props: { key?: string; title: string; desc: string; price: num
 
 function ShopPanel() {
   const p = clientState.player
+  // No slot cap any more — the shop always sells the NEXT slot, just at a price
+  // that steps up with every one already owned.
+  const slots = p ? p.petSlots : Cfg.STARTING_SLOTS
   return (
     <PanelShell title="Shop" width={S(700)} onClose={() => ui.close()}>
       <UiEntity uiTransform={{ width: '100%', height: S(34), flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', margin: { bottom: S(8) } }}>
@@ -862,7 +884,6 @@ function ShopPanel() {
       <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', justifyContent: 'center', margin: { bottom: S(12) } }}>
         <ShopTab id="food" label="Food" />
         <ShopTab id="slots" label="Pet Slots" />
-        <ShopTab id="potions" label="Potions" />
       </UiEntity>
 
       {uiState.shopTab === 'food' && (
@@ -885,40 +906,15 @@ function ShopPanel() {
         </UiEntity>
       )}
 
-      {uiState.shopTab === 'potions' && (
-        <UiEntity uiTransform={{ width: '100%', flexDirection: 'column', alignItems: 'center' }}>
-          <Label
-            value={`${Cfg.RARITY_POTION_LABEL}s owned: ${p ? p.inventory.rarityPotions : 0}`}
-            fontSize={S(16)}
-            color={C.text}
-            uiTransform={{ width: '100%', height: S(34), margin: { bottom: S(12) } }}
-            textAlign="middle-center"
-          />
-          <ShopCard
-            id="buy_potion"
-            title={Cfg.RARITY_POTION_LABEL}
-            desc="Better rare/legendary odds on one breed"
-            price={Cfg.RARITY_POTION_PRICE}
-            color={C.potion}
-            onBuy={() => {
-              if (buyPotionLocal()) pushToast(`Bought a ${Cfg.RARITY_POTION_LABEL}`)
-              else pushToast('Not enough coins')
-              actions.buyPotion()
-            }}
-          />
-        </UiEntity>
-      )}
-
       {uiState.shopTab === 'slots' && (
         <UiEntity uiTransform={{ width: '100%', flexDirection: 'column', alignItems: 'center' }}>
-          <Label value={`Pet slots used: ${p ? p.pets.length : 0} / ${p ? p.petSlots : 1}`} fontSize={S(16)} color={C.text} uiTransform={{ width: '100%', height: S(34), margin: { bottom: S(12) } }} textAlign="middle-center" />
+          <Label value={`Pet slots used: ${p ? p.pets.length : 0} / ${p ? p.petSlots : Cfg.STARTING_SLOTS}`} fontSize={S(16)} color={C.text} uiTransform={{ width: '100%', height: S(34), margin: { bottom: S(12) } }} textAlign="middle-center" />
           <ShopCard
             id="buy_slot"
-            title="Extra Pet Slot"
-            desc="Raise more pets at once"
-            price={Cfg.SLOT_PRICE}
+            title={`Pet Slot ${slots + 1}`}
+            desc={`Room for one more pet · next: ${Cfg.slotPrice(slots + 1)}`}
+            price={Cfg.slotPrice(slots)}
             color={C.gold}
-            disabled={!!p && p.petSlots >= Cfg.MAX_SLOTS}
             onBuy={() => {
               if (buySlotLocal()) pushToast('Unlocked a pet slot!')
               else pushToast('Not enough coins')
@@ -1016,6 +1012,8 @@ function RosterSlotCard(props: { key?: number; index: number }) {
   const pet = p.pets[props.index]
 
   if (!unlocked) {
+    // Slots are unlimited, and the grid only ever renders ONE locked card: the
+    // next one up. Its price is the one for the slot count the player is at.
     const canUnlock = props.index === p.petSlots
     return (
       <PetGridCard
@@ -1038,7 +1036,7 @@ function RosterSlotCard(props: { key?: number; index: number }) {
         <Label value={canUnlock ? 'Unlock' : 'Locked'} fontSize={S(18)} color={PET_UI.ink} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24) }} />
         <UiEntity uiTransform={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', margin: { top: S(4) } }}>
           <PriceDot />
-          <Label value={`${Cfg.SLOT_PRICE}`} fontSize={S(16)} color={PET_UI.muted} textAlign="middle-center" uiTransform={{ width: S(54), height: S(20), margin: { left: S(6) } }} />
+          <Label value={`${Cfg.slotPrice(props.index)}`} fontSize={S(16)} color={PET_UI.muted} textAlign="middle-center" uiTransform={{ width: S(54), height: S(20), margin: { left: S(6) } }} />
         </UiEntity>
       </PetGridCard>
     )
@@ -1083,14 +1081,59 @@ function RosterSlotCard(props: { key?: number; index: number }) {
   )
 }
 
+// The roster grid used to be a fixed [0,1,2,3] because slots were capped at 4.
+// They're unlimited now, so it pages: 2x2 is what the hud modal body fits.
+const ROSTER_PAGE_SIZE = 4
+
 function RosterPanel() {
+  const p = clientState.player
+  // Every unlocked slot, plus ONE trailing card to buy the next one.
+  const total = (p ? p.petSlots : Cfg.STARTING_SLOTS) + 1
+  const pageCount = Math.max(1, Math.ceil(total / ROSTER_PAGE_SIZE))
+  // Clamp rather than trust the stored cursor: a server snapshot can shrink the
+  // roster under the page we were on.
+  const page = Math.min(Math.max(0, uiState.rosterPage), pageCount - 1)
+  uiState.rosterPage = page
+  const start = page * ROSTER_PAGE_SIZE
+  const indices: number[] = []
+  for (let i = start; i < Math.min(total, start + ROSTER_PAGE_SIZE); i++) indices.push(i)
+
   return (
     <PetHudModal title="My Pets" subtitle="Your colony. Tap a pet to select it and unlock slots to grow." width={S(620)} height={Math.round(S(620) / PET_MODAL_ASPECT)} onClose={() => ui.close()}>
       <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignContent: 'flex-start' }}>
-        {[0, 1, 2, 3].map((i) => (
+        {indices.map((i) => (
           <RosterSlotCard key={i} index={i} />
         ))}
       </UiEntity>
+      {pageCount > 1 && (
+        <UiEntity uiTransform={{ width: '100%', height: S(48), flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+          <TactileButton
+            id="roster_prev"
+            label="<"
+            width={S(60)}
+            height={S(40)}
+            bg={LOC.neutral}
+            textColor={PET_UI.ink}
+            fontSize={S(20)}
+            radius={S(12)}
+            disabled={page === 0}
+            onClick={() => (uiState.rosterPage = page - 1)}
+          />
+          <Label value={`${page + 1} / ${pageCount}`} fontSize={S(16)} color={PET_UI.muted} textAlign="middle-center" uiTransform={{ width: S(90), height: S(40) }} />
+          <TactileButton
+            id="roster_next"
+            label=">"
+            width={S(60)}
+            height={S(40)}
+            bg={LOC.neutral}
+            textColor={PET_UI.ink}
+            fontSize={S(20)}
+            radius={S(12)}
+            disabled={page >= pageCount - 1}
+            onClick={() => (uiState.rosterPage = page + 1)}
+          />
+        </UiEntity>
+      )}
     </PetHudModal>
   )
 }
