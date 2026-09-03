@@ -30,6 +30,8 @@ export const Messages = {
   discardPet: Schemas.Map({}),
   // Buy an extra pet slot with currency.
   buySlot: Schemas.Map({}),
+  // Shop: buy one rarity potion (boosts the next breeding roll it is used on).
+  buyPotion: Schemas.Map({}),
   // Spend a spin ticket on the wheel.
   spin: Schemas.Map({}),
   // Crack open the daily meteor (server rolls, applies and persists the reward).
@@ -37,7 +39,8 @@ export const Messages = {
   // Claim today's fixed daily-reward ladder step (server grants + persists it).
   claimDaily: Schemas.Map({}),
   // Breed the active pet with a partner pet (owned, for now). Server rolls rarity.
-  breed: Schemas.Map({ partnerPetId: Schemas.String, name: Schemas.String }),
+  // usePotion spends one rarity potion on this roll to tilt it toward rare/legendary.
+  breed: Schemas.Map({ partnerPetId: Schemas.String, name: Schemas.String, usePotion: Schemas.Boolean }),
   // DEBUG/testing: instantly grow the active pet to Adult + level 5 (unlock breeding).
   debugGrowAdult: Schemas.Map({}),
   // Report my pet's follow state (Whistle/Stay) so the server can broadcast it

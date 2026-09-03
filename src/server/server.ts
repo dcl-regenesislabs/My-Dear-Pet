@@ -164,6 +164,15 @@ export function server(): void {
     pushSnapshot(p)
   })
 
+  room.onMessage('buyPotion', async (_data, ctx) => {
+    if (!ctx) return
+    const p = await S.loadPlayer(ctx.from)
+    const notes = S.buyPotion(p)
+    await S.savePlayer(ctx.from)
+    forwardNotes(ctx.from, notes)
+    pushSnapshot(p)
+  })
+
   room.onMessage('spin', async (_data, ctx) => {
     if (!ctx) return
     const p = await S.loadPlayer(ctx.from)
@@ -177,7 +186,7 @@ export function server(): void {
   room.onMessage('breed', async (data, ctx) => {
     if (!ctx) return
     const p = await S.loadPlayer(ctx.from)
-    const { notes, rarity, species, name } = S.breed(p, data.partnerPetId, data.name)
+    const { notes, rarity, species, name } = S.breed(p, data.partnerPetId, data.name, data.usePotion)
     await S.savePlayer(ctx.from)
     forwardNotes(ctx.from, notes)
     // The offspring is an egg (hatchling) now — the client carries + hatches it,

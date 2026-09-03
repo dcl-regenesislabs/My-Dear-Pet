@@ -26,7 +26,7 @@ export function seedLocalPlayer(): void {
   clientState.player = {
     address: clientState.myAddress || 'local',
     currency: Cfg.STARTING_CURRENCY,
-    inventory: { tier1: 1, tier2: 0 },
+    inventory: { tier1: 1, tier2: 0, rarityPotions: 0 },
     caretakerXp: 0,
     caretakerLevel: 1,
     givingScore: 0,
@@ -163,6 +163,15 @@ export function buySlotLocal(): boolean {
   if (!p || p.petSlots >= Cfg.MAX_SLOTS || p.currency < Cfg.SLOT_PRICE) return false
   p.currency -= Cfg.SLOT_PRICE
   p.petSlots += 1
+  return true
+}
+
+/** Optimistic mirror of the server's buyPotion (coins -> one rarity potion). */
+export function buyPotionLocal(): boolean {
+  const p = clientState.player
+  if (!p || p.currency < Cfg.RARITY_POTION_PRICE) return false
+  p.currency -= Cfg.RARITY_POTION_PRICE
+  p.inventory.rarityPotions += 1
   return true
 }
 

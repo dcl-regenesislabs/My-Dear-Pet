@@ -358,6 +358,9 @@ export const actions = {
   buySlot(): void {
     room.send('buySlot', {})
   },
+  buyPotion(): void {
+    room.send('buyPotion', {})
+  },
   spin(): void {
     room.send('spin', {})
   },
@@ -370,8 +373,8 @@ export const actions = {
   claimDaily(): void {
     room.send('claimDaily', {})
   },
-  breed(partnerPetId: string, name = ''): void {
-    room.send('breed', { partnerPetId, name })
+  breed(partnerPetId: string, name = '', usePotion = false): void {
+    room.send('breed', { partnerPetId, name, usePotion })
   },
   debugGrowAdult(): void {
     room.send('debugGrowAdult', {})

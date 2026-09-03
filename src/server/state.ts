@@ -70,7 +70,7 @@ function newPlayer(address: string): PlayerData {
   return {
     address,
     currency: C.STARTING_CURRENCY,
-    inventory: { tier1: 1, tier2: 0 },
+    inventory: { tier1: 1, tier2: 0, rarityPotions: 0 },
     caretakerXp: 0,
     caretakerLevel: 1,
     givingScore: 0,
@@ -361,7 +361,7 @@ export function discardPet(p: PlayerData): Notify[] {
 // the follow-up. Offspring inherits a parent's species (random for now — real
 // genetics later) and starts fresh.
 // ---------------------------------------------------------------------------
-export function breed(p: PlayerData, partnerId: string, name = ''): { notes: Notify[]; rarity: Rarity | null; species?: string; name?: string } {
+export function breed(p: PlayerData, partnerId: string, name = '', usePotion = false): { notes: Notify[]; rarity: Rarity | null; species?: string; name?: string } {
   tickPlayer(p)
   const a = activePet(p)
   if (!a) return { notes: [{ kind: 'error', message: 'No active pet' }], rarity: null }
@@ -376,8 +376,15 @@ export function breed(p: PlayerData, partnerId: string, name = ''): { notes: Not
   if (p.pets.length >= p.petSlots) {
     return { notes: [{ kind: 'error', message: 'No free pet slots for the offspring' }], rarity: null }
   }
+  // Asked for a potion but has none: refuse rather than silently breed without
+  // the boost — the roll can't be taken back.
+  if (usePotion && p.inventory.rarityPotions <= 0) {
+    return { notes: [{ kind: 'error', message: `No ${C.RARITY_POTION_LABEL} in your inventory` }], rarity: null }
+  }
 
-  const rarity = rollRarity(a, b)
+  // Consumed here, after every check passed, so a rejected breed never eats it.
+  if (usePotion) p.inventory.rarityPotions -= 1
+  const rarity = rollRarity(a, b, usePotion)
   // Genetics: the offspring wears the ACTIVE pet's head and the PARTNER's body
   // (config.crossSpecies encodes the pair; newPet reads head/body back from it).
   const species = C.crossSpecies(C.petHead(a), C.petBody(b))
@@ -391,7 +398,8 @@ export function breed(p: PlayerData, partnerId: string, name = ''): { notes: Not
   p.hatchling = child
   bump(p, 'breedCount')
 
-  return { notes: [{ kind: 'breed', message: `You bred a ${rarity} egg — carry it home to hatch!` }], rarity, species: child.species, name: child.name }
+  const potionNote = usePotion ? ` (${C.RARITY_POTION_LABEL} used)` : ''
+  return { notes: [{ kind: 'breed', message: `You bred a ${rarity} egg${potionNote} — carry it home to hatch!` }], rarity, species: child.species, name: child.name }
 }
 
 /** DEBUG/testing: grow the active pet straight to Adult + level 5 so breeding
@@ -644,6 +652,14 @@ export function switchPet(p: PlayerData, petId: string): Notify[] {
   if (!p.pets.find((pet) => pet.id === petId)) return [{ kind: 'error', message: 'No such pet' }]
   p.activePetId = petId
   return [{ kind: 'roster', message: 'Switched active pet' }]
+}
+
+/** Buy one rarity potion — a pure coin sink; it is spent on a breeding roll. */
+export function buyPotion(p: PlayerData): Notify[] {
+  if (p.currency < C.RARITY_POTION_PRICE) return [{ kind: 'error', message: 'Not enough coins' }]
+  p.currency -= C.RARITY_POTION_PRICE
+  p.inventory.rarityPotions += 1
+  return [{ kind: 'shop', message: `Bought a ${C.RARITY_POTION_LABEL}` }]
 }
 
 export function buySlot(p: PlayerData): Notify[] {
