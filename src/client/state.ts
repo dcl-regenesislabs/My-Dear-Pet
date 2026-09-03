@@ -102,6 +102,9 @@ export const clientState: {
   // DEBUG: fruit game camera calibration panel (fruitGame.ts's debugCam*),
   // toggled by a debug hotkey while the minigame is active.
   debugCamPanelOpen: boolean
+  // DEBUG: Fetch ball position/timing calibration panel (play.ts's debugBall*),
+  // toggled by a debug hotkey while Fetch mode is active.
+  debugBallPanelOpen: boolean
 } = {
   myAddress: '',
   player: null,
@@ -131,7 +134,8 @@ export const clientState: {
   lastServerMsgAt: 0,
   serverReady: false,
   colonyPopulation: 0,
-  debugCamPanelOpen: false
+  debugCamPanelOpen: false,
+  debugBallPanelOpen: false
 }
 
 /** Stamp that the server just talked to us. Called from every server handler. */

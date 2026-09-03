@@ -11,7 +11,7 @@ import * as Cfg from '../shared/config'
 import type { CareAction, Rarity } from '../shared/types'
 import { actions, clientState, discardHatchling, keepHatchling, pushToast, serverConnected, switchActivePet, hasPendingHatchling } from './state'
 import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry, startCarryPet, placePetAtStation, cancelCarryPet, canStartPetInteraction } from './pet'
-import { throwMeteor } from './play'
+import { throwMeteor, debugBallAvailableKeys, debugBallLabel, debugBallValue, debugBallAdjust, debugBallPrint, DebugBallKey } from './play'
 import { musicState, playSong, setMusicVolume, SONGS, type SongId, toggleMute } from './music'
 import { triggerCare, careActive, queueLength } from './input'
 import { startFeedTask } from './feed'
@@ -1587,6 +1587,44 @@ function FetchOverlay() {
           onClick={() => throwMeteor()}
         />
       </UiEntity>
+      <DebugBallPanel />
+    </UiEntity>
+  )
+}
+
+// DEBUG: live Fetch-ball calibration panel (toggled by the "1" hotkey,
+// input.ts). +/- nudges the relevant constant in play.ts; the held ball and a
+// magenta launch-point marker both re-read the values every frame, so most
+// changes are visible immediately — "Print values" logs the final numbers to
+// hardcode back into the source.
+const DEBUG_BALL_STEP = 0.02
+function DebugBallPanel() {
+  if (!clientState.debugBallPanelOpen) return <UiEntity />
+  const keys: DebugBallKey[] = debugBallAvailableKeys()
+  const panelW = S(340)
+  return (
+    <UiEntity
+      uiTransform={{
+        positionType: 'absolute',
+        position: { top: S(300), left: S(24) },
+        width: panelW,
+        flexDirection: 'column',
+        alignItems: 'center',
+        borderRadius: S(16),
+        padding: S(14),
+        pointerFilter: 'block'
+      }}
+      uiBackground={{ color: C.panelBg }}
+    >
+      <Label value="Ball calib" fontSize={S(18)} color={C.gold} textAlign="middle-center" uiTransform={{ width: '100%', height: S(26), margin: { bottom: S(6) } }} />
+      {keys.map((k) => (
+        <UiEntity key={k} uiTransform={{ width: '100%', height: S(40), flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Label value={`${debugBallLabel(k)}: ${debugBallValue(k).toFixed(2)}`} fontSize={S(15)} color={C.text} textAlign="middle-left" uiTransform={{ width: S(190), height: S(30) }} />
+          <TactileButton id={`debugball_${k}_minus`} label="-" width={S(40)} height={S(34)} bg={C.card} onClick={() => debugBallAdjust(k, -DEBUG_BALL_STEP)} />
+          <TactileButton id={`debugball_${k}_plus`} label="+" width={S(40)} height={S(34)} bg={C.card} margin={{ left: S(6) }} onClick={() => debugBallAdjust(k, DEBUG_BALL_STEP)} />
+        </UiEntity>
+      ))}
+      <TactileButton id="debugball_print" label="Print values" width={panelW - S(28)} height={S(38)} bg={C.green} textColor={C.outline} margin={{ top: S(8) }} onClick={() => debugBallPrint()} />
     </UiEntity>
   )
 }
