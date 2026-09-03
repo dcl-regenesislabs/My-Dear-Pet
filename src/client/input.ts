@@ -6,10 +6,10 @@
 import { engine, pointerEventsSystem, inputSystem, InputAction, PointerEventType } from '@dcl/sdk/ecs'
 import { EntityNames } from '../../assets/scene/entity-names'
 import type { CareAction } from '../shared/types'
-import type { PetClip } from '../shared/config'
+import { formatLockCountdown, type PetClip } from '../shared/config'
 import { actionObjectPosition } from './objects'
 import { isBusy, sendPetTo, canQueueCareAction } from './pet'
-import { applyCareLocal } from './sim'
+import { applyCareLocal, canPlayNow, sleepLockLeft } from './sim'
 import { startFeedTask } from './feed'
 import { startFruitGame } from './fruitGame'
 import { actions, clientState, debugGrowAdultLocal, pushToast, hasPendingHatchling } from './state'
@@ -44,13 +44,22 @@ export function triggerCare(action: CareAction): void {
     return
   }
   if (!canQueueCareAction()) {
+    const lockLeft = sleepLockLeft()
     pushToast(
       hasPendingHatchling()
         ? 'Keep or discard your new pet first!'
-        : clientState.activePet.sleeping
-          ? 'Your pet is asleep!'
-          : 'Your pet is busy right now!'
+        : lockLeft > 0
+          ? `Your pet is fast asleep — ${formatLockCountdown(lockLeft)} left.`
+          : clientState.activePet.sleeping
+            ? 'Your pet is asleep!'
+            : 'Your pet is busy right now!'
     )
+    return
+  }
+  // Play is energy-gated (see config's Play section): refuse the errand up front
+  // instead of walking the pet over to do nothing.
+  if (action === 'play' && !canPlayNow()) {
+    pushToast(`${clientState.activePet.name} is too tired to play — it needs to sleep.`)
     return
   }
   if (queue.length >= MAX_QUEUE) {
@@ -66,8 +75,10 @@ function startCare(action: CareAction): void {
   sendPetTo(
     dest,
     () => {
-      applyCareLocal(action, onBed) // optimistic local effect
-      actions.care(action, onBed) // tell the server (it corrects via snapshot)
+      // Optimistic local effect. It can still be refused on arrival (the energy
+      // gate / sleep lock may have closed during the walk) — the server applies
+      // the same rules, so don't send an action our own mirror just rejected.
+      if (applyCareLocal(action, onBed)) actions.care(action, onBed)
     },
     ACTION_CLIP[action]
   )

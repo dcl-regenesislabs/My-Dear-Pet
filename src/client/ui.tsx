@@ -29,7 +29,7 @@ import {
   debugCamIsClosePreview,
   debugCamPrint
 } from './fruitGame'
-import { buyItemLocal, buyPotionLocal, buySlotLocal, claimStreak, dailyClaimable, dailyLadderDay, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
+import { buyItemLocal, buyPotionLocal, buySlotLocal, canPlayNow, claimStreak, dailyClaimable, dailyLadderDay, sleepLockLeft, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
 import { sway, startAnimSystem, attentionPulse } from './ui/anim'
 import { C, Color, getUiRendererConfig, mobile, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, TactileButton } from './ui/theme'
 import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './ui/dialog'
@@ -299,9 +299,14 @@ function PetPanel() {
   // starting another, and being asleep blocks everything except waking up.
   const busy = !canStartPetInteraction() && !pet.sleeping
   const locked = pet.sleeping || busy
+  // Sleep lock: for the first few minutes of a nap the pet can't be woken at
+  // all (SLEEP_LOCK_MS) — the Wake button shows the countdown instead.
+  const lockLeft = sleepLockLeft()
+  // Energy gate: below PLAY_MIN_ENERGY the pet refuses to play until it sleeps.
+  const tired = !canPlayNow()
   const guard = (fn: () => void) => () => {
     if (locked) {
-      pushToast('Your pet is busy right now!')
+      pushToast(lockLeft > 0 ? `${pet.name} is fast asleep — ${Cfg.formatLockCountdown(lockLeft)} left.` : 'Your pet is busy right now!')
       return
     }
     fn()
@@ -342,20 +347,27 @@ function PetPanel() {
         />
         <TactileButton
           id="care_sleep"
-          label={pet.sleeping ? 'Wake' : 'Sleep'}
+          label={pet.sleeping ? (lockLeft > 0 ? Cfg.formatLockCountdown(lockLeft) : 'Wake') : 'Sleep'}
           width={chipW}
           height={chipH}
-          bg={C.energy}
-          textColor={C.outline}
+          bg={lockLeft > 0 ? LOC.neutral : C.energy}
+          textColor={lockLeft > 0 ? LOC.dim : C.outline}
           fontSize={S(16)}
           radius={S(14)}
           disabled={!pet.sleeping && busy}
+          pulse={!pet.sleeping && tired && !busy}
           margin={{ left: S(3), right: S(3) }}
           onClick={() => {
-            // Waking is instant — no walk back to the bed first — and always
-            // allowed, even mid-lock: it's the one way OUT of the sleep lock.
+            // A nap can't be interrupted for its first few minutes — that lock
+            // is what makes the play energy gate mean something.
+            if (lockLeft > 0) {
+              pushToast(`${pet.name} is fast asleep — ${Cfg.formatLockCountdown(lockLeft)} left.`)
+              return
+            }
+            // Waking is instant once the lock is up — no walk back to the bed.
             if (pet.sleeping) {
               pet.sleeping = false
+              pet.sleepLockUntil = 0
               actions.care('sleep', true)
               return
             }
@@ -368,16 +380,21 @@ function PetPanel() {
         />
         <TactileButton
           id="care_play"
-          label="Play"
+          label={tired ? 'Play  ·  Tired' : 'Play'}
           width={chipW}
           height={chipH}
-          bg={C.happy}
-          textColor={C.outline}
+          bg={tired ? LOC.neutral : C.happy}
+          textColor={tired ? LOC.dim : C.outline}
           fontSize={S(16)}
           radius={S(14)}
           disabled={locked}
           margin={{ left: S(3), right: S(3) }}
           onClick={guard(() => {
+            // Out of energy: playing is what drains it, so the way back is bed.
+            if (tired) {
+              pushToast(`${pet.name} is too tired to play — send it to sleep.`)
+              return
+            }
             // Enter Fetch mode: hide the panel and show the centered Fetch button.
             clientState.fetch.active = true
             clientState.petPanelOpen = false
@@ -1683,25 +1700,53 @@ function HatchOverlay() {
 function FetchOverlay() {
   if (!clientState.fetch.active) return <UiEntity />
   const busy = clientState.fetch.busy
+  const pet = clientState.activePet
+  // Every fetch costs PLAY_ENERGY_COST and pays XP + coins; under
+  // PLAY_MIN_ENERGY the pet stops playing entirely. The meter below is the
+  // whole loop made visible — the player can see the throws they have left.
+  const energy = pet?.energy ?? 0
+  const tired = !canPlayNow()
+  const throwsLeft = Math.max(0, Math.floor((energy - Cfg.PLAY_MIN_ENERGY) / Cfg.PLAY_ENERGY_COST) + (tired ? 0 : 1))
   const bw = S(300)
   const bh = S(92)
+  const meterW = S(360)
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'none' }}>
       {/* BACK — disabled mid-throw so you don't leave a ball in the air */}
       <BackButton disabled={busy} onClick={() => (clientState.fetch.active = false)} />
+      {/* Energy meter + reward line (bottom-center, above the Fetch button) */}
+      <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(184), left: '50%' }, margin: { left: -meterW / 2 }, width: meterW, height: S(74), flexDirection: 'column', alignItems: 'center' }}>
+        <Label
+          value={tired ? 'Out of energy — time for bed' : `+${Cfg.PLAY_XP_REWARD} XP  ·  +${Cfg.PLAY_COINS_REWARD} coins per fetch`}
+          fontSize={S(17)}
+          color={tired ? C.hunger : C.text}
+          textAlign="middle-center"
+          uiTransform={{ width: '100%', height: S(22) }}
+        />
+        <UiEntity uiTransform={{ width: meterW, height: S(18), borderRadius: S(9) }} uiBackground={{ color: C.trackBg }}>
+          <UiEntity uiTransform={{ width: `${Math.max(0, Math.min(100, energy))}%`, height: '100%', borderRadius: S(9) }} uiBackground={{ color: tired ? C.hunger : C.energy }} />
+        </UiEntity>
+        <Label
+          value={tired ? 'Energy too low to play' : `Energy ${Math.round(energy)}  ·  ~${throwsLeft} throw${throwsLeft === 1 ? '' : 's'} left`}
+          fontSize={S(15)}
+          color={C.dim}
+          textAlign="middle-center"
+          uiTransform={{ width: '100%', height: S(20), margin: { top: S(4) } }}
+        />
+      </UiEntity>
       {/* Fetch button (bottom-center) */}
       <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(80), left: '50%' }, margin: { left: -bw / 2 }, width: bw, height: bh, alignItems: 'center', justifyContent: 'center' }}>
         <TactileButton
           id="fetch_throw"
-          label={busy ? 'Fetching…' : 'Fetch'}
+          label={busy ? 'Fetching…' : tired ? 'Too tired' : 'Fetch'}
           width={bw}
           height={bh}
-          bg={busy ? C.cardAlt : C.green}
-          textColor={busy ? C.dim : C.outline}
+          bg={busy || tired ? C.cardAlt : C.green}
+          textColor={busy || tired ? C.dim : C.outline}
           fontSize={S(32)}
           radius={S(26)}
           disabled={busy}
-          pulse={!busy}
+          pulse={!busy && !tired}
           onClick={() => throwMeteor()}
         />
       </UiEntity>

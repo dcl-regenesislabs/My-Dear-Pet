@@ -43,6 +43,18 @@ export const PET_SPEECH_LINES: PetSpeechLine[] = [
 ]
 
 /**
+ * The line that OVERRIDES every other need once energy drops under
+ * PLAY_MIN_ENERGY: at that point the pet can no longer play at all, so sleep is
+ * genuinely the most urgent thing regardless of which stat happens to be
+ * numerically lowest. See client/speech.ts (neededLine).
+ */
+export const PET_SPEECH_EXHAUSTED_LINE: PetSpeechLine = {
+  id: 'exhausted',
+  need: 'energy',
+  text: "I'm worn out — I can't play any more. Bed, please!"
+}
+
+/**
  * A stat at or below this asks for its care action. Sits well above
  * NEGLECT_THRESHOLD (15) on purpose: the pet should ask BEFORE it is suffering,
  * and above NEW_PET_STATS.hunger (see below) so a fresh hatchling asks to be fed
@@ -358,6 +370,41 @@ export const DECAY_PER_SEC: Record<StatKey, number> = {
 export const HAPPINESS_NEGLECT_PENALTY = 0.00025
 export const NEGLECT_THRESHOLD = 15 // a stat below this counts as "neglected"
 
+// ---------------------------------------------------------------------------
+// Play (Fetch) — the reward loop and its energy gate.
+//
+// Playing is the ACTIVE way to earn: every completed fetch pays XP + coins, more
+// than a passive care action does. What stops it from being an infinite coin
+// press isn't a flat cooldown — it's the pet's own energy. Each fetch drains
+// PLAY_ENERGY_COST, so from a full tank you get ~6 rounds, and below
+// PLAY_MIN_ENERGY the pet is too tired and refuses to play at all.
+//
+// From there the only way back is sleep, which is deliberately slow
+// (SLEEP_FILL_PER_SEC: ~1h from empty on the Bed) and, for the first
+// SLEEP_LOCK_MS, uninterruptible — see the sleep lock below. Net effect: play
+// is bursty and generous, then the pet needs real downtime, which is exactly
+// the care loop this game is about.
+// ---------------------------------------------------------------------------
+/** Energy spent per completed fetch. 100 -> below the gate in ~6 rounds. */
+export const PLAY_ENERGY_COST = 12
+/**
+ * Below this energy the pet refuses to play. Sits above NEGLECT_THRESHOLD (15)
+ * so play stops BEFORE the pet is actually suffering, and below
+ * PET_SPEECH_NEED_THRESHOLD (45) so the pet has already been asking for bed for
+ * a while by the time it flat-out refuses.
+ */
+export const PLAY_MIN_ENERGY = 20
+/** Pet XP for a completed fetch (vs PET_XP_PER_ACTION for passive care). */
+export const PLAY_XP_REWARD = 14
+/** Coins for a completed fetch (vs COINS_PER_ACTION for passive care). */
+export const PLAY_COINS_REWARD = 9
+
+/** True if the pet has the energy to play right now. Single source of truth for
+ *  the gate — server (state.ts), client sim, Fetch flow and HUD all call this. */
+export function canPlay(pet: { energy: number; sleeping: boolean }): boolean {
+  return !pet.sleeping && pet.energy >= PLAY_MIN_ENERGY
+}
+
 /** How much each care action refills. Energy is drained by play.
  *  feed's entry is dead on the direct-trigger path (Feed now runs the fruit
  *  minigame — see FEED_HUNGER_PER_FRUIT — instead of an instant flat effect);
@@ -366,7 +413,7 @@ export const ACTION_EFFECT: Record<CareAction, Partial<Record<StatKey, number>>>
   feed: { hunger: 35 },
   clean: { hygiene: 45 },
   sleep: {}, // sleep is a State, not an instant effect — see SLEEP_FILL_PER_SEC
-  play: { happiness: 30, energy: -12 }
+  play: { happiness: 30, energy: -PLAY_ENERGY_COST }
 }
 
 /** Hunger restored per fruit caught in the Feed tree minigame (fruitGame.ts).
@@ -392,6 +439,32 @@ export const SLEEP_FILL_PER_SEC = 100 / 3600
 export const SLEEP_OFF_BED_FACTOR = 0.5
 /** Everything else decays at this fraction while the pet sleeps. */
 export const SLEEP_DECAY_FACTOR = 0.5
+/**
+ * Sleep LOCK: once sent to bed, the pet cannot be woken for this long. Without
+ * it the energy gate above is trivially bypassed — sleep for a second, tap
+ * Wake, keep fetching — so the lock is what actually turns "out of energy" into
+ * downtime. It is a hard lock, not reduced wake sensitivity: Wake is refused
+ * outright (and the button shows the countdown) until it expires.
+ *
+ * 3 minutes buys back ~5 energy on the Bed, i.e. not even one fetch — the lock
+ * is a pacing beat, not the refill itself. The pet still auto-wakes the moment
+ * energy hits 100, whether or not the lock has expired.
+ */
+export const SLEEP_LOCK_MS = 3 * 60 * 1000
+
+/** Milliseconds left on a pet's sleep lock (0 once it can be woken). */
+export function sleepLockRemaining(pet: { sleeping: boolean; sleepLockUntil?: number }, atMs: number): number {
+  if (!pet.sleeping) return 0
+  return Math.max(0, (pet.sleepLockUntil ?? 0) - atMs)
+}
+
+/** "2:41" — a sleep-lock countdown for buttons/toasts. */
+export function formatLockCountdown(ms: number): string {
+  const total = Math.ceil(ms / 1000)
+  const m = Math.floor(total / 60)
+  const sec = total % 60
+  return `${m}:${sec < 10 ? '0' : ''}${sec}`
+}
 
 // Petting (own pet): instant small happiness, lightly rate-limited.
 export const PET_SELF_HAPPINESS = 4
