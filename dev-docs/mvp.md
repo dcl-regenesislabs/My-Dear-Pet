@@ -97,7 +97,7 @@ model).
 |--------|---------------|-------------|
 | Bowl   | 18.3, 25.0    | Feed → +Hunger |
 | Bed    | 9.8, 21.3     | Sleep → +Energy (quality matters: Bed = full rate) |
-| Ball   | 13.8, 17.3    | Play → +Happiness, −Energy (state machine) |
+| Ball   | 13.8, 17.3    | Play → +Happiness, −Energy, +XP/coins (energy-gated; see 5.1) |
 | Pond   | 22.5, 16.8    | Clean/Bath → +Hygiene |
 | Caretaker | 11.5, 10.8 | NPC tutorial/tips |
 | Shop   | 4.0, 12.0     | Buy food tiers |
@@ -128,6 +128,28 @@ neglect changes idle animation / sad face.
 
 **Offline decay:** on load, fetch last-saved stats + timestamp, compute
 elapsed real time, apply decay before render. Server-authoritative.
+
+### 5.1 Play rewards & the energy gate
+
+Play (Fetch — throw the meteorite, pet carries it back) is the ACTIVE earning
+loop: every completed fetch pays `PLAY_XP_REWARD` pet XP + `PLAY_COINS_REWARD`
+coins, more than a passive care action. What limits it is not a cooldown but
+the pet's own Energy:
+
+- Each fetch drains `PLAY_ENERGY_COST` (12) → ~7 throws from a full tank.
+- Below `PLAY_MIN_ENERGY` (20) the pet refuses to play; the Play/Fetch buttons
+  grey out and the Fetch overlay shows "Out of energy — time for bed".
+- The speech bubble's most-urgent-need rule is overridden at that point:
+  `PET_SPEECH_EXHAUSTED_LINE` wins over whichever stat is numerically lowest,
+  so sleep becomes the nudge (see `client/speech.ts` `neededLine`).
+- Sending the pet to bed starts a **hard sleep lock** of `SLEEP_LOCK_MS`
+  (3 min): Wake is refused (the button shows a countdown), and no other care
+  action may interrupt the nap either — those wake the pet as a side effect, so
+  they'd otherwise be a back door out of the lock. The pet still auto-wakes the
+  instant Energy hits 100.
+- All of it is server-authoritative (`server/state.ts` `careAction`), with
+  `sleepLockUntil` persisted on `PetData`; the client mirrors the same gates in
+  `client/sim.ts` only so the HUD/optimistic path agrees.
 
 ---
 

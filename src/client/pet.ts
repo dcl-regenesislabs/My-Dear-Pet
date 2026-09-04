@@ -1503,6 +1503,42 @@ function updateHints(): void {
   if (h.id === 'breed' && clientState.activePet && petStage(clientState.activePet.size) === 'ADULT') clearHint('breed')
 }
 
+// ---------------------------------------------------------------------------
+// Sleep-lock countdown — a floating "M:SS" over the pet while its exhaustion nap
+// is locked (SLEEP_LOCK_MS). Sits just above the name tag; hidden otherwise.
+// ---------------------------------------------------------------------------
+let sleepLabel: Entity | null = null
+const SLEEP_LABEL_LIFT = 0.7 // metres above the name tag
+
+function updateSleepCountdown(): void {
+  if (sleepLabel === null) {
+    sleepLabel = engine.addEntity()
+    Transform.create(sleepLabel, { position: Vector3.create(0, -100, 0), scale: Vector3.Zero() })
+    Billboard.create(sleepLabel, {})
+    TextShape.create(sleepLabel, {
+      text: '',
+      fontSize: 2.6,
+      textColor: { r: 1, g: 0.98, b: 0.85, a: 1 },
+      outlineColor: { r: 0.15, g: 0.1, b: 0.28 },
+      outlineWidth: 0.22
+    })
+  }
+  const t = Transform.getMutable(sleepLabel)
+  const ts = TextShape.getMutable(sleepLabel)
+  const pet = clientState.activePet
+  const left = pet ? C.sleepLockRemaining(pet, Date.now()) : 0
+  if (localPet === null || !pet || left <= 0 || !petIsPresent()) {
+    if (ts.text !== '') ts.text = ''
+    if (t.scale.x !== 0) t.scale = Vector3.Zero()
+    return
+  }
+  const pos = Transform.get(localPet).position
+  const size = stageScaleFor(pet.size)
+  t.position = Vector3.create(pos.x, pos.y + TAG_MIN + TAG_SIZE_MULT * size + SLEEP_LABEL_LIFT, pos.z)
+  t.scale = Vector3.One()
+  ts.text = C.formatLockCountdown(left)
+}
+
 export function setupPetSystems(): void {
   engine.addSystem((dt: number) => {
     updateCarryEgg()
@@ -1510,6 +1546,7 @@ export function setupPetSystems(): void {
     updateHatch(dt)
     updatePetting(dt)
     updateLocalPet(dt)
+    updateSleepCountdown()
     updateInactivePets(dt)
     updateRemotePets(dt)
     updateHints()

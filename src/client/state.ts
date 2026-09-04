@@ -216,6 +216,7 @@ function makeLocalPet(species: string, name: string): PetData {
     generation: 0,
     sleeping: false,
     sleepOnBed: false,
+    sleepLockUntil: 0,
     bornAt: t,
     lastUpdated: t
   }

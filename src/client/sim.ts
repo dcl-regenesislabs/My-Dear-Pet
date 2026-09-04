@@ -4,7 +4,7 @@
 // the full HUD always renders and the game stays responsive/playable.
 
 import * as Cfg from '../shared/config'
-import type { CareAction, PlayerData, StatKey } from '../shared/types'
+import type { CareAction, PetData, PlayerData, StatKey } from '../shared/types'
 import { clientState, showReward } from './state'
 
 const STAT_KEYS: StatKey[] = ['hunger', 'hygiene', 'energy', 'happiness']
@@ -62,7 +62,7 @@ export function simTick(dt: number): void {
   if (pet.sleeping) {
     const fill = Cfg.SLEEP_FILL_PER_SEC * (pet.sleepOnBed ? 1 : Cfg.SLEEP_OFF_BED_FACTOR)
     pet.energy = clamp(pet.energy + fill * dt)
-    if (pet.energy >= 100) pet.sleeping = false // wakes up rested
+    if (pet.energy >= 100) wakeLocal(pet) // wakes up rested (the lock ends with it)
   }
   let happinessLoss = Cfg.DECAY_PER_SEC.happiness * dt * slow
   let neglected = 0
@@ -140,10 +140,10 @@ export function claimStreak(): { currency: number; spins: number; day: number } 
 }
 
 /** Grant care XP locally; returns the pet XP gained (rounded) for the reward UI. */
-function grantXp(p: PlayerData): number {
+function grantXp(p: PlayerData, base = Cfg.PET_XP_PER_ACTION): number {
   const pet = clientState.activePet
   if (!pet) return 0
-  const gain = Cfg.PET_XP_PER_ACTION * (0.5 + 0.5 * (pet.happiness / 100))
+  const gain = base * (0.5 + 0.5 * (pet.happiness / 100))
   pet.petXp += gain
   pet.petLevel = Cfg.levelForXp(pet.petXp)
   p.caretakerXp += Cfg.CARETAKER_XP_PER_ACTION
@@ -259,31 +259,75 @@ export function meteorAvailable(): boolean | null {
   return p.meteorDay !== todayIndex()
 }
 
-/** Apply a care action's effect locally (optimistic; server snapshot corrects). */
-export function applyCareLocal(action: CareAction, onBed: boolean): void {
+// ---------------------------------------------------------------------------
+// Sleep lock — local mirror of the server rule (server/state.ts careAction):
+// a pet just sent to bed can't be woken, or otherwise interrupted, for
+// SLEEP_LOCK_MS. Read through these helpers so the HUD, the Fetch flow and the
+// optimistic care path all agree on one answer.
+// ---------------------------------------------------------------------------
+function wakeLocal(pet: PetData): void {
+  pet.sleeping = false
+  pet.sleepLockUntil = 0
+}
+
+/** Milliseconds left before the active pet may be woken (0 = free / awake). */
+export function sleepLockLeft(): number {
+  const pet = clientState.activePet
+  if (!pet) return 0
+  return Cfg.sleepLockRemaining(pet, Date.now())
+}
+
+/** True while the active pet is locked in its nap. */
+export function sleepLocked(): boolean {
+  return sleepLockLeft() > 0
+}
+
+/** True if the active pet has the energy to play (Fetch) right now. */
+export function canPlayNow(): boolean {
+  const pet = clientState.activePet
+  return !!pet && Cfg.canPlay(pet)
+}
+
+/** Apply a care action's effect locally (optimistic; server snapshot corrects).
+ *  Returns false when the action was refused — the caller should NOT send it to
+ *  the server, since the server applies the same gates and would refuse too. */
+export function applyCareLocal(action: CareAction, onBed: boolean): boolean {
   const p = clientState.player
   const pet = clientState.activePet
-  if (!p || !pet) return
+  if (!p || !pet) return false
+  // Nothing gets through the sleep lock, including the wake toggle itself.
+  if (sleepLocked()) return false
   // Sleep toggles the rest state; it's not a completed care action, so it
   // earns no XP/coins/careCount in either direction (matches the server —
   // see careAction — otherwise its short toggle cooldown is farmable).
   if (action === 'sleep') {
-    pet.sleeping = !pet.sleeping
-    if (pet.sleeping) pet.sleepOnBed = onBed
-    return
+    if (pet.sleeping) {
+      wakeLocal(pet)
+      return true
+    }
+    pet.sleeping = true
+    pet.sleepOnBed = onBed
+    // Only an exhaustion nap locks (mirrors the server) — a rested pet you sent
+    // to bed can be woken again immediately.
+    if (Cfg.isExhausted(pet)) pet.sleepLockUntil = Date.now() + Cfg.SLEEP_LOCK_MS
+    return true
   }
-  pet.sleeping = false
+  // Play is energy-gated: a worn-out pet earns nothing until it has slept.
+  if (action === 'play' && !Cfg.canPlay(pet)) return false
+  wakeLocal(pet)
   const effects = Cfg.ACTION_EFFECT[action]
   for (const key of Object.keys(effects) as StatKey[]) {
     pet[key] = clamp(pet[key] + effects[key]!)
   }
   pet.careCount += 1
   pet.size = Cfg.growSize(pet.size)
-  const xpGain = grantXp(p)
-  p.currency += Cfg.COINS_PER_ACTION // instant coin reward (matches the server)
+  const coins = action === 'play' ? Cfg.PLAY_COINS_REWARD : Cfg.COINS_PER_ACTION
+  const xpGain = grantXp(p, action === 'play' ? Cfg.PLAY_XP_REWARD : Cfg.PET_XP_PER_ACTION)
+  p.currency += coins // instant coin reward (matches the server)
   bumpCounter(p, `${action}Count`)
   bumpCounter(p, 'careCount')
-  showReward(xpGain, Cfg.COINS_PER_ACTION) // gamified "+XP +coins" popup
+  showReward(xpGain, coins) // gamified "+XP +coins" popup
+  return true
 }
 
 /** Apply the Feed tree minigame's result locally (optimistic; server snapshot
@@ -293,7 +337,8 @@ export function applyFeedMinigameLocal(caught: number): void {
   const p = clientState.player
   const pet = clientState.activePet
   if (!p || !pet || caught <= 0) return
-  pet.sleeping = false
+  if (sleepLocked()) return // the nap is uninterruptible — mirrors feedFromMinigame
+  wakeLocal(pet)
   pet.hunger = clamp(pet.hunger + caught * Cfg.FEED_HUNGER_PER_FRUIT)
   pet.careCount += 1
   pet.size = Cfg.growSize(pet.size) // monotonic — never shrink (mirrors the server)

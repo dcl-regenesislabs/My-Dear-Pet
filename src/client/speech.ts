@@ -380,6 +380,12 @@ const NEEDS: StatKey[] = ['hunger', 'hygiene', 'energy', 'happiness']
 
 /** The line this pet most wants to say right now, or null if it's content. */
 function neededLine(pet: PetData): C.PetSpeechLine | null {
+  // Exhaustion outranks the lowest-stat rule. Once energy is under
+  // PLAY_MIN_ENERGY the pet can't play at all, and sleep is the only thing that
+  // fixes it, so "take me to bed" is the useful nudge even when (say) hunger
+  // happens to be a few points lower. Everything else still resolves by
+  // urgency below.
+  if (pet.energy < C.PLAY_MIN_ENERGY) return C.PET_SPEECH_EXHAUSTED_LINE
   let worst: StatKey | null = null
   for (const k of NEEDS) {
     if (pet[k] > C.PET_SPEECH_NEED_THRESHOLD) continue

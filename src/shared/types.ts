@@ -34,6 +34,10 @@ export interface PetData {
   // Sleep — a state, not an instant top-up: energy refills over time while true.
   sleeping: boolean
   sleepOnBed: boolean // resting on the Bed refills at full rate, elsewhere slower
+  // Sleep lock: ms timestamp until which the pet CANNOT be woken (0 = free to
+  // wake). Set when it is sent to bed, cleared whenever it stops sleeping. This
+  // is what makes the play energy gate stick — see SLEEP_LOCK_MS.
+  sleepLockUntil: number
   // Bookkeeping
   bornAt: number // ms timestamp
   lastUpdated: number // ms timestamp of last decay calculation

@@ -42,6 +42,7 @@ function fakePet(overrides: Partial<PetData> = {}): PetData {
     generation: 0,
     sleeping: false,
     sleepOnBed: false,
+    sleepLockUntil: 0,
     bornAt: t,
     lastUpdated: t,
     ...overrides
