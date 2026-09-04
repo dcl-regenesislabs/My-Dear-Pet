@@ -58,6 +58,10 @@ type Mode = 'follow' | 'goto' | 'interact' | 'wander' | 'bathhop' | 'asleep'
 
 let localPet: Entity | null = null
 let localSpecies = ''
+// Which pet the localPet entity currently stands for. The entity is REUSED when
+// the roster switches, so this is the only way to notice "same entity, different
+// pet" and re-place it (see ensureLocalPet / reanchorLocalPet).
+let localPetId = ''
 let mode: Mode = 'follow'
 let target = Vector3.create(199.2, 0, 231.8)
 let onArrive: (() => void) | null = null
@@ -201,6 +205,16 @@ function activePetSlotIndex(): number {
 const HOME_BASE = Vector3.create(204, C.PET_BASE_Y, 240)
 function homeSpawnPos(): Vector3 {
   return nudgeOutsideBuildings(HOME_BASE)
+}
+
+/** Where a sleeping pet belongs: on the PetBed's cushion when it dozed off in
+ *  bed, otherwise lifted in place at `fallback` (it fell asleep in the open, and
+ *  `sleepOnBed` false is what makes it refill slower — moving it onto the bed
+ *  here would silently contradict that). Y matches the 'asleep' mode's lift. */
+function sleepRestPos(pet: PetData, fallback: Vector3): Vector3 {
+  if (!pet.sleepOnBed) return Vector3.create(fallback.x, C.PET_BASE_Y + SLEEP_BED_LIFT, fallback.z)
+  const bed = nudgeOutsideBuildings(objectPosition(EntityNames.PetBed_glb))
+  return Vector3.create(bed.x, C.PET_BASE_Y + SLEEP_BED_LIFT, bed.z)
 }
 
 let localTag: HealthTag | null = null
@@ -427,9 +441,11 @@ function petTransformOwnedElsewhere(): boolean {
 
 /** True while a self-contained interaction already owns the moment — the
  *  above PLUS petting/fetch's camera-lock UI (those don't touch the pet's
- *  Transform, but they do take over the whole screen). */
+ *  Transform, but they do take over the whole screen) PLUS the Feed errand
+ *  (feed.ts), which owns the PLAYER: they're out walking to the tree with the
+ *  guide arrow up, and starting anything else there would strand that arrow. */
 function otherActivityActive(): boolean {
-  return petTransformOwnedElsewhere() || clientState.petting.active || clientState.fetch.active
+  return petTransformOwnedElsewhere() || clientState.petting.active || clientState.fetch.active || clientState.feedTask.active
 }
 
 /**
@@ -443,15 +459,65 @@ export function canStartPetInteraction(): boolean {
 }
 
 /**
- * Narrower gate for ENQUEUEING a care action (input.ts's triggerCare): queued
- * actions are allowed to stack up (that's the point of the queue, and
- * isBusy() already covers "don't start a 2nd one mid-walk"), and petting/
- * fetch don't touch the pet's Transform so they don't need to block this —
- * only something that's ACTUALLY holding the pet elsewhere does, or the pet
- * already being asleep.
+ * Narrower gate for ENQUEUEING a care action (input.ts's triggerCare): this is
+ * canStartPetInteraction() WITHOUT the isBusy() clause, because queued actions
+ * are allowed to stack up — that's the point of the queue, and isBusy() already
+ * covers "don't start a 2nd one mid-walk".
+ *
+ * Every other interaction still blocks, including the ones that don't own the
+ * pet's Transform (petting, fetch, the Feed errand). They leave the in-world
+ * Bath/Sleep hotspots clickable, so without this a tap on the bed mid-errand
+ * yanks the pet away from whatever is already running — that's the concurrent-
+ * action bug, and for Feed it also stranded the guide arrow. Cancel the running
+ * action (BACK) first.
  */
 export function canQueueCareAction(): boolean {
-  return !hasPendingHatchling() && !clientState.activePet?.sleeping && !petTransformOwnedElsewhere()
+  return !hasPendingHatchling() && !clientState.activePet?.sleeping && !otherActivityActive()
+}
+
+/**
+ * Re-place the local pet entity after the roster switches to a DIFFERENT pet.
+ * The entity is REUSED across the switch, so its Transform and `mode` still
+ * describe the pet we just stopped showing — the newcomer would silently
+ * inherit them and carry on whatever that one was doing (a pet left asleep in
+ * its bed would get up and trail the player from wherever the previous pet
+ * happened to be standing).
+ */
+function reanchorLocalPet(pet: PetData): void {
+  if (!localPet) return
+  // Where this pet actually IS: the roamer that has been standing in for it in
+  // the care area. It's still alive at this point — updateInactivePets only
+  // retires it later in the same frame — so the handoff is seamless.
+  //
+  // No roamer means this ISN'T a roster switch at all: it's the optimistic
+  // hatchling's throwaway `local_...` id being replaced by the server's real
+  // one once the snapshot lands. Same pet, new id — reanchoring there would
+  // teleport the newborn out of its hatch spot and into a care-area slot.
+  const roamer = inactivePets.get(pet.id)
+  if (!roamer) return
+  const here = Transform.get(roamer.entity).position
+
+  // Drop what the PREVIOUS pet was in the middle of: an errand's arrival
+  // callback would otherwise fire on this pet, and the stale breadcrumb trail
+  // would send it retracing a route it never walked.
+  onArrive = null
+  interactTimer = 0
+  justBathed = false
+  bathHopT = 0
+  followTrail.length = 0
+
+  const t = Transform.getMutable(localPet)
+  if (pet.sleeping) {
+    t.position = sleepRestPos(pet, here)
+    mode = 'asleep'
+    return
+  }
+  const pos = flat(here)
+  t.position = pos
+  mode = clientState.followEnabled ? 'follow' : 'wander'
+  wanderHome = pos
+  wanderTarget = null
+  wanderPause = 1
 }
 
 function ensureLocalPet(): void {
@@ -462,6 +528,7 @@ function ensureLocalPet(): void {
       forgetAnimator(localPet)
       localPet = null
       localSpecies = ''
+      localPetId = ''
     }
     if (localTag) {
       removeTag(localTag)
@@ -477,8 +544,7 @@ function ensureLocalPet(): void {
     // instead of staying where it was left.
     let spawnPos = homeSpawnPos()
     if (pet.sleeping) {
-      const bed = nudgeOutsideBuildings(objectPosition(EntityNames.PetBed_glb))
-      spawnPos = Vector3.create(bed.x, C.PET_BASE_Y + SLEEP_BED_LIFT, bed.z)
+      spawnPos = sleepRestPos(pet, spawnPos)
       mode = 'asleep'
     }
     Transform.create(localPet, { position: spawnPos, scale: petScale(pet.species, stageScaleFor(pet.size)) })
@@ -508,7 +574,15 @@ function ensureLocalPet(): void {
     // A pet can be (re)built mid-sentence — start the fresh tag in whatever state
     // the flow and the speech bubble currently agree on, not blindly visible.
     setTagVisible(localTag, localTagWanted && !tagsSuppressed)
+  } else if (localPetId !== pet.id) {
+    // The roster switched to a DIFFERENT pet (My Pets panel, or clicking a
+    // stored pet in the care area). The entity is reused, so without this
+    // nothing resets WHERE the pet is: it would inherit the previous pet's
+    // position and mode and start trailing the player from wherever that one
+    // stood — a pet left asleep in its bed would get up and follow.
+    reanchorLocalPet(pet)
   }
+  localPetId = pet.id
   if (localSpecies !== pet.species) {
     localSpecies = pet.species
     GltfContainer.createOrReplace(localPet, { src: modelForSpecies(pet.species), visibleMeshesCollisionMask: ColliderLayer.CL_POINTER })
@@ -756,7 +830,7 @@ export function startCarryPet(): void {
   clientState.carryPet = { active: true, atStation: false }
   attachPetToHands(clientState.activePet.species)
   playHoldPetEmote()
-  showArrowTo(objectPosition(EntityNames.PetPool_glb))
+  showArrowTo(objectPosition(EntityNames.PetPool_glb), 'carryPet')
 }
 
 /** Cancel the bath carry (BACK): drop the flow, the pet just resumes following. */
@@ -765,7 +839,7 @@ export function cancelCarryPet(): void {
   clientState.carryPet = { active: false, atStation: false }
   detachPetFromHands() // also resets position/rotation — see its doc comment
   stopHoldEmote() // drop the hold pose, pet is no longer in hand
-  hideArrow()
+  hideArrow('carryPet')
 }
 
 /** Bath step 2: place the pet in the tub and run the clean action. */
@@ -774,7 +848,7 @@ export function placePetAtStation(): void {
   clientState.carryPet = { active: false, atStation: false }
   detachPetFromHands()
   stopHoldEmote() // drop the hold pose, pet is no longer in hand
-  hideArrow()
+  hideArrow('carryPet')
   if (localPet) {
     const t = Transform.getMutable(localPet)
     t.position = flat(objectPosition(EntityNames.PetPool_glb))
@@ -796,8 +870,9 @@ export function placePetAtStation(): void {
 
 // ---------------------------------------------------------------------------
 // Ground arrow guide — a flowing arrow on the floor that points from the player
-// toward a destination (e.g. home while carrying the egg). Reusable: set a target
-// with showArrowTo(), clear it with hideArrow().
+// toward a destination (e.g. home while carrying the egg). Reusable, but there
+// is only ONE arrow, so every user claims it under an ArrowOwner tag: set a
+// target with showArrowTo(target, owner), clear it with hideArrow(owner).
 // ---------------------------------------------------------------------------
 const ARROW_MODEL = 'models/arrow_indicator.glb'
 const ARROW_LEAD = 1 // metres ahead of the player, toward the target
@@ -809,11 +884,33 @@ const CARE_CENTER_ARROW_RADIUS = 4.5 // arrow-only footprint around the Care Cen
 let arrow: Entity | null = null
 let arrowTarget: Vector3 | null = null
 
-export function showArrowTo(target: Vector3): void {
+/** Which flow the arrow currently belongs to. Exactly one at a time: the arrow
+ *  is a single shared entity, so without an owner two overlapping flows fight
+ *  over it — one re-pointing it every frame while the other clears it, which is
+ *  how it ended up stuck on screen after switching actions. */
+export type ArrowOwner = 'feed' | 'carryEgg' | 'carryPet'
+let arrowOwner: ArrowOwner | null = null
+
+export function showArrowTo(target: Vector3, owner: ArrowOwner): void {
   arrowTarget = target
+  arrowOwner = owner
 }
-export function hideArrow(): void {
+/** Clear the arrow. Pass the owner that raised it so a flow that is shutting
+ *  down can't yank an arrow another flow has just taken over. */
+export function hideArrow(owner: ArrowOwner): void {
+  if (arrowOwner !== owner) return
   arrowTarget = null
+  arrowOwner = null
+}
+
+/** Is the flow that raised the arrow still running? The arrow outliving its
+ *  owner is the stuck-arrow bug, so updateArrow() drops it here rather than
+ *  trusting every exit path of every flow to call hideArrow(). */
+function arrowOwnerActive(): boolean {
+  if (arrowOwner === 'feed') return clientState.feedTask.active
+  if (arrowOwner === 'carryEgg') return clientState.carryEgg.active
+  if (arrowOwner === 'carryPet') return clientState.carryPet.active
+  return false
 }
 
 function playerNeedsIndoorArrowLift(pos: Vector3): boolean {
@@ -839,6 +936,12 @@ function updateArrow(): void {
   }
   const vis = VisibilityComponent.getMutable(arrow)
 
+  // Safety net: the owning flow ended without clearing its arrow (superseded by
+  // another action, pet switched, ...) — drop it instead of leaving it stuck.
+  if (arrowTarget && !arrowOwnerActive()) {
+    arrowTarget = null
+    arrowOwner = null
+  }
   if (!arrowTarget) {
     if (vis.visible) vis.visible = false
     return
@@ -901,8 +1004,8 @@ function updateCarryEgg(): void {
   const home = objectPosition(EntityNames.HomeDome01_glb)
   st.atHome = distFlat(pp, home) <= C.HOME_RADIUS
   // Guide arrow points home until you're there (where the Hatch button shows).
-  if (st.atHome) hideArrow()
-  else showArrowTo(home)
+  if (st.atHome) hideArrow('carryEgg')
+  else showArrowTo(home, 'carryEgg')
 }
 
 /** Hatch button pressed at home: drop the carried egg and start the rub flow. */
@@ -920,7 +1023,7 @@ export function beginHatchFromCarry(): void {
   }
   clientState.carryEgg = { active: false, species: '', name: '', atHome: false }
   stopHoldEmote() // drop the hold pose, egg is no longer in hand
-  hideArrow() // stop guiding home, the egg is no longer being carried
+  hideArrow('carryEgg') // stop guiding home, the egg is no longer being carried
   startHatch(species, name)
 }
 
@@ -1514,6 +1617,42 @@ function updateHints(): void {
   if (h.id === 'breed' && clientState.activePet && petStage(clientState.activePet.size) === 'ADULT') clearHint('breed')
 }
 
+// ---------------------------------------------------------------------------
+// Sleep-lock countdown — a floating "M:SS" over the pet while its exhaustion nap
+// is locked (SLEEP_LOCK_MS). Sits just above the name tag; hidden otherwise.
+// ---------------------------------------------------------------------------
+let sleepLabel: Entity | null = null
+const SLEEP_LABEL_LIFT = 0.7 // metres above the name tag
+
+function updateSleepCountdown(): void {
+  if (sleepLabel === null) {
+    sleepLabel = engine.addEntity()
+    Transform.create(sleepLabel, { position: Vector3.create(0, -100, 0), scale: Vector3.Zero() })
+    Billboard.create(sleepLabel, {})
+    TextShape.create(sleepLabel, {
+      text: '',
+      fontSize: 2.6,
+      textColor: { r: 1, g: 0.98, b: 0.85, a: 1 },
+      outlineColor: { r: 0.15, g: 0.1, b: 0.28 },
+      outlineWidth: 0.22
+    })
+  }
+  const t = Transform.getMutable(sleepLabel)
+  const ts = TextShape.getMutable(sleepLabel)
+  const pet = clientState.activePet
+  const left = pet ? C.sleepLockRemaining(pet, Date.now()) : 0
+  if (localPet === null || !pet || left <= 0 || !petIsPresent()) {
+    if (ts.text !== '') ts.text = ''
+    if (t.scale.x !== 0) t.scale = Vector3.Zero()
+    return
+  }
+  const pos = Transform.get(localPet).position
+  const size = stageScaleFor(pet.size)
+  t.position = Vector3.create(pos.x, pos.y + TAG_MIN + TAG_SIZE_MULT * size + SLEEP_LABEL_LIFT, pos.z)
+  t.scale = Vector3.One()
+  ts.text = C.formatLockCountdown(left)
+}
+
 export function setupPetSystems(): void {
   engine.addSystem((dt: number) => {
     updateCarryEgg()
@@ -1521,6 +1660,7 @@ export function setupPetSystems(): void {
     updateHatch(dt)
     updatePetting(dt)
     updateLocalPet(dt)
+    updateSleepCountdown()
     updateInactivePets(dt)
     updateRemotePets(dt)
     updateHints()

@@ -14,7 +14,7 @@ import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg
 import { startCharge, releaseCharge } from './play'
 import { musicState, playSong, setMusicVolume, SONGS, type SongId, toggleMute } from './music'
 import { triggerCare, careActive, queueLength } from './input'
-import { startFeedTask } from './feed'
+import { cancelFeedTask, startFeedTask } from './feed'
 import {
   cancelFruitGame,
   exitFeedResults,
@@ -29,7 +29,7 @@ import {
   debugCamIsClosePreview,
   debugCamPrint
 } from './fruitGame'
-import { buyItemLocal, buySlotLocal, claimStreak, dailyClaimable, dailyLadderDay, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
+import { buyItemLocal, buyPotionLocal, buySlotLocal, canPlayNow, claimStreak, dailyClaimable, dailyLadderDay, sleepLockLeft, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
 import { sway, startAnimSystem, attentionPulse, fetchHintAlpha, fetchHintVisible } from './ui/anim'
 import { C, Color, getUiRendererConfig, mobile, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, TactileButton } from './ui/theme'
 import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './ui/dialog'
@@ -37,17 +37,23 @@ import { endCaretakerIntroLock } from './caretaker'
 import { DebugBrowserBar, UI_DEBUG_MODE } from './ui/debugBrowser'
 
 export type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor' | 'breedName' | 'jukebox'
+export type ShopTabId = 'food' | 'slots'
 
 const uiState = {
   panel: 'none' as Panel,
-  shopTab: 'food' as 'food' | 'slots',
+  shopTab: 'food' as ShopTabId,
   adoptStep: 'pick' as 'pick' | 'name',
   adoptSpecies: Cfg.SPECIES[0],
   adoptName: '',
   // Breeding: partner pet chosen to cross with, and the name the player types for
   // the offspring (the server prefixes it "Gen-N ").
   breedPartnerId: '',
-  breedName: ''
+  breedName: '',
+  // Spend a rarity potion on this breed? Reset every time the panel opens.
+  breedUsePotion: false,
+  // Roster page being viewed. Pet slots are unlimited, so the grid can hold more
+  // cards than the modal fits and has to page through them.
+  rosterPage: 0
 }
 
 export const ui = {
@@ -65,6 +71,7 @@ export const ui = {
   },
   openRoster(): void {
     uiState.panel = 'roster'
+    uiState.rosterPage = 0
   },
   openInventory(): void {
     uiState.panel = 'inventory'
@@ -120,7 +127,7 @@ export const ui = {
 export function debugForcePanel(panel: Panel): void {
   uiState.panel = panel
 }
-export function debugSetUiState(patch: Partial<{ shopTab: 'food' | 'slots'; adoptStep: 'pick' | 'name' }>): void {
+export function debugSetUiState(patch: Partial<{ shopTab: ShopTabId; adoptStep: 'pick' | 'name'; breedUsePotion: boolean; rosterPage: number }>): void {
   Object.assign(uiState, patch)
 }
 
@@ -292,9 +299,23 @@ function PetPanel() {
   // starting another, and being asleep blocks everything except waking up.
   const busy = !canStartPetInteraction() && !pet.sleeping
   const locked = pet.sleeping || busy
+  // Sleep lock: for the first few minutes of a nap the pet can't be woken at
+  // all (SLEEP_LOCK_MS) — the Wake button shows the countdown instead.
+  const lockLeft = sleepLockLeft()
+  // Energy gate: below PLAY_MIN_ENERGY the pet refuses to play until it sleeps.
+  const tired = !canPlayNow()
+  // Why the panel is locked, phrased as something the player can act on. The
+  // Feed errand is the only lock with its own on-screen exit (the BACK button
+  // over the world), so it gets named instead of the generic "busy".
+  const busyMessage = () =>
+    lockLeft > 0
+      ? `${pet.name} is fast asleep — ${Cfg.formatLockCountdown(lockLeft)} left.`
+      : clientState.feedTask.active
+        ? 'Finish the tree errand or tap BACK first!'
+        : 'Your pet is busy right now!'
   const guard = (fn: () => void) => () => {
     if (locked) {
-      pushToast('Your pet is busy right now!')
+      pushToast(busyMessage())
       return
     }
     fn()
@@ -335,25 +356,32 @@ function PetPanel() {
         />
         <TactileButton
           id="care_sleep"
-          label={pet.sleeping ? 'Wake' : 'Sleep'}
+          label={pet.sleeping ? (lockLeft > 0 ? Cfg.formatLockCountdown(lockLeft) : 'Wake') : 'Sleep'}
           width={chipW}
           height={chipH}
-          bg={C.energy}
-          textColor={C.outline}
+          bg={lockLeft > 0 ? LOC.neutral : C.energy}
+          textColor={lockLeft > 0 ? LOC.dim : C.outline}
           fontSize={S(16)}
           radius={S(14)}
           disabled={!pet.sleeping && busy}
+          pulse={!pet.sleeping && tired && !busy}
           margin={{ left: S(3), right: S(3) }}
           onClick={() => {
-            // Waking is instant — no walk back to the bed first — and always
-            // allowed, even mid-lock: it's the one way OUT of the sleep lock.
+            // A nap can't be interrupted for its first few minutes — that lock
+            // is what makes the play energy gate mean something.
+            if (lockLeft > 0) {
+              pushToast(`${pet.name} is fast asleep — ${Cfg.formatLockCountdown(lockLeft)} left.`)
+              return
+            }
+            // Waking is instant once the lock is up — no walk back to the bed.
             if (pet.sleeping) {
               pet.sleeping = false
+              pet.sleepLockUntil = 0
               actions.care('sleep', true)
               return
             }
             if (busy) {
-              pushToast('Your pet is busy right now!')
+              pushToast(busyMessage())
               return
             }
             care('sleep')
@@ -361,16 +389,21 @@ function PetPanel() {
         />
         <TactileButton
           id="care_play"
-          label="Play"
+          label={tired ? 'Play  ·  Tired' : 'Play'}
           width={chipW}
           height={chipH}
-          bg={C.happy}
-          textColor={C.outline}
+          bg={tired ? LOC.neutral : C.happy}
+          textColor={tired ? LOC.dim : C.outline}
           fontSize={S(16)}
           radius={S(14)}
           disabled={locked}
           margin={{ left: S(3), right: S(3) }}
           onClick={guard(() => {
+            // Out of energy: playing is what drains it, so the way back is bed.
+            if (tired) {
+              pushToast(`${pet.name} is too tired to play — send it to sleep.`)
+              return
+            }
             // Enter Fetch mode: hide the panel and show the centered Fetch button.
             clientState.fetch.active = true
             clientState.petPanelOpen = false
@@ -407,6 +440,7 @@ function PetPanel() {
             // Name the offspring first (like adoption), then breed on confirm.
             uiState.breedPartnerId = partner.id
             uiState.breedName = ''
+            uiState.breedUsePotion = false
             uiState.panel = 'breedName'
             clientState.petPanelOpen = false
           }}
@@ -655,6 +689,7 @@ function SpeciesCard(props: { key?: string; species: string }) {
 function AdoptPanel() {
   const p = clientState.player
   const slotsFree = p ? p.pets.length < p.petSlots : true
+  const nextSlotPrice = Cfg.slotPrice(p ? p.petSlots : Cfg.STARTING_SLOTS)
   const sp = uiState.adoptSpecies
 
   if (uiState.adoptStep === 'pick') {
@@ -729,7 +764,21 @@ function AdoptPanel() {
             }}
           />
         ) : (
-          <TactileButton id="adopt_buyslot" label={`Buy Slot ${Cfg.SLOT_PRICE}`} width={S(220)} height={S(56)} bg={LOC.orange} textColor={LOC.white} fontSize={S(20)} radius={S(18)} onClick={() => actions.buySlot()} />
+          <TactileButton
+            id="adopt_buyslot"
+            label={`Buy Slot ${nextSlotPrice}`}
+            width={S(220)}
+            height={S(56)}
+            bg={LOC.orange}
+            textColor={LOC.white}
+            fontSize={S(20)}
+            radius={S(18)}
+            onClick={() => {
+              if (buySlotLocal()) pushToast('Slot unlocked!')
+              else pushToast('Not enough coins')
+              actions.buySlot()
+            }}
+          />
         )}
       </UiEntity>
       </UiEntity>
@@ -739,10 +788,15 @@ function AdoptPanel() {
 
 // Breeding: name the offspring before crossing. The species + rarity are the
 // server's surprise inside the egg; the name is prefixed "Gen-N" server-side.
+// A rarity potion (bought in the Shop) can be spent on this roll to tilt the
+// odds toward rare/legendary — it is consumed server-side by this breed only.
 function BreedNamePanel() {
   if (uiState.panel !== 'breedName') return <UiEntity />
+  const potions = clientState.player?.inventory.rarityPotions ?? 0
+  const hasPotion = potions > 0
+  const usingPotion = hasPotion && uiState.breedUsePotion
   return (
-    <LightModal title="Name your Offspring" width={S(680)} height={S(560)} onClose={() => ui.close()}>
+    <LightModal title="Name your Offspring" width={S(680)} height={S(660)} onClose={() => ui.close()}>
       <UiEntity uiTransform={{ width: '100%', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
         <Label value="🥚" fontSize={S(90)} textAlign="middle-center" uiTransform={{ width: '100%', height: S(120), margin: { top: S(6) } }} />
         <Label value="Cross your two Adults — the species and rarity are a surprise inside the egg!" fontSize={S(17)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: S(520), height: S(48) }} />
@@ -758,6 +812,28 @@ function BreedNamePanel() {
           }}
         />
         <Label value="It hatches named  Gen-1  +  your name." fontSize={S(14)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(22) }} />
+        <TactileButton
+          id="breed_potion"
+          label={`${usingPotion ? '✓ ' : ''}${Cfg.RARITY_POTION_LABEL}  x${potions}`}
+          width={S(400)}
+          height={S(60)}
+          bg={usingPotion ? LOC.violet : LOC.neutral}
+          textColor={usingPotion ? LOC.white : LOC.body}
+          fontSize={S(19)}
+          radius={S(18)}
+          disabled={!hasPotion}
+          margin={{ top: S(10) }}
+          onClick={() => {
+            uiState.breedUsePotion = !uiState.breedUsePotion
+          }}
+        />
+        <Label
+          value={hasPotion ? 'Tap to spend one potion on this roll — better rare/legendary odds.' : 'No potions — buy one in your Inventory to boost your rare/legendary odds.'}
+          fontSize={S(14)}
+          color={LOC.dim}
+          textAlign="middle-center"
+          uiTransform={{ width: S(520), height: S(22), margin: { top: S(4) } }}
+        />
       </UiEntity>
       <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', justifyContent: 'center', margin: { top: S(6) } }}>
         <TactileButton id="breed_back" label="< Back" width={S(160)} height={S(66)} bg={LOC.neutral} textColor={LOC.body} fontSize={S(20)} radius={S(18)} margin={{ right: S(12) }} onClick={() => ui.close()} />
@@ -772,8 +848,9 @@ function BreedNamePanel() {
           radius={S(18)}
           pulse
           onClick={() => {
-            actions.breed(uiState.breedPartnerId, uiState.breedName)
+            actions.breed(uiState.breedPartnerId, uiState.breedName, usingPotion)
             uiState.breedName = ''
+            uiState.breedUsePotion = false
             ui.close()
           }}
         />
@@ -783,9 +860,9 @@ function BreedNamePanel() {
 }
 
 // ---------------------------------------------------------------------------
-// Shop (tabbed: Food / Slots)
+// Shop (tabbed: Food / Pet Slots / Potions)
 // ---------------------------------------------------------------------------
-function ShopTab(props: { id: 'food' | 'slots'; label: string }) {
+function ShopTab(props: { id: ShopTabId; label: string }) {
   const active = uiState.shopTab === props.id
   return (
     <TactileButton
@@ -821,6 +898,9 @@ function ShopCard(props: { key?: string; title: string; desc: string; price: num
 
 function ShopPanel() {
   const p = clientState.player
+  // No slot cap any more — the shop always sells the NEXT slot, just at a price
+  // that steps up with every one already owned.
+  const slots = p ? p.petSlots : Cfg.STARTING_SLOTS
   return (
     <PanelShell title="Shop" width={S(700)} onClose={() => ui.close()}>
       <UiEntity uiTransform={{ width: '100%', height: S(34), flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', margin: { bottom: S(8) } }}>
@@ -854,14 +934,13 @@ function ShopPanel() {
 
       {uiState.shopTab === 'slots' && (
         <UiEntity uiTransform={{ width: '100%', flexDirection: 'column', alignItems: 'center' }}>
-          <Label value={`Pet slots used: ${p ? p.pets.length : 0} / ${p ? p.petSlots : 1}`} fontSize={S(16)} color={C.text} uiTransform={{ width: '100%', height: S(34), margin: { bottom: S(12) } }} textAlign="middle-center" />
+          <Label value={`Pet slots used: ${p ? p.pets.length : 0} / ${p ? p.petSlots : Cfg.STARTING_SLOTS}`} fontSize={S(16)} color={C.text} uiTransform={{ width: '100%', height: S(34), margin: { bottom: S(12) } }} textAlign="middle-center" />
           <ShopCard
             id="buy_slot"
-            title="Extra Pet Slot"
-            desc="Raise more pets at once"
-            price={Cfg.SLOT_PRICE}
+            title={`Pet Slot ${slots + 1}`}
+            desc={`Room for one more pet · next: ${Cfg.slotPrice(slots + 1)}`}
+            price={Cfg.slotPrice(slots)}
             color={C.gold}
-            disabled={!!p && p.petSlots >= Cfg.MAX_SLOTS}
             onBuy={() => {
               if (buySlotLocal()) pushToast('Unlocked a pet slot!')
               else pushToast('Not enough coins')
@@ -879,17 +958,23 @@ function ShopPanel() {
 // ---------------------------------------------------------------------------
 // One slot in the inventory grid — hud3's card template (baked count badge
 // slot + green/gray "Use" button) with the matching food-bowl icon dropped in.
-function InvCard(props: { key?: string; id: string; title: string; bowlUvs: number[]; bowlAspect: number; count: number; onUse: () => void }) {
-  const cardW = S(260)
+// One card, two uses: food is TAPPED to use (enabled while count > 0), the potion
+// is TAPPED to buy (enabled while affordable). Same art/size for all three so the
+// row stays uniform — the potion reuses the Magic Kibble bowl image as a stand-in.
+// Narrow enough that three fit inside the original inventory modal.
+function InvCard(props: { key?: string; id: string; title: string; bowlUvs?: number[]; bowlSrc?: string; bowlAspect: number; bowlScale?: number; bowlTop?: number; count: number; enabled: boolean; onClick: () => void }) {
+  const cardW = S(180)
   const cardH = Math.round(cardW / INV_CARD_ASPECT)
-  const enabled = props.count > 0
-  const bowlW = Math.round(cardW * 0.46)
+  // bowlScale = art width as a fraction of the card; bowlTop = its vertical spot.
+  // Defaults match the food bowls; the potion overrides them (bigger + higher).
+  const bowlW = Math.round(cardW * (props.bowlScale ?? 0.46))
   const bowlH = Math.round(bowlW / props.bowlAspect)
+  const bowlTop = Math.round(cardH * (props.bowlTop ?? 0.3))
   return (
-    <UiEntity uiTransform={{ width: cardW, height: cardH, margin: S(10), pointerFilter: enabled ? 'block' : 'none' }} onMouseDown={enabled ? props.onUse : undefined}>
+    <UiEntity uiTransform={{ width: cardW, height: cardH, margin: S(6), pointerFilter: props.enabled ? 'block' : 'none' }} onMouseDown={props.enabled ? props.onClick : undefined}>
       <UiEntity
         uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: cardW, height: cardH }}
-        uiBackground={{ texture: { src: INV_SHEET }, textureMode: 'stretch', uvs: enabled ? INV_CARD_ENABLED_UVS : INV_CARD_DISABLED_UVS }}
+        uiBackground={{ texture: { src: INV_SHEET }, textureMode: 'stretch', uvs: props.enabled ? INV_CARD_ENABLED_UVS : INV_CARD_DISABLED_UVS }}
       />
       <Label
         value={`x${props.count}`}
@@ -899,8 +984,14 @@ function InvCard(props: { key?: string; id: string; title: string; bowlUvs: numb
         uiTransform={{ positionType: 'absolute', position: { left: Math.round(cardW * 0.726), top: Math.round(cardH * 0.066) }, width: Math.round(cardW * 0.19), height: Math.round(cardH * 0.104) }}
       />
       <UiEntity
-        uiTransform={{ positionType: 'absolute', position: { left: Math.round((cardW - bowlW) / 2), top: Math.round(cardH * 0.3) }, width: bowlW, height: bowlH }}
-        uiBackground={{ texture: { src: INV_SHEET }, textureMode: 'stretch', uvs: props.bowlUvs }}
+        uiTransform={{ positionType: 'absolute', position: { left: Math.round((cardW - bowlW) / 2), top: bowlTop }, width: bowlW, height: bowlH }}
+        uiBackground={
+          // A standalone icon (potion.png) uses the whole image; a food bowl is a
+          // cropped region of the shared HUD spritesheet.
+          props.bowlSrc
+            ? { texture: { src: props.bowlSrc }, textureMode: 'stretch' }
+            : { texture: { src: INV_SHEET }, textureMode: 'stretch', uvs: props.bowlUvs }
+        }
       />
       <Label
         value={props.title}
@@ -917,11 +1008,17 @@ function InventoryPanel() {
   const p = clientState.player
   const t1 = p?.inventory.tier1 ?? 0
   const t2 = p?.inventory.tier2 ?? 0
+  const potions = p?.inventory.rarityPotions ?? 0
+  // The Rarity Potion is the only way to buy the breeding consumable while the
+  // Shop is suspended (SideButtons() is empty). It's TAPPED to buy (150 coins) —
+  // it's spent later by the breed that toggles it on, not "used" from here.
+  const canAffordPotion = (p?.currency ?? 0) >= Cfg.RARITY_POTION_PRICE
   return (
-    <PetHudModal title="Inventory" subtitle="Tap Use to feed your active pet." width={S(660)} height={S(500)} onClose={() => ui.close()}>
+    <PetHudModal title="Inventory" subtitle="Tap food to feed your pet, or tap the potion to buy one for breeding." width={S(660)} height={S(500)} onClose={() => ui.close()}>
       <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center' }}>
-        <InvCard key="inv-1" id="use_1" title={Cfg.SHOP_ITEMS[0].label} bowlUvs={INV_BOWL1_UVS} bowlAspect={INV_BOWL1_ASPECT} count={t1} onUse={() => { if (useItemLocal(1)) pushToast('Fed your pet!'); actions.useItem(1) }} />
-        <InvCard key="inv-2" id="use_2" title={Cfg.SHOP_ITEMS[1].label} bowlUvs={INV_BOWL2_UVS} bowlAspect={INV_BOWL2_ASPECT} count={t2} onUse={() => { if (useItemLocal(2)) pushToast('Fed your pet!'); actions.useItem(2) }} />
+        <InvCard key="inv-1" id="use_1" title={Cfg.SHOP_ITEMS[0].label} bowlUvs={INV_BOWL1_UVS} bowlAspect={INV_BOWL1_ASPECT} count={t1} enabled={t1 > 0} onClick={() => { if (useItemLocal(1)) pushToast('Fed your pet!'); actions.useItem(1) }} />
+        <InvCard key="inv-2" id="use_2" title={Cfg.SHOP_ITEMS[1].label} bowlUvs={INV_BOWL2_UVS} bowlAspect={INV_BOWL2_ASPECT} count={t2} enabled={t2 > 0} onClick={() => { if (useItemLocal(2)) pushToast('Fed your pet!'); actions.useItem(2) }} />
+        <InvCard key="inv-potion" id="buy_potion" title={`${Cfg.RARITY_POTION_LABEL}  ${Cfg.RARITY_POTION_PRICE}`} bowlSrc="assets/images/revamp/potion.png" bowlAspect={1} bowlScale={0.56} bowlTop={0.18} count={potions} enabled={canAffordPotion} onClick={() => { if (buyPotionLocal()) { pushToast('Bought a Rarity Potion!'); actions.buyPotion() } else pushToast('Not enough coins!') }} />
       </UiEntity>
     </PetHudModal>
   )
@@ -941,6 +1038,8 @@ function RosterSlotCard(props: { key?: number; index: number }) {
   const pet = p.pets[props.index]
 
   if (!unlocked) {
+    // Slots are unlimited, and the grid only ever renders ONE locked card: the
+    // next one up. Its price is the one for the slot count the player is at.
     const canUnlock = props.index === p.petSlots
     return (
       <PetGridCard
@@ -963,7 +1062,7 @@ function RosterSlotCard(props: { key?: number; index: number }) {
         <Label value={canUnlock ? 'Unlock' : 'Locked'} fontSize={S(18)} color={PET_UI.ink} textAlign="middle-center" uiTransform={{ width: '100%', height: S(24) }} />
         <UiEntity uiTransform={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', margin: { top: S(4) } }}>
           <PriceDot />
-          <Label value={`${Cfg.SLOT_PRICE}`} fontSize={S(16)} color={PET_UI.muted} textAlign="middle-center" uiTransform={{ width: S(54), height: S(20), margin: { left: S(6) } }} />
+          <Label value={`${Cfg.slotPrice(props.index)}`} fontSize={S(16)} color={PET_UI.muted} textAlign="middle-center" uiTransform={{ width: S(54), height: S(20), margin: { left: S(6) } }} />
         </UiEntity>
       </PetGridCard>
     )
@@ -1008,14 +1107,59 @@ function RosterSlotCard(props: { key?: number; index: number }) {
   )
 }
 
+// The roster grid used to be a fixed [0,1,2,3] because slots were capped at 4.
+// They're unlimited now, so it pages: 2x2 is what the hud modal body fits.
+const ROSTER_PAGE_SIZE = 4
+
 function RosterPanel() {
+  const p = clientState.player
+  // Every unlocked slot, plus ONE trailing card to buy the next one.
+  const total = (p ? p.petSlots : Cfg.STARTING_SLOTS) + 1
+  const pageCount = Math.max(1, Math.ceil(total / ROSTER_PAGE_SIZE))
+  // Clamp rather than trust the stored cursor: a server snapshot can shrink the
+  // roster under the page we were on.
+  const page = Math.min(Math.max(0, uiState.rosterPage), pageCount - 1)
+  uiState.rosterPage = page
+  const start = page * ROSTER_PAGE_SIZE
+  const indices: number[] = []
+  for (let i = start; i < Math.min(total, start + ROSTER_PAGE_SIZE); i++) indices.push(i)
+
   return (
     <PetHudModal title="My Pets" subtitle="Your colony. Tap a pet to select it and unlock slots to grow." width={S(620)} height={Math.round(S(620) / PET_MODAL_ASPECT)} onClose={() => ui.close()}>
       <UiEntity uiTransform={{ width: '100%', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignContent: 'flex-start' }}>
-        {[0, 1, 2, 3].map((i) => (
+        {indices.map((i) => (
           <RosterSlotCard key={i} index={i} />
         ))}
       </UiEntity>
+      {pageCount > 1 && (
+        <UiEntity uiTransform={{ width: '100%', height: S(48), flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+          <TactileButton
+            id="roster_prev"
+            label="<"
+            width={S(60)}
+            height={S(40)}
+            bg={LOC.neutral}
+            textColor={PET_UI.ink}
+            fontSize={S(20)}
+            radius={S(12)}
+            disabled={page === 0}
+            onClick={() => (uiState.rosterPage = page - 1)}
+          />
+          <Label value={`${page + 1} / ${pageCount}`} fontSize={S(16)} color={PET_UI.muted} textAlign="middle-center" uiTransform={{ width: S(90), height: S(40) }} />
+          <TactileButton
+            id="roster_next"
+            label=">"
+            width={S(60)}
+            height={S(40)}
+            bg={LOC.neutral}
+            textColor={PET_UI.ink}
+            fontSize={S(20)}
+            radius={S(12)}
+            disabled={page >= pageCount - 1}
+            onClick={() => (uiState.rosterPage = page + 1)}
+          />
+        </UiEntity>
+      )}
     </PetHudModal>
   )
 }
@@ -1583,17 +1727,51 @@ function FetchOverlay() {
   const charging = st.charging
   const pct = Math.round(st.charge * 100)
   const isM = mobile()
+  const pet = clientState.activePet
+  // Every fetch costs PLAY_ENERGY_COST and pays XP + coins; under
+  // PLAY_MIN_ENERGY the pet stops playing entirely. The meter below is the
+  // whole loop made visible — the player can see the throws they have left.
+  const energy = pet?.energy ?? 0
+  const tired = !canPlayNow()
+  const throwsLeft = Math.max(0, Math.floor((energy - Cfg.PLAY_MIN_ENERGY) / Cfg.PLAY_ENERGY_COST) + (tired ? 0 : 1))
   const bw = S(300)
   const bh = S(92)
+  const meterW = S(360)
+  const meterBottom = S(184)
+  const meterH = S(74)
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'none' }}>
       {/* BACK — disabled while charging/mid-throw so you don't strand a charge or a ball in the air */}
       <BackButton disabled={busy || charging} onClick={() => (clientState.fetch.active = false)} />
-      {/* Charge bar — fills 0→100% while held, above the button. Desktop only —
-          mobile has neither the message nor the bar, just the one-time hint below. */}
+      {/* Energy meter + reward line (bottom-center, above the Fetch button) —
+          desktop only; mobile has no room for it next to the native button. */}
+      {!isM && (
+        <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: meterBottom, left: '50%' }, margin: { left: -meterW / 2 }, width: meterW, height: meterH, flexDirection: 'column', alignItems: 'center' }}>
+          <Label
+            value={tired ? 'Out of energy — time for bed' : `+${Cfg.PLAY_XP_REWARD} XP  ·  +${Cfg.PLAY_COINS_REWARD} coins per fetch`}
+            fontSize={S(17)}
+            color={tired ? C.hunger : C.text}
+            textAlign="middle-center"
+            uiTransform={{ width: '100%', height: S(22) }}
+          />
+          <UiEntity uiTransform={{ width: meterW, height: S(18), borderRadius: S(9) }} uiBackground={{ color: C.trackBg }}>
+            <UiEntity uiTransform={{ width: `${Math.max(0, Math.min(100, energy))}%`, height: '100%', borderRadius: S(9) }} uiBackground={{ color: tired ? C.hunger : C.energy }} />
+          </UiEntity>
+          <Label
+            value={tired ? 'Energy too low to play' : `Energy ${Math.round(energy)}  ·  ~${throwsLeft} throw${throwsLeft === 1 ? '' : 's'} left`}
+            fontSize={S(15)}
+            color={C.dim}
+            textAlign="middle-center"
+            uiTransform={{ width: '100%', height: S(20), margin: { top: S(4) } }}
+          />
+        </UiEntity>
+      )}
+      {/* Charge bar — fills 0→100% while held, above the energy meter. Desktop
+          only — mobile has neither the meter nor this bar, just the vertical
+          one below plus the one-time hint. */}
       {charging && !isM && (
         <UiEntity
-          uiTransform={{ positionType: 'absolute', position: { bottom: S(80) + bh + S(18), left: '50%' }, margin: { left: -S(150) }, width: S(300), height: S(22), borderRadius: S(11) }}
+          uiTransform={{ positionType: 'absolute', position: { bottom: meterBottom + meterH + S(18), left: '50%' }, margin: { left: -S(150) }, width: S(300), height: S(22), borderRadius: S(11) }}
           uiBackground={{ color: C.trackBg }}
         >
           <UiEntity uiTransform={{ width: `${pct}%`, height: '100%', borderRadius: S(11) }} uiBackground={{ color: C.gold }} />
@@ -1643,16 +1821,16 @@ function FetchOverlay() {
       {!isM && (
         <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(80), left: '50%' }, margin: { left: -bw / 2 }, width: bw, height: bh, alignItems: 'center', justifyContent: 'center' }}>
           <UiEntity
-            uiTransform={{ width: bw, height: bh, alignItems: 'center', justifyContent: 'center', borderRadius: S(26), pointerFilter: busy ? 'none' : 'block' }}
-            uiBackground={{ color: busy ? C.cardAlt : charging ? C.gold : C.green }}
-            onMouseDown={() => startCharge()}
+            uiTransform={{ width: bw, height: bh, alignItems: 'center', justifyContent: 'center', borderRadius: S(26), pointerFilter: busy || tired ? 'none' : 'block' }}
+            uiBackground={{ color: busy || tired ? C.cardAlt : charging ? C.gold : C.green }}
+            onMouseDown={() => !tired && startCharge()}
             onMouseUp={() => releaseCharge()}
             onMouseLeave={() => releaseCharge()}
           >
             <Label
-              value={busy ? 'Searching…' : charging ? 'Release!' : 'Hold to Throw'}
+              value={busy ? 'Searching…' : tired ? 'Too tired' : charging ? 'Release!' : 'Hold to Throw'}
               fontSize={S(28)}
-              color={busy ? C.dim : C.outline}
+              color={busy || tired ? C.dim : C.outline}
               textAlign="middle-center"
               uiTransform={{ width: bw, height: bh }}
             />
@@ -2205,6 +2383,26 @@ function BathButton() {
   )
 }
 
+// Feed errand — the player is out walking to the tree behind the guide arrow
+// (feed.ts). Same shape as the bath carry: a banner saying where to go and a
+// BACK button, which is the whole point here — the errand blocks every other
+// care action while it runs, so there has to be a way out of it that doesn't
+// require finishing the walk.
+function FeedErrandOverlay() {
+  if (!clientState.feedTask.active) return <UiEntity />
+  return (
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'none' }}>
+      <BackButton onClick={() => cancelFeedTask()} />
+      <UiEntity
+        uiTransform={{ positionType: 'absolute', position: { top: S(90), left: '50%' }, margin: { left: -S(240) }, width: S(480), height: S(58), alignItems: 'center', justifyContent: 'center', borderRadius: S(29), pointerFilter: 'none' }}
+        uiBackground={{ color: C.panelBg }}
+      >
+        <Label value="Follow the arrow to the tree!" fontSize={S(20)} color={C.text} textAlign="middle-center" textWrap="nowrap" uiTransform={{ width: '100%', height: S(30) }} />
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Loading gate — invisible for the normal case (the server usually answers in
 // well under a second), but if it's genuinely taking a while, a small message
@@ -2273,6 +2471,7 @@ const Root = () => {
         <FetchOverlay />
         <CarryHatchButton />
         <BathButton />
+        <FeedErrandOverlay />
         {/* Rendered after the HUD chrome (side buttons, bottom nav) so it paints
             on top of them instead of the nav icons poking through over it. */}
         <PetPanel />

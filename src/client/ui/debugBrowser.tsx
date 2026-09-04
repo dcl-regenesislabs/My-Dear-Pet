@@ -42,6 +42,7 @@ function fakePet(overrides: Partial<PetData> = {}): PetData {
     generation: 0,
     sleeping: false,
     sleepOnBed: false,
+    sleepLockUntil: 0,
     bornAt: t,
     lastUpdated: t,
     ...overrides
@@ -53,7 +54,7 @@ function fakePlayer(overrides: Partial<PlayerData> = {}): PlayerData {
   return {
     address: '0xDEBUG',
     currency: 500,
-    inventory: { tier1: 2, tier2: 1 },
+    inventory: { tier1: 2, tier2: 1, rarityPotions: 1 },
     caretakerXp: 120,
     caretakerLevel: 3,
     givingScore: 0,
@@ -196,17 +197,19 @@ const DEBUG_SCREENS: DebugScreen[] = [
   {
     id: 'breedName',
     label: 'Breed Name Panel',
-    activate: () => {
-      applyFixturePlayer(fakePlayer(), fakePet())
+    variants: ['Has a rarity potion', 'No potions'],
+    activate: (v) => {
+      applyFixturePlayer(fakePlayer({ inventory: { tier1: 2, tier2: 1, rarityPotions: v === 1 ? 0 : 2 } }), fakePet())
+      debugSetUiState({ breedUsePotion: false })
       debugForcePanel('breedName')
     }
   },
   {
     id: 'shop',
     label: 'Shop Panel',
-    variants: ['Food tab · can afford', 'Food tab · broke', 'Slots tab · maxed out'],
+    variants: ['Food tab · can afford', 'Food tab · broke', 'Slots tab · stepped-up price'],
     activate: (v) => {
-      applyFixturePlayer(fakePlayer({ currency: v === 1 ? 0 : 500, petSlots: v === 2 ? Cfg.MAX_SLOTS : 1 }), fakePet())
+      applyFixturePlayer(fakePlayer({ currency: v === 1 ? 0 : 500, petSlots: v === 2 ? 6 : 1 }), fakePet())
       debugSetUiState({ shopTab: v === 2 ? 'slots' : 'food' })
       debugForcePanel('shop')
     }
@@ -214,7 +217,7 @@ const DEBUG_SCREENS: DebugScreen[] = [
   {
     id: 'roster',
     label: 'Roster (My Pets) Panel',
-    variants: ['1 slot, empty', '2 pets filled', 'Pending hatchling', 'All 4 slots full'],
+    variants: ['1 slot, empty', '2 pets filled', 'Pending hatchling', '6 pets · paged grid'],
     activate: (v) => {
       if (v === 1) {
         const a = fakePet({ id: 'p1', name: 'Buddy' })
@@ -223,8 +226,9 @@ const DEBUG_SCREENS: DebugScreen[] = [
       } else if (v === 2) {
         applyFixturePlayer(fakePlayer({ petSlots: 1, pets: [], activePetId: '', hatchling: fakePet({ id: 'hatch1', name: 'New Egg' }) }), null)
       } else if (v === 3) {
-        const pets = [0, 1, 2, 3].map((i) => fakePet({ id: `p${i}`, name: `Pet ${i + 1}` }))
-        applyFixturePlayer(fakePlayer({ petSlots: 4, pets, activePetId: pets[0].id }), pets[0])
+        // Past one page — exercises the pager now that slots are uncapped.
+        const pets = [0, 1, 2, 3, 4, 5].map((i) => fakePet({ id: `p${i}`, name: `Pet ${i + 1}` }))
+        applyFixturePlayer(fakePlayer({ petSlots: 6, pets, activePetId: pets[0].id }), pets[0])
       } else {
         applyFixturePlayer(fakePlayer({ petSlots: 1, pets: [], activePetId: '' }), null)
       }
@@ -236,7 +240,7 @@ const DEBUG_SCREENS: DebugScreen[] = [
     label: 'Inventory Panel',
     variants: ['Empty', 'Full'],
     activate: (v) => {
-      applyFixturePlayer(fakePlayer({ inventory: v === 1 ? { tier1: 9, tier2: 5 } : { tier1: 0, tier2: 0 } }), fakePet())
+      applyFixturePlayer(fakePlayer({ inventory: v === 1 ? { tier1: 9, tier2: 5, rarityPotions: 3 } : { tier1: 0, tier2: 0, rarityPotions: 0 } }), fakePet())
       debugForcePanel('inventory')
     }
   },

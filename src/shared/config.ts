@@ -43,6 +43,18 @@ export const PET_SPEECH_LINES: PetSpeechLine[] = [
 ]
 
 /**
+ * The line that OVERRIDES every other need once energy drops under
+ * PLAY_MIN_ENERGY: at that point the pet can no longer play at all, so sleep is
+ * genuinely the most urgent thing regardless of which stat happens to be
+ * numerically lowest. See client/speech.ts (neededLine).
+ */
+export const PET_SPEECH_EXHAUSTED_LINE: PetSpeechLine = {
+  id: 'exhausted',
+  need: 'energy',
+  text: "I'm worn out — I can't play any more. Bed, please!"
+}
+
+/**
  * A stat at or below this asks for its care action. Sits well above
  * NEGLECT_THRESHOLD (15) on purpose: the pet should ask BEFORE it is suffering,
  * and above NEW_PET_STATS.hunger (see below) so a fresh hatchling asks to be fed
@@ -358,6 +370,48 @@ export const DECAY_PER_SEC: Record<StatKey, number> = {
 export const HAPPINESS_NEGLECT_PENALTY = 0.00025
 export const NEGLECT_THRESHOLD = 15 // a stat below this counts as "neglected"
 
+// ---------------------------------------------------------------------------
+// Play (Fetch) — the reward loop and its energy gate.
+//
+// Playing is the ACTIVE way to earn: every completed fetch pays XP + coins, more
+// than a passive care action does. What stops it from being an infinite coin
+// press isn't a flat cooldown — it's the pet's own energy. Each fetch drains
+// PLAY_ENERGY_COST, so from a full tank you get ~6 rounds, and below
+// PLAY_MIN_ENERGY the pet is too tired and refuses to play at all.
+//
+// From there the only way back is sleep, which is deliberately slow
+// (SLEEP_FILL_PER_SEC: ~1h from empty on the Bed) and, for the first
+// SLEEP_LOCK_MS, uninterruptible — see the sleep lock below. Net effect: play
+// is bursty and generous, then the pet needs real downtime, which is exactly
+// the care loop this game is about.
+// ---------------------------------------------------------------------------
+/** Energy spent per completed fetch. 100 -> below the gate in ~6 rounds. */
+export const PLAY_ENERGY_COST = 12
+/**
+ * Below this energy the pet refuses to play. Sits above NEGLECT_THRESHOLD (15)
+ * so play stops BEFORE the pet is actually suffering, and below
+ * PET_SPEECH_NEED_THRESHOLD (45) so the pet has already been asking for bed for
+ * a while by the time it flat-out refuses.
+ */
+export const PLAY_MIN_ENERGY = 20
+/** Pet XP for a completed fetch (vs PET_XP_PER_ACTION for passive care). */
+export const PLAY_XP_REWARD = 14
+/** Coins for a completed fetch (vs COINS_PER_ACTION for passive care). */
+export const PLAY_COINS_REWARD = 9
+
+/** True if the pet has the energy to play right now. Single source of truth for
+ *  the gate — server (state.ts), client sim, Fetch flow and HUD all call this. */
+export function canPlay(pet: { energy: number; sleeping: boolean }): boolean {
+  return !pet.sleeping && pet.energy >= PLAY_MIN_ENERGY
+}
+
+/** True if the pet is too tired to play (energy under the gate). ONLY an
+ *  exhaustion nap gets the uninterruptible SLEEP_LOCK; a rested pet sent to bed
+ *  is a normal toggle you can undo right away. */
+export function isExhausted(pet: { energy: number }): boolean {
+  return pet.energy < PLAY_MIN_ENERGY
+}
+
 /** How much each care action refills. Energy is drained by play.
  *  feed's entry is dead on the direct-trigger path (Feed now runs the fruit
  *  minigame — see FEED_HUNGER_PER_FRUIT — instead of an instant flat effect);
@@ -366,7 +420,7 @@ export const ACTION_EFFECT: Record<CareAction, Partial<Record<StatKey, number>>>
   feed: { hunger: 35 },
   clean: { hygiene: 45 },
   sleep: {}, // sleep is a State, not an instant effect — see SLEEP_FILL_PER_SEC
-  play: { happiness: 30, energy: -12 }
+  play: { happiness: 30, energy: -PLAY_ENERGY_COST }
 }
 
 /** Hunger restored per fruit caught in the Feed tree minigame (fruitGame.ts).
@@ -392,6 +446,35 @@ export const SLEEP_FILL_PER_SEC = 100 / 3600
 export const SLEEP_OFF_BED_FACTOR = 0.5
 /** Everything else decays at this fraction while the pet sleeps. */
 export const SLEEP_DECAY_FACTOR = 0.5
+/**
+ * Sleep LOCK: an EXHAUSTED pet sent to bed (energy under the play gate, see
+ * isExhausted) cannot be woken for this long. A rested pet you send to bed is
+ * NOT locked — it's a normal toggle you can undo right away. Without the lock on
+ * the exhaustion nap the energy gate is trivially bypassed — sleep for a second,
+ * tap Wake, keep fetching — so the lock is what turns "out of energy" into real
+ * downtime. It is a hard lock, not reduced wake sensitivity: Wake is refused
+ * outright (and the button + a floating countdown show the time left) until it
+ * expires.
+ *
+ * 3 minutes buys back ~5 energy on the Bed, i.e. not even one fetch — the lock
+ * is a pacing beat, not the refill itself. The pet still auto-wakes the moment
+ * energy hits 100, whether or not the lock has expired.
+ */
+export const SLEEP_LOCK_MS = 3 * 60 * 1000
+
+/** Milliseconds left on a pet's sleep lock (0 once it can be woken). */
+export function sleepLockRemaining(pet: { sleeping: boolean; sleepLockUntil?: number }, atMs: number): number {
+  if (!pet.sleeping) return 0
+  return Math.max(0, (pet.sleepLockUntil ?? 0) - atMs)
+}
+
+/** "2:41" — a sleep-lock countdown for buttons/toasts. */
+export function formatLockCountdown(ms: number): string {
+  const total = Math.ceil(ms / 1000)
+  const m = Math.floor(total / 60)
+  const sec = total % 60
+  return `${m}:${sec < 10 ? '0' : ''}${sec}`
+}
 
 // Petting (own pet): instant small happiness, lightly rate-limited.
 export const PET_SELF_HAPPINESS = 4
@@ -421,7 +504,7 @@ export const PET_OTHER_COOLDOWN_MS = 4000
 // Currency — passive income, accrued per second. Happiness is the ONLY source:
 // a neglected pet earns nothing ("caring well IS the economy"). Since happiness
 // decays while you're away, a long absence self-limits what you earn.
-// Calibrated against the shop scale (kibble 15 / feast 40 / slot 250).
+// Calibrated against the shop scale (kibble 15 / feast 40 / first extra slot 50).
 // ---------------------------------------------------------------------------
 export const CURRENCY_BASE_PER_SEC = 0 // no floor: an unhappy pet earns zero
 export const CURRENCY_HAPPINESS_BONUS_PER_SEC = 0.0028 // multiplied by happiness/100
@@ -446,11 +529,28 @@ export const SHOP_ITEMS: ShopItem[] = [
 ]
 
 // ---------------------------------------------------------------------------
-// Pet storage slots.
+// Pet storage slots — UNLIMITED. There is no cap: the colony grows as far as a
+// player is willing to pay for it. Slot 1 is free, and every extra slot is
+// bought with an egg whose price steps up, so early pets are cheap enough to
+// keep the first session moving while a big roster stays a long-term goal.
+//
+// Pacing: passive income is ~0.28 coins/sec at full happiness plus
+// COINS_PER_ACTION per care action, so the 50-coin second egg lands a few
+// minutes in (and the coin counter visibly climbs toward it from second one).
 // ---------------------------------------------------------------------------
 export const STARTING_SLOTS = 1
-export const MAX_SLOTS = 4 // 4 slots total: 1 free, 3 unlocked with currency
-export const SLOT_PRICE = 250 // currency to buy an extra slot directly
+/** Price of the first purchasable slot (slot 2). */
+export const SLOT_PRICE_BASE = 50
+/** Added to the price for each slot already bought past the free starting one. */
+export const SLOT_PRICE_STEP = 25
+
+/** Coin price to unlock the NEXT slot for a player who currently has `slots`.
+ *  50 -> 75 -> 100 -> ... — linear per slot, so the running total to reach N
+ *  pets grows quadratically. Tune with the two constants above. */
+export function slotPrice(slots: number): number {
+  const bought = Math.max(0, slots - STARTING_SLOTS)
+  return SLOT_PRICE_BASE + SLOT_PRICE_STEP * bought
+}
 
 // ---------------------------------------------------------------------------
 // XP & leveling — data-driven so unlock rewards can grow post-MVP.
@@ -477,6 +577,18 @@ export const BREEDING_RARITY_THRESHOLDS: [Rarity, number][] = [
   ['rare', 6],
   ['uncommon', 4]
 ]
+
+// ---------------------------------------------------------------------------
+// Rarity potion — a purchasable coin sink that tilts ONE breeding roll toward
+// the rare end. Bought in the Shop, consumed by the breed that uses it.
+// ---------------------------------------------------------------------------
+export const RARITY_POTION_LABEL = 'Rarity Potion'
+export const RARITY_POTION_PRICE = 150
+/** Points the potion adds to the breeding score (same scale as the d10 + care
+ *  bonus). Deliberately NOT a multiple of the 2-point gap between thresholds:
+ *  a potion shifts the odds (roughly doubles the legendary chance) instead of
+ *  guaranteeing a flat one-tier jump, so the roll stays a surprise. */
+export const BREEDING_POTION_BONUS = 1.5
 
 /** Display name for each rarity tier (shown on the pet, colored by RARITY_COLOR). */
 export function rarityLabel(r: Rarity): string {

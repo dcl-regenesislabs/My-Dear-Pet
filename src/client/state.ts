@@ -4,7 +4,7 @@
 import { getPlayer } from '@dcl/sdk/players'
 import { room } from '../shared/messages'
 import type { CareAction, PetData, PlayerData, PlayerSnapshot, PresenceEntry, SwapOfferPayload } from '../shared/types'
-import { levelForXp, NEW_PET_STATS, SERVER_TIMEOUT_MS, SIZE_BASE, SIZE_MAX, SLOT_PRICE, speciesLabel, xpForLevel, type SpinReward } from '../shared/config'
+import { levelForXp, NEW_PET_STATS, SERVER_TIMEOUT_MS, SIZE_BASE, SIZE_MAX, slotPrice, speciesLabel, xpForLevel, type SpinReward } from '../shared/config'
 
 export type DialogState = {
   open: boolean
@@ -60,6 +60,12 @@ export const clientState: {
   // Carrying the pet to the bath: the pet is held in the player's hands; walk it
   // to the tub (`atStation` true when close) and place it there to bathe it.
   carryPet: { active: boolean; atStation: boolean }
+  // Feed errand (feed.ts): the guide arrow is up and the player is walking to
+  // the tree, where the feeding minigame takes over. Like the carry flows this
+  // OWNS the moment — no other care action can start until it resolves or the
+  // player cancels it with BACK. `petId` is the pet Feed was pressed for, so the
+  // errand can drop itself if the player switches pets mid-walk.
+  feedTask: { active: boolean; petId: string }
   // Hatch gesture: rubbing/tapping the egg fills this progress, then it hatches.
   // Reuses the petting gesture input.
   hatch: { active: boolean; progress: number }
@@ -124,6 +130,7 @@ export const clientState: {
   petting: { active: false, progress: 0 },
   carryEgg: { active: false, species: '', name: '', atHome: false },
   carryPet: { active: false, atStation: false },
+  feedTask: { active: false, petId: '' },
   hatch: { active: false, progress: 0 },
   feedGame: { active: false, phase: 'arrival', caught: 0, timeLeft: 0, catchFlashUntil: 0, countdownAt: 0, resultsAt: 0 },
   fetch: { active: false, busy: false, charging: false, charge: 0 },
@@ -218,6 +225,7 @@ function makeLocalPet(species: string, name: string): PetData {
     generation: 0,
     sleeping: false,
     sleepOnBed: false,
+    sleepLockUntil: 0,
     bornAt: t,
     lastUpdated: t
   }
@@ -229,6 +237,26 @@ export function switchActivePet(petId: string): void {
   if (!p) return
   const pet = p.pets.find((x) => x.id === petId)
   if (!pet) return
+  // Don't swap the active pet out from under a running flow. The localPet entity
+  // is REUSED across the switch, so the newcomer would inherit a carry/errand it
+  // never started (see pet.ts reanchorLocalPet). Both entry points — the roster
+  // panel and clicking a stored pet in the world — funnel through here, so this
+  // is the one gate that covers them all. Sleeping / plain care actions are NOT
+  // blocked: reanchorLocalPet re-places the pet cleanly for those.
+  const s = clientState
+  if (
+    hasPendingHatchling() ||
+    s.hatch.active ||
+    s.carryEgg.active ||
+    s.carryPet.active ||
+    s.petting.active ||
+    s.fetch.active ||
+    s.feedGame.active ||
+    s.feedTask.active
+  ) {
+    pushToast('Finish what your pet is doing first!')
+    return
+  }
   p.activePetId = petId
   clientState.activePet = pet
   actions.switchPet(petId)
@@ -360,6 +388,9 @@ export const actions = {
   buySlot(): void {
     room.send('buySlot', {})
   },
+  buyPotion(): void {
+    room.send('buyPotion', {})
+  },
   spin(): void {
     room.send('spin', {})
   },
@@ -372,8 +403,8 @@ export const actions = {
   claimDaily(): void {
     room.send('claimDaily', {})
   },
-  breed(partnerPetId: string, name = ''): void {
-    room.send('breed', { partnerPetId, name })
+  breed(partnerPetId: string, name = '', usePotion = false): void {
+    room.send('breed', { partnerPetId, name, usePotion })
   },
   debugGrowAdult(): void {
     room.send('debugGrowAdult', {})
@@ -389,6 +420,6 @@ export function debugGrowAdultLocal(): void {
   pet.size = SIZE_MAX
   pet.petXp = Math.max(pet.petXp, xpForLevel(5))
   pet.petLevel = levelForXp(pet.petXp)
-  if (clientState.player) clientState.player.currency = Math.max(clientState.player.currency, SLOT_PRICE)
+  if (clientState.player) clientState.player.currency = Math.max(clientState.player.currency, slotPrice(clientState.player.petSlots))
   actions.debugGrowAdult()
 }

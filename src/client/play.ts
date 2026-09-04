@@ -17,8 +17,8 @@ import { Vector3, Quaternion, Color4 } from '@dcl/sdk/math'
 import { triggerSceneEmote } from '~system/RestrictedActions'
 import * as C from '../shared/config'
 import { getLocalPet, sendPetTo, getLogicalClip } from './pet'
-import { applyCareLocal } from './sim'
-import { actions, clientState } from './state'
+import { applyCareLocal, canPlayNow } from './sim'
+import { actions, clientState, pushToast } from './state'
 import { FETCH_TOUCH_ACTION, showFetchTouchButton, hideFetchTouchButton } from './touchControls'
 import { mobile } from './ui/theme'
 import { triggerFetchHintFadeOut } from './ui/anim'
@@ -174,6 +174,15 @@ function chargeSystem(dt: number): void {
 
 function beginThrow(power: number): void {
   if (flight) return // a fetch is already in progress — ignore extra throws
+  // Energy gate: each fetch drains PLAY_ENERGY_COST and below PLAY_MIN_ENERGY the
+  // pet won't play at all. Checked HERE (at the throw) rather than at the drop,
+  // so a round the player was allowed to start always pays out — the server
+  // applies the same gate when the reward message lands.
+  if (!canPlayNow()) {
+    const pet = clientState.activePet
+    pushToast(pet ? `${pet.name} is too tired to play — it needs to sleep.` : 'Adopt a pet first!')
+    return
+  }
   const pt = Transform.getOrNull(engine.PlayerEntity)
   if (!pt) return
   const dir = flatForward(pt.rotation)
@@ -277,8 +286,17 @@ function dropFetch(): void {
   flight.phase = 'dropped'
   flight.t = 0
   clientState.fetch.busy = false // ready to throw again
-  applyCareLocal('play', false) // optimistic local effect (+happiness, -energy)
-  actions.care('play', false) // tell the server (it corrects via snapshot)
+  // +happiness / -energy plus the XP + coin payout (optimistic; the server
+  // recomputes and the snapshot corrects). Only tell the server if the local
+  // gate let it through — it applies the same rules and would just refuse.
+  if (!applyCareLocal('play', false)) return
+  actions.care('play', false)
+  // That fetch may have been the one that emptied the tank: say so once here
+  // rather than letting the player discover it by tapping a dead button.
+  if (!canPlayNow()) {
+    const active = clientState.activePet
+    pushToast(`${active ? active.name : 'Your pet'} is worn out — time for bed.`)
+  }
 }
 
 function flightSystem(dt: number): void {

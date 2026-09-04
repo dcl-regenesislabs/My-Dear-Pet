@@ -60,6 +60,7 @@ function newPet(species: string, name: string): PetData {
     generation: 0,
     sleeping: false,
     sleepOnBed: false,
+    sleepLockUntil: 0,
     bornAt: t,
     lastUpdated: t
   }
@@ -70,7 +71,7 @@ function newPlayer(address: string): PlayerData {
   return {
     address,
     currency: C.STARTING_CURRENCY,
-    inventory: { tier1: 1, tier2: 0 },
+    inventory: { tier1: 1, tier2: 0, rarityPotions: 0 },
     caretakerXp: 0,
     caretakerLevel: 1,
     givingScore: 0,
@@ -102,6 +103,13 @@ function activePet(p: PlayerData): PetData | null {
 // ---------------------------------------------------------------------------
 // Decay — applied to every pet a player owns (active and stored both decay).
 // ---------------------------------------------------------------------------
+/** End the sleep state. Always go through this so the lock can never outlive
+ *  the sleep it belongs to (a stale lock would block the NEXT wake). */
+function wake(pet: PetData): void {
+  pet.sleeping = false
+  pet.sleepLockUntil = 0
+}
+
 function decayPet(pet: PetData, atMs: number): void {
   const elapsedSec = Math.max(0, (atMs - pet.lastUpdated) / 1000)
   if (elapsedSec <= 0) return
@@ -117,7 +125,7 @@ function decayPet(pet: PetData, atMs: number): void {
   if (pet.sleeping) {
     const fill = C.SLEEP_FILL_PER_SEC * (pet.sleepOnBed ? 1 : C.SLEEP_OFF_BED_FACTOR)
     pet.energy = clamp(pet.energy + fill * elapsedSec)
-    if (pet.energy >= 100) pet.sleeping = false // wakes up rested
+    if (pet.energy >= 100) wake(pet) // wakes up rested (the lock ends with it)
   }
   // Happiness decays slowly, with extra penalty if other stats are neglected.
   let happinessLoss = C.DECAY_PER_SEC.happiness * elapsedSec * slow
@@ -271,7 +279,7 @@ function applyLevelReward(p: PlayerData, r: C.LevelReward, notes: Notify[]): voi
       p.currency += r.amount
       break
     case 'slot':
-      p.petSlots = Math.min(C.MAX_SLOTS, p.petSlots + r.amount)
+      p.petSlots += r.amount
       break
     case 'spinTicket':
       p.spinTickets += r.amount
@@ -361,7 +369,7 @@ export function discardPet(p: PlayerData): Notify[] {
 // the follow-up. Offspring inherits a parent's species (random for now — real
 // genetics later) and starts fresh.
 // ---------------------------------------------------------------------------
-export function breed(p: PlayerData, partnerId: string, name = ''): { notes: Notify[]; rarity: Rarity | null; species?: string; name?: string } {
+export function breed(p: PlayerData, partnerId: string, name = '', usePotion = false): { notes: Notify[]; rarity: Rarity | null; species?: string; name?: string } {
   tickPlayer(p)
   const a = activePet(p)
   if (!a) return { notes: [{ kind: 'error', message: 'No active pet' }], rarity: null }
@@ -376,8 +384,15 @@ export function breed(p: PlayerData, partnerId: string, name = ''): { notes: Not
   if (p.pets.length >= p.petSlots) {
     return { notes: [{ kind: 'error', message: 'No free pet slots for the offspring' }], rarity: null }
   }
+  // Asked for a potion but has none: refuse rather than silently breed without
+  // the boost — the roll can't be taken back.
+  if (usePotion && p.inventory.rarityPotions <= 0) {
+    return { notes: [{ kind: 'error', message: `No ${C.RARITY_POTION_LABEL} in your inventory` }], rarity: null }
+  }
 
-  const rarity = rollRarity(a, b)
+  // Consumed here, after every check passed, so a rejected breed never eats it.
+  if (usePotion) p.inventory.rarityPotions -= 1
+  const rarity = rollRarity(a, b, usePotion)
   // Genetics: the offspring wears the ACTIVE pet's head and the PARTNER's body
   // (config.crossSpecies encodes the pair; newPet reads head/body back from it).
   const species = C.crossSpecies(C.petHead(a), C.petBody(b))
@@ -391,7 +406,8 @@ export function breed(p: PlayerData, partnerId: string, name = ''): { notes: Not
   p.hatchling = child
   bump(p, 'breedCount')
 
-  return { notes: [{ kind: 'breed', message: `You bred a ${rarity} egg — carry it home to hatch!` }], rarity, species: child.species, name: child.name }
+  const potionNote = usePotion ? ` (${C.RARITY_POTION_LABEL} used)` : ''
+  return { notes: [{ kind: 'breed', message: `You bred a ${rarity} egg${potionNote} — carry it home to hatch!` }], rarity, species: child.species, name: child.name }
 }
 
 /** DEBUG/testing: grow the active pet straight to Adult + level 5 so breeding
@@ -403,8 +419,9 @@ export function debugGrowAdult(p: PlayerData): Notify[] {
   pet.size = C.SIZE_MAX // Adult (>= PET_STAGE_ADULT_SIZE)
   pet.petXp = Math.max(pet.petXp, C.xpForLevel(5))
   pet.petLevel = C.levelForXp(pet.petXp)
-  p.currency = Math.max(p.currency, C.SLOT_PRICE) // enough to unlock pet slot 2
-  return [{ kind: 'adopt', message: `DEBUG: ${pet.name} is now Adult (Lv ${pet.petLevel}), +${C.SLOT_PRICE} coins — breeding + slot 2 unlocked.` }]
+  const nextSlot = C.slotPrice(p.petSlots)
+  p.currency = Math.max(p.currency, nextSlot) // enough to unlock the next pet slot
+  return [{ kind: 'adopt', message: `DEBUG: ${pet.name} is now Adult (Lv ${pet.petLevel}), ${nextSlot} coins — breeding + slot ${p.petSlots + 1} unlocked.` }]
 }
 
 /** Shared tail for a completed (non-sleep) care action: apply the stat effects,
@@ -415,9 +432,13 @@ function applyCompletedCare(
   pet: PetData,
   effects: Partial<Record<StatKey, number>>,
   counterKey: string,
-  notes: Notify[]
+  notes: Notify[],
+  // Play pays more than passive care because it costs energy and takes a whole
+  // fetch round to earn — see the Play section in config.
+  xp = C.PET_XP_PER_ACTION,
+  coins = C.COINS_PER_ACTION
 ): void {
-  pet.sleeping = false
+  wake(pet)
   for (const key of Object.keys(effects) as StatKey[]) {
     pet[key] = clamp(pet[key] + effects[key]!)
   }
@@ -427,9 +448,9 @@ function applyCompletedCare(
   // to Junior after a bath when size/careCount had drifted apart (breeding, debug
   // grow, migration). See growSize in config.
   pet.size = C.growSize(pet.size)
-  grantPetXp(pet, C.PET_XP_PER_ACTION)
+  grantPetXp(pet, xp)
   grantCaretakerXp(p, C.CARETAKER_XP_PER_ACTION, notes)
-  p.currency += C.COINS_PER_ACTION
+  p.currency += coins
   bump(p, counterKey)
   bump(p, 'careCount')
   checkAchievements(p, notes)
@@ -439,10 +460,21 @@ export function careAction(p: PlayerData, action: CareAction, onBed: boolean): N
   const notes: Notify[] = []
   const pet = activePet(p)
   if (!pet) return [{ kind: 'error', message: 'No active pet' }]
+  tickPlayer(p) // decay first, so the gates below judge CURRENT energy/sleep
+
+  // Sleep lock: for the first SLEEP_LOCK_MS of a nap nothing gets through —
+  // not Wake, and not another care action (which would implicitly wake it via
+  // applyCompletedCare). This is what stops the play energy gate from being
+  // bypassed with a one-second nap. Checked BEFORE cooldownOk, which consumes
+  // the action's cooldown slot as a side effect — a refusal here shouldn't also
+  // cost the player their next legitimate attempt once the lock expires.
+  const lockLeft = C.sleepLockRemaining(pet, now())
+  if (lockLeft > 0) {
+    return [{ kind: 'sleep', message: `${pet.name} is fast asleep — ${C.formatLockCountdown(lockLeft)} left.` }]
+  }
   if (!cooldownOk(p.address, action, C.ACTION_COOLDOWN_MS[action])) {
     return [{ kind: 'cooldown', message: 'Pet is still busy...' }]
   }
-  tickPlayer(p)
 
   // Sleep is a toggle into/out of a state, not a completed care action — it
   // earns no XP/coins/careCount in either direction. Its cooldown is short
@@ -450,18 +482,33 @@ export function careAction(p: PlayerData, action: CareAction, onBed: boolean): N
   // and careCount-gated growth by flipping it on/off.
   if (action === 'sleep') {
     if (pet.sleeping) {
-      pet.sleeping = false
+      wake(pet)
       return [{ kind: 'sleep', message: `${pet.name} woke up.` }]
     }
     pet.sleeping = true
     pet.sleepOnBed = onBed
-    return [{
-      kind: 'sleep',
-      message: onBed ? `${pet.name} is asleep in bed.` : `${pet.name} dozed off — not in bed, so it rests slower.`
-    }]
+    // Only an EXHAUSTION nap is locked (can't play -> must rest). A rested pet
+    // sent to bed is a normal toggle you can undo right away.
+    const locked = C.isExhausted(pet)
+    if (locked) pet.sleepLockUntil = now() + C.SLEEP_LOCK_MS
+    const where = onBed ? 'is asleep in bed' : 'dozed off — not in bed, so it rests slower'
+    const lockNote = locked ? ` It can't be woken for ${C.formatLockCountdown(C.SLEEP_LOCK_MS)}.` : ''
+    return [{ kind: 'sleep', message: `${pet.name} ${where}.${lockNote}` }]
   }
 
-  applyCompletedCare(p, pet, C.ACTION_EFFECT[action], `${action}Count`, notes)
+  // Play (Fetch) is energy-gated: too tired -> no play, no reward. The refusal
+  // is the nudge toward the bed, which the speech bubble is already making.
+  if (action === 'play' && !C.canPlay(pet)) {
+    return [{ kind: 'energy', message: `${pet.name} is too tired to play — it needs to sleep first.` }]
+  }
+
+  // Play pays more than a passive care action — it costs energy and takes a
+  // whole fetch round. No success notify here on purpose: the client already
+  // shows the "+XP +coins" popup and the worn-out nudge (client/play.ts), and a
+  // server toast on top of them would just double up.
+  const xp = action === 'play' ? C.PLAY_XP_REWARD : C.PET_XP_PER_ACTION
+  const coins = action === 'play' ? C.PLAY_COINS_REWARD : C.COINS_PER_ACTION
+  applyCompletedCare(p, pet, C.ACTION_EFFECT[action], `${action}Count`, notes, xp, coins)
   return notes
 }
 
@@ -472,10 +519,16 @@ export function feedFromMinigame(p: PlayerData, caught: number): Notify[] {
   const notes: Notify[] = []
   const pet = activePet(p)
   if (!pet) return [{ kind: 'error', message: 'No active pet' }]
+  tickPlayer(p)
+  // Same sleep lock as careAction — applyCompletedCare wakes the pet, so a
+  // minigame result must not be a back door out of the nap either.
+  const lockLeft = C.sleepLockRemaining(pet, now())
+  if (lockLeft > 0) {
+    return [{ kind: 'sleep', message: `${pet.name} is fast asleep — ${C.formatLockCountdown(lockLeft)} left.` }]
+  }
   if (!cooldownOk(p.address, 'feed', C.ACTION_COOLDOWN_MS.feed)) {
     return [{ kind: 'cooldown', message: 'Pet is still busy...' }]
   }
-  tickPlayer(p)
   applyCompletedCare(p, pet, { hunger: caught * C.FEED_HUNGER_PER_FRUIT }, 'feedCount', notes)
   return notes
 }
@@ -646,10 +699,21 @@ export function switchPet(p: PlayerData, petId: string): Notify[] {
   return [{ kind: 'roster', message: 'Switched active pet' }]
 }
 
+/** Buy one rarity potion — a pure coin sink; it is spent on a breeding roll. */
+export function buyPotion(p: PlayerData): Notify[] {
+  if (p.currency < C.RARITY_POTION_PRICE) return [{ kind: 'error', message: 'Not enough coins' }]
+  p.currency -= C.RARITY_POTION_PRICE
+  p.inventory.rarityPotions += 1
+  return [{ kind: 'shop', message: `Bought a ${C.RARITY_POTION_LABEL}` }]
+}
+
+/** Buy the next pet slot. Slots are unlimited — each one just costs more than
+ *  the last (see C.slotPrice), so the price read here MUST be the one for the
+ *  player's current slot count, not a flat constant. */
 export function buySlot(p: PlayerData): Notify[] {
-  if (p.petSlots >= C.MAX_SLOTS) return [{ kind: 'error', message: 'Max slots reached' }]
-  if (p.currency < C.SLOT_PRICE) return [{ kind: 'error', message: 'Not enough coins' }]
-  p.currency -= C.SLOT_PRICE
+  const price = C.slotPrice(p.petSlots)
+  if (p.currency < price) return [{ kind: 'error', message: 'Not enough coins' }]
+  p.currency -= price
   p.petSlots += 1
   return [{ kind: 'shop', message: `Unlocked pet slot ${p.petSlots}!` }]
 }
@@ -679,8 +743,7 @@ function rollAndApplyReward(p: PlayerData): { reward: C.SpinReward; index: numbe
       p.inventory.tier2 += reward.amount
       break
     case 'slotChance':
-      if (p.petSlots < C.MAX_SLOTS) p.petSlots += reward.amount
-      else p.currency += 200
+      p.petSlots += reward.amount
       break
   }
   return { reward, index }
