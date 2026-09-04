@@ -487,12 +487,13 @@ export function careAction(p: PlayerData, action: CareAction, onBed: boolean): N
     }
     pet.sleeping = true
     pet.sleepOnBed = onBed
-    pet.sleepLockUntil = now() + C.SLEEP_LOCK_MS
+    // Only an EXHAUSTION nap is locked (can't play -> must rest). A rested pet
+    // sent to bed is a normal toggle you can undo right away.
+    const locked = C.isExhausted(pet)
+    if (locked) pet.sleepLockUntil = now() + C.SLEEP_LOCK_MS
     const where = onBed ? 'is asleep in bed' : 'dozed off — not in bed, so it rests slower'
-    return [{
-      kind: 'sleep',
-      message: `${pet.name} ${where}. It can't be woken for ${C.formatLockCountdown(C.SLEEP_LOCK_MS)}.`
-    }]
+    const lockNote = locked ? ` It can't be woken for ${C.formatLockCountdown(C.SLEEP_LOCK_MS)}.` : ''
+    return [{ kind: 'sleep', message: `${pet.name} ${where}.${lockNote}` }]
   }
 
   // Play (Fetch) is energy-gated: too tired -> no play, no reward. The refusal

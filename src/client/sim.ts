@@ -307,7 +307,9 @@ export function applyCareLocal(action: CareAction, onBed: boolean): boolean {
     }
     pet.sleeping = true
     pet.sleepOnBed = onBed
-    pet.sleepLockUntil = Date.now() + Cfg.SLEEP_LOCK_MS
+    // Only an exhaustion nap locks (mirrors the server) — a rested pet you sent
+    // to bed can be woken again immediately.
+    if (Cfg.isExhausted(pet)) pet.sleepLockUntil = Date.now() + Cfg.SLEEP_LOCK_MS
     return true
   }
   // Play is energy-gated: a worn-out pet earns nothing until it has slept.

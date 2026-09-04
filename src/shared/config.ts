@@ -405,6 +405,13 @@ export function canPlay(pet: { energy: number; sleeping: boolean }): boolean {
   return !pet.sleeping && pet.energy >= PLAY_MIN_ENERGY
 }
 
+/** True if the pet is too tired to play (energy under the gate). ONLY an
+ *  exhaustion nap gets the uninterruptible SLEEP_LOCK; a rested pet sent to bed
+ *  is a normal toggle you can undo right away. */
+export function isExhausted(pet: { energy: number }): boolean {
+  return pet.energy < PLAY_MIN_ENERGY
+}
+
 /** How much each care action refills. Energy is drained by play.
  *  feed's entry is dead on the direct-trigger path (Feed now runs the fruit
  *  minigame — see FEED_HUNGER_PER_FRUIT — instead of an instant flat effect);
@@ -440,11 +447,14 @@ export const SLEEP_OFF_BED_FACTOR = 0.5
 /** Everything else decays at this fraction while the pet sleeps. */
 export const SLEEP_DECAY_FACTOR = 0.5
 /**
- * Sleep LOCK: once sent to bed, the pet cannot be woken for this long. Without
- * it the energy gate above is trivially bypassed — sleep for a second, tap
- * Wake, keep fetching — so the lock is what actually turns "out of energy" into
+ * Sleep LOCK: an EXHAUSTED pet sent to bed (energy under the play gate, see
+ * isExhausted) cannot be woken for this long. A rested pet you send to bed is
+ * NOT locked — it's a normal toggle you can undo right away. Without the lock on
+ * the exhaustion nap the energy gate is trivially bypassed — sleep for a second,
+ * tap Wake, keep fetching — so the lock is what turns "out of energy" into real
  * downtime. It is a hard lock, not reduced wake sensitivity: Wake is refused
- * outright (and the button shows the countdown) until it expires.
+ * outright (and the button + a floating countdown show the time left) until it
+ * expires.
  *
  * 3 minutes buys back ~5 energy on the Bed, i.e. not even one fetch — the lock
  * is a pacing beat, not the refill itself. The pet still auto-wakes the moment
