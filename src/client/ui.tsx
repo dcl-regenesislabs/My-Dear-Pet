@@ -36,7 +36,7 @@ import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './
 import { endCaretakerIntroLock } from './caretaker'
 import { DebugBrowserBar, UI_DEBUG_MODE } from './ui/debugBrowser'
 
-export type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor' | 'breedName' | 'jukebox'
+export type Panel = 'none' | 'adopt' | 'shop' | 'roster' | 'inventory' | 'spin' | 'goals' | 'daily' | 'meteor' | 'breedName' | 'jukebox' | 'leaderboard'
 export type ShopTabId = 'food' | 'slots'
 
 const uiState = {
@@ -90,6 +90,10 @@ export const ui = {
   },
   openJukebox(): void {
     uiState.panel = 'jukebox'
+  },
+  openLeaderboard(): void {
+    uiState.panel = 'leaderboard'
+    actions.requestLeaderboard() // fetch fresh standings each time it opens
   },
   // Auto-open the daily reward only when the screen is idle (no clashing popup).
   tryAutoOpenDaily(): void {
@@ -640,6 +644,64 @@ function MusicButton() {
         onClick={() => ui.openJukebox()}
       />
     </UiEntity>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Leaderboard HUD button (mid-right, just below the Jukebox button) + panel.
+// Same size/gating as MusicButton; uses the leaderboard_sing sign art.
+// ---------------------------------------------------------------------------
+function LeaderboardButton() {
+  if (clientState.dialog.open || clientState.fetch.active || clientState.carryEgg.active || clientState.carryPet.active || clientState.hatch.active) {
+    return <UiEntity />
+  }
+  const size = Sbtn(52)
+  return (
+    <UiEntity
+      uiTransform={{ positionType: 'absolute', position: { top: '40%', right: S(16) }, margin: { top: size + S(12) }, width: size, height: size, pointerFilter: 'none' }}
+    >
+      <TactileButton
+        id="hud_leaderboard"
+        label=""
+        texture="assets/images/leaderboard_sing.png"
+        width={size}
+        height={size}
+        radius={Math.round(size / 2)}
+        onClick={() => ui.openLeaderboard()}
+      />
+    </UiEntity>
+  )
+}
+
+function LeaderboardRow(props: { key?: string; rank: number; name: string; coins: number; isMe: boolean }) {
+  const medal = props.rank === 1 ? '🥇' : props.rank === 2 ? '🥈' : props.rank === 3 ? '🥉' : `${props.rank}`
+  const ink = props.isMe ? LOC.white : PET_UI.ink
+  return (
+    <UiEntity
+      uiTransform={{ width: S(556), height: S(38), flexDirection: 'row', alignItems: 'center', margin: { bottom: S(4) }, padding: { left: S(12), right: S(14) }, borderRadius: S(12) }}
+      uiBackground={{ color: props.isMe ? LOC.blue : LOC.tile }}
+    >
+      <Label value={medal} fontSize={S(18)} color={ink} textAlign="middle-center" uiTransform={{ width: S(48), height: S(26) }} />
+      <Label value={props.isMe ? `${props.name}  (you)` : props.name} fontSize={S(16)} color={ink} textAlign="middle-left" textWrap="nowrap" uiTransform={{ flex: 1, height: S(26) }} />
+      <Label value={`🪙 ${props.coins}`} fontSize={S(16)} color={ink} textAlign="middle-right" uiTransform={{ width: S(140), height: S(26) }} />
+    </UiEntity>
+  )
+}
+
+function LeaderboardPanel() {
+  const rows = clientState.leaderboard
+  const me = clientState.myAddress.toLowerCase()
+  return (
+    <PetHudModal title="Leaderboard" subtitle="Top settlers by coins across the colony." width={S(640)} height={S(560)} onClose={() => ui.close()}>
+      <UiEntity uiTransform={{ width: '100%', flexDirection: 'column', alignItems: 'center' }}>
+        {rows.length === 0 && (
+          <Label value="Loading standings…" fontSize={S(18)} color={LOC.dim} textAlign="middle-center" uiTransform={{ width: '100%', height: S(40), margin: { top: S(20) } }} />
+        )}
+        {rows.map((e, i) => (
+          <LeaderboardRow key={e.address} rank={i + 1} name={e.name} coins={e.coins} isMe={e.address.toLowerCase() === me} />
+        ))}
+      </UiEntity>
+    </PetHudModal>
   )
 }
 
@@ -2389,6 +2451,7 @@ const Root = () => {
         <SwapOfferPanel />
         <SideButtons />
         <MusicButton />
+        <LeaderboardButton />
         <BottomNav />
         <FetchOverlay />
         <CarryHatchButton />
@@ -2407,6 +2470,7 @@ const Root = () => {
         {uiState.panel === 'goals' && <GoalsPanel />}
         {uiState.panel === 'daily' && <DailyRewardPanel />}
         {uiState.panel === 'jukebox' && <JukeboxPanel />}
+        {uiState.panel === 'leaderboard' && <LeaderboardPanel />}
         <DialogBox />
         {/* Hints + reward + toasts render LAST so they sit on top of any panel/modal. */}
         <HintBanner />

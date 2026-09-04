@@ -28,6 +28,33 @@ export function setFollowState(address: string, following: boolean): void {
   followState.set(address.toLowerCase(), following)
 }
 
+// Player display names (from getPlayer().name, reported on requestState). Session
+// only — used to label the coins leaderboard; falls back to a short address.
+const playerNames = new Map<string, string>()
+
+/** Remember a player's display name for the leaderboard. */
+export function setPlayerName(address: string, name: string): void {
+  const n = (name ?? '').trim()
+  if (n) playerNames.set(address.toLowerCase(), n)
+}
+
+function shortAddress(address: string): string {
+  return address.length > 10 ? `${address.slice(0, 6)}…${address.slice(-4)}` : address
+}
+
+/** Top players by coins, highest first (capped at `limit`). */
+export function leaderboard(limit = 10): { address: string; name: string; coins: number }[] {
+  return allCached()
+    .slice()
+    .sort((a, b) => b.currency - a.currency)
+    .slice(0, limit)
+    .map((p) => ({
+      address: p.address,
+      name: playerNames.get(p.address.toLowerCase()) ?? shortAddress(p.address),
+      coins: Math.floor(p.currency)
+    }))
+}
+
 /** True if this wallet had no saved state when first loaded (a new user). */
 export function isFreshPlayer(address: string): boolean {
   return freshPlayers.has(address)
