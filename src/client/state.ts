@@ -60,6 +60,12 @@ export const clientState: {
   // Carrying the pet to the bath: the pet is held in the player's hands; walk it
   // to the tub (`atStation` true when close) and place it there to bathe it.
   carryPet: { active: boolean; atStation: boolean }
+  // Feed errand (feed.ts): the guide arrow is up and the player is walking to
+  // the tree, where the feeding minigame takes over. Like the carry flows this
+  // OWNS the moment — no other care action can start until it resolves or the
+  // player cancels it with BACK. `petId` is the pet Feed was pressed for, so the
+  // errand can drop itself if the player switches pets mid-walk.
+  feedTask: { active: boolean; petId: string }
   // Hatch gesture: rubbing/tapping the egg fills this progress, then it hatches.
   // Reuses the petting gesture input.
   hatch: { active: boolean; progress: number }
@@ -84,9 +90,6 @@ export const clientState: {
   // panel; `busy` is true from the moment the ball is thrown until the pet drops
   // it back (the Fetch button is disabled while busy).
   fetch: { active: boolean; busy: boolean }
-  // Feed errand in progress (walking the player to the tree, pre-minigame). Set
-  // by feed.ts; read by switchActivePet so a roster swap can't happen underneath.
-  feedErrandActive: boolean
   // Optimistic adoption: render the new pet instantly while the server catches
   // up, so adoption never feels like "nothing happened" if a message is slow.
   pendingPet: PetData | null
@@ -125,10 +128,10 @@ export const clientState: {
   petting: { active: false, progress: 0 },
   carryEgg: { active: false, species: '', name: '', atHome: false },
   carryPet: { active: false, atStation: false },
+  feedTask: { active: false, petId: '' },
   hatch: { active: false, progress: 0 },
   feedGame: { active: false, phase: 'arrival', caught: 0, timeLeft: 0, catchFlashUntil: 0, countdownAt: 0, resultsAt: 0 },
   fetch: { active: false, busy: false },
-  feedErrandActive: false,
   pendingPet: null,
   pendingUntil: 0,
   streak: { count: 1, lastDay: 0, claimedDay: 0 },
@@ -247,7 +250,7 @@ export function switchActivePet(petId: string): void {
     s.petting.active ||
     s.fetch.active ||
     s.feedGame.active ||
-    s.feedErrandActive
+    s.feedTask.active
   ) {
     pushToast('Finish what your pet is doing first!')
     return

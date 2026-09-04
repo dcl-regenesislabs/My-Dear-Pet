@@ -4,6 +4,12 @@
 // Creator Hub composite (assets/scene/main.composite, entity "tree.glb"); walking
 // within range of it hands off straight to the feeding mini-game (fruitGame.ts) —
 // no click needed, it triggers on arrival.
+//
+// The errand OWNS the moment while it runs (clientState.feedTask): every other
+// care action is gated on it (pet.ts canStartPetInteraction/canQueueCareAction)
+// and the player gets a BACK button to drop it (ui.tsx FeedErrandOverlay). That
+// pairing is what keeps the guide arrow honest — it can only ever belong to one
+// flow, and it goes away the moment this one ends.
 
 import { engine, Entity, Transform } from '@dcl/sdk/ecs'
 import { Vector3 } from '@dcl/sdk/math'
@@ -14,14 +20,6 @@ import { ui } from './ui'
 import { startFruitGame } from './fruitGame'
 
 const TREE_RADIUS = 9 // metres: how close you must be before the minigame auto-starts (fruitGame.ts's own arrival cam covers the last few metres of the walk-in)
-
-let active = false
-/** Single writer for the errand flag: mirrors it onto clientState so
- *  switchActivePet can refuse a roster swap while the errand is running. */
-function setErrandActive(on: boolean): void {
-  active = on
-  clientState.feedErrandActive = on
-}
 
 /** The tree as placed in the composite — not a duplicate spawned in code. */
 function getTree(): Entity | null {
@@ -46,6 +44,13 @@ export function startFeedTask(): void {
     ui.openAdopt()
     return
   }
+  // Checked BEFORE the shared gate: the errand blocks itself through
+  // canStartPetInteraction() now, so without this the second press would report
+  // a generic "your pet is busy" instead of pointing at the walk in progress.
+  if (clientState.feedTask.active) {
+    pushToast('Head to the tree — follow the arrow!')
+    return
+  }
   if (!canStartPetInteraction()) {
     pushToast(
       hasPendingHatchling()
@@ -56,35 +61,32 @@ export function startFeedTask(): void {
     )
     return
   }
-  if (active) {
-    pushToast('Head to the tree — follow the arrow!')
-    return
-  }
   const tree = getTree()
   if (!tree) {
     console.log('[Client] feed task: tree not found in scene')
     return
   }
-  setErrandActive(true)
-  showArrowTo(Transform.get(tree).position)
+  clientState.feedTask = { active: true, petId: clientState.activePet.id }
+  showArrowTo(Transform.get(tree).position, 'feed')
   clientState.petPanelOpen = false // the panel covers the screen; the errand is out in the world
   pushToast('Follow the arrow to the tree!')
 }
 
-/** Drop the errand (arrow off). */
+/** Drop the errand (arrow off). Used by the BACK button and by the guards below. */
 export function cancelFeedTask(): void {
-  if (!active) return
-  setErrandActive(false)
-  hideArrow()
+  if (!clientState.feedTask.active) return
+  clientState.feedTask = { active: false, petId: '' }
+  hideArrow('feed')
 }
 
 export function feedTaskActive(): boolean {
-  return active
+  return clientState.feedTask.active
 }
 
 export function setupFeedTask(): void {
   engine.addSystem(() => {
-    if (!active) return
+    const task = clientState.feedTask
+    if (!task.active) return
     // Yield the shared guide arrow to a carry flow (egg / bath): those also drive
     // pet.ts's arrow, so if the player starts Feed then Bath, the errand must bow
     // out instead of fighting to keep the arrow pointed at the tree.
@@ -92,14 +94,19 @@ export function setupFeedTask(): void {
       cancelFeedTask()
       return
     }
+    // The errand belongs to the pet Feed was pressed for — if that pet is gone
+    // or the player swapped to another one, the walk no longer means anything.
+    if (!clientState.activePet || clientState.activePet.id !== task.petId) {
+      cancelFeedTask()
+      return
+    }
     const tree = getTree()
     if (!tree) return
     const pos = Transform.get(tree).position
-    showArrowTo(pos) // re-assert each frame, same as the egg carry does
+    showArrowTo(pos, 'feed') // re-assert each frame, same as the egg carry does
     if (distFlat(playerPos(), pos) <= TREE_RADIUS) {
-      const petId = clientState.activePet ? clientState.activePet.id : ''
-      setErrandActive(false)
-      hideArrow() // errand done — the cinematic takes over from here
+      const petId = task.petId
+      cancelFeedTask() // errand done — arrow off, the cinematic takes over from here
       startFruitGame(petId)
     }
   })
