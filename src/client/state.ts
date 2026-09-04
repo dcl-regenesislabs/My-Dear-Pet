@@ -235,6 +235,26 @@ export function switchActivePet(petId: string): void {
   if (!p) return
   const pet = p.pets.find((x) => x.id === petId)
   if (!pet) return
+  // Don't swap the active pet out from under a running flow. The localPet entity
+  // is REUSED across the switch, so the newcomer would inherit a carry/errand it
+  // never started (see pet.ts reanchorLocalPet). Both entry points — the roster
+  // panel and clicking a stored pet in the world — funnel through here, so this
+  // is the one gate that covers them all. Sleeping / plain care actions are NOT
+  // blocked: reanchorLocalPet re-places the pet cleanly for those.
+  const s = clientState
+  if (
+    hasPendingHatchling() ||
+    s.hatch.active ||
+    s.carryEgg.active ||
+    s.carryPet.active ||
+    s.petting.active ||
+    s.fetch.active ||
+    s.feedGame.active ||
+    s.feedTask.active
+  ) {
+    pushToast('Finish what your pet is doing first!')
+    return
+  }
   p.activePetId = petId
   clientState.activePet = pet
   actions.switchPet(petId)

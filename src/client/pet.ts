@@ -58,6 +58,10 @@ type Mode = 'follow' | 'goto' | 'interact' | 'wander' | 'bathhop' | 'asleep'
 
 let localPet: Entity | null = null
 let localSpecies = ''
+// Which pet the localPet entity currently stands for. The entity is REUSED when
+// the roster switches, so this is the only way to notice "same entity, different
+// pet" and re-place it (see ensureLocalPet / reanchorLocalPet).
+let localPetId = ''
 let mode: Mode = 'follow'
 let target = Vector3.create(199.2, 0, 231.8)
 let onArrive: (() => void) | null = null
@@ -200,6 +204,16 @@ function activePetSlotIndex(): number {
 const HOME_BASE = Vector3.create(204, C.PET_BASE_Y, 240)
 function homeSpawnPos(): Vector3 {
   return nudgeOutsideBuildings(HOME_BASE)
+}
+
+/** Where a sleeping pet belongs: on the PetBed's cushion when it dozed off in
+ *  bed, otherwise lifted in place at `fallback` (it fell asleep in the open, and
+ *  `sleepOnBed` false is what makes it refill slower — moving it onto the bed
+ *  here would silently contradict that). Y matches the 'asleep' mode's lift. */
+function sleepRestPos(pet: PetData, fallback: Vector3): Vector3 {
+  if (!pet.sleepOnBed) return Vector3.create(fallback.x, C.PET_BASE_Y + SLEEP_BED_LIFT, fallback.z)
+  const bed = nudgeOutsideBuildings(objectPosition(EntityNames.PetBed_glb))
+  return Vector3.create(bed.x, C.PET_BASE_Y + SLEEP_BED_LIFT, bed.z)
 }
 
 let localTag: HealthTag | null = null
@@ -450,6 +464,51 @@ export function canQueueCareAction(): boolean {
   return !hasPendingHatchling() && !clientState.activePet?.sleeping && !otherActivityActive()
 }
 
+/**
+ * Re-place the local pet entity after the roster switches to a DIFFERENT pet.
+ * The entity is REUSED across the switch, so its Transform and `mode` still
+ * describe the pet we just stopped showing — the newcomer would silently
+ * inherit them and carry on whatever that one was doing (a pet left asleep in
+ * its bed would get up and trail the player from wherever the previous pet
+ * happened to be standing).
+ */
+function reanchorLocalPet(pet: PetData): void {
+  if (!localPet) return
+  // Where this pet actually IS: the roamer that has been standing in for it in
+  // the care area. It's still alive at this point — updateInactivePets only
+  // retires it later in the same frame — so the handoff is seamless.
+  //
+  // No roamer means this ISN'T a roster switch at all: it's the optimistic
+  // hatchling's throwaway `local_...` id being replaced by the server's real
+  // one once the snapshot lands. Same pet, new id — reanchoring there would
+  // teleport the newborn out of its hatch spot and into a care-area slot.
+  const roamer = inactivePets.get(pet.id)
+  if (!roamer) return
+  const here = Transform.get(roamer.entity).position
+
+  // Drop what the PREVIOUS pet was in the middle of: an errand's arrival
+  // callback would otherwise fire on this pet, and the stale breadcrumb trail
+  // would send it retracing a route it never walked.
+  onArrive = null
+  interactTimer = 0
+  justBathed = false
+  bathHopT = 0
+  followTrail.length = 0
+
+  const t = Transform.getMutable(localPet)
+  if (pet.sleeping) {
+    t.position = sleepRestPos(pet, here)
+    mode = 'asleep'
+    return
+  }
+  const pos = flat(here)
+  t.position = pos
+  mode = clientState.followEnabled ? 'follow' : 'wander'
+  wanderHome = pos
+  wanderTarget = null
+  wanderPause = 1
+}
+
 function ensureLocalPet(): void {
   const pet = clientState.activePet
   if (!pet) {
@@ -458,6 +517,7 @@ function ensureLocalPet(): void {
       forgetAnimator(localPet)
       localPet = null
       localSpecies = ''
+      localPetId = ''
     }
     if (localTag) {
       removeTag(localTag)
@@ -473,8 +533,7 @@ function ensureLocalPet(): void {
     // instead of staying where it was left.
     let spawnPos = homeSpawnPos()
     if (pet.sleeping) {
-      const bed = nudgeOutsideBuildings(objectPosition(EntityNames.PetBed_glb))
-      spawnPos = Vector3.create(bed.x, C.PET_BASE_Y + SLEEP_BED_LIFT, bed.z)
+      spawnPos = sleepRestPos(pet, spawnPos)
       mode = 'asleep'
     }
     Transform.create(localPet, { position: spawnPos, scale: petScale(pet.species, stageScaleFor(pet.size)) })
@@ -504,7 +563,15 @@ function ensureLocalPet(): void {
     // A pet can be (re)built mid-sentence — start the fresh tag in whatever state
     // the flow and the speech bubble currently agree on, not blindly visible.
     setTagVisible(localTag, localTagWanted && !tagsSuppressed)
+  } else if (localPetId !== pet.id) {
+    // The roster switched to a DIFFERENT pet (My Pets panel, or clicking a
+    // stored pet in the care area). The entity is reused, so without this
+    // nothing resets WHERE the pet is: it would inherit the previous pet's
+    // position and mode and start trailing the player from wherever that one
+    // stood — a pet left asleep in its bed would get up and follow.
+    reanchorLocalPet(pet)
   }
+  localPetId = pet.id
   if (localSpecies !== pet.species) {
     localSpecies = pet.species
     GltfContainer.createOrReplace(localPet, { src: modelForSpecies(pet.species), visibleMeshesCollisionMask: ColliderLayer.CL_POINTER })
