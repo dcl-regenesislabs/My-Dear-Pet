@@ -334,7 +334,7 @@ const DEBUG_SCREENS: DebugScreen[] = [
     variants: ['Ready', 'Fetching (busy)'],
     activate: (v) => {
       applyFixturePlayer(fakePlayer(), fakePet())
-      clientState.fetch = { active: true, busy: v === 1 }
+      clientState.fetch = { active: true, busy: v === 1, charging: false, charge: 0 }
     }
   },
   {
@@ -405,7 +405,7 @@ function resetAllDebugFlags(): void {
   clientState.hatch = { active: false, progress: 0 }
   clientState.feedGame = { active: false, phase: 'arrival', caught: 0, timeLeft: 0, catchFlashUntil: 0, countdownAt: 0, resultsAt: 0 }
   clientState.dialog.open = false
-  clientState.fetch = { active: false, busy: false }
+  clientState.fetch = { active: false, busy: false, charging: false, charge: 0 }
   clientState.carryEgg = { active: false, species: '', name: '', atHome: false }
   clientState.carryPet = { active: false, atStation: false }
   clientState.incomingSwap = null
