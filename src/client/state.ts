@@ -84,6 +84,9 @@ export const clientState: {
   // panel; `busy` is true from the moment the ball is thrown until the pet drops
   // it back (the Fetch button is disabled while busy).
   fetch: { active: boolean; busy: boolean }
+  // Feed errand in progress (walking the player to the tree, pre-minigame). Set
+  // by feed.ts; read by switchActivePet so a roster swap can't happen underneath.
+  feedErrandActive: boolean
   // Optimistic adoption: render the new pet instantly while the server catches
   // up, so adoption never feels like "nothing happened" if a message is slow.
   pendingPet: PetData | null
@@ -125,6 +128,7 @@ export const clientState: {
   hatch: { active: false, progress: 0 },
   feedGame: { active: false, phase: 'arrival', caught: 0, timeLeft: 0, catchFlashUntil: 0, countdownAt: 0, resultsAt: 0 },
   fetch: { active: false, busy: false },
+  feedErrandActive: false,
   pendingPet: null,
   pendingUntil: 0,
   streak: { count: 1, lastDay: 0, claimedDay: 0 },
@@ -228,6 +232,26 @@ export function switchActivePet(petId: string): void {
   if (!p) return
   const pet = p.pets.find((x) => x.id === petId)
   if (!pet) return
+  // Don't swap the active pet out from under a running flow. The localPet entity
+  // is REUSED across the switch, so the newcomer would inherit a carry/errand it
+  // never started (see pet.ts reanchorLocalPet). Both entry points — the roster
+  // panel and clicking a stored pet in the world — funnel through here, so this
+  // is the one gate that covers them all. Sleeping / plain care actions are NOT
+  // blocked: reanchorLocalPet re-places the pet cleanly for those.
+  const s = clientState
+  if (
+    hasPendingHatchling() ||
+    s.hatch.active ||
+    s.carryEgg.active ||
+    s.carryPet.active ||
+    s.petting.active ||
+    s.fetch.active ||
+    s.feedGame.active ||
+    s.feedErrandActive
+  ) {
+    pushToast('Finish what your pet is doing first!')
+    return
+  }
   p.activePetId = petId
   clientState.activePet = pet
   actions.switchPet(petId)

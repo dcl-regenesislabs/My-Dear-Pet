@@ -16,6 +16,12 @@ import { startFruitGame } from './fruitGame'
 const TREE_RADIUS = 9 // metres: how close you must be before the minigame auto-starts (fruitGame.ts's own arrival cam covers the last few metres of the walk-in)
 
 let active = false
+/** Single writer for the errand flag: mirrors it onto clientState so
+ *  switchActivePet can refuse a roster swap while the errand is running. */
+function setErrandActive(on: boolean): void {
+  active = on
+  clientState.feedErrandActive = on
+}
 
 /** The tree as placed in the composite — not a duplicate spawned in code. */
 function getTree(): Entity | null {
@@ -59,7 +65,7 @@ export function startFeedTask(): void {
     console.log('[Client] feed task: tree not found in scene')
     return
   }
-  active = true
+  setErrandActive(true)
   showArrowTo(Transform.get(tree).position)
   clientState.petPanelOpen = false // the panel covers the screen; the errand is out in the world
   pushToast('Follow the arrow to the tree!')
@@ -68,7 +74,7 @@ export function startFeedTask(): void {
 /** Drop the errand (arrow off). */
 export function cancelFeedTask(): void {
   if (!active) return
-  active = false
+  setErrandActive(false)
   hideArrow()
 }
 
@@ -92,7 +98,7 @@ export function setupFeedTask(): void {
     showArrowTo(pos) // re-assert each frame, same as the egg carry does
     if (distFlat(playerPos(), pos) <= TREE_RADIUS) {
       const petId = clientState.activePet ? clientState.activePet.id : ''
-      active = false
+      setErrandActive(false)
       hideArrow() // errand done — the cinematic takes over from here
       startFruitGame(petId)
     }
