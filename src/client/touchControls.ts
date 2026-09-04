@@ -25,9 +25,9 @@ export function applyFruitGameTouchControls(): void {
 // The Fetch minigame's mobile Throw button: IA_PRIMARY (E on desktop, one of
 // the UNUSED_SCENE_TOUCH_BUTTONS above so it's hidden everywhere else) is
 // repurposed as a native on-screen gamepad button with a custom icon while
-// Fetch mode is open, swapping icon between "ready to throw" and "pet is
-// searching". The joystick/crosshair are left alone — the player can still
-// walk/aim around while charging.
+// Fetch mode is open (same icon throughout — see play.ts's
+// fetchTouchInputSystem). The joystick/crosshair are left alone — the player
+// can still walk/aim around while charging.
 export const FETCH_TOUCH_ACTION = InputAction.IA_PRIMARY
 
 /** Merges one custom button's icon/visibility into whatever TouchScreenControls

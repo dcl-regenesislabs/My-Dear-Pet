@@ -20,11 +20,12 @@ import { getLocalPet, sendPetTo, getLogicalClip } from './pet'
 import { applyCareLocal } from './sim'
 import { actions, clientState } from './state'
 import { FETCH_TOUCH_ACTION, showFetchTouchButton, hideFetchTouchButton } from './touchControls'
+import { mobile } from './ui/theme'
+import { triggerFetchHintFadeOut } from './ui/anim'
 
-// Native mobile Throw button (see touchControls.ts) icons — swapped between
-// "ready to throw" and "pet is off retrieving it".
+// Native mobile Throw button (see touchControls.ts) icon — kept the same
+// (no "searching" swap) the whole time Fetch mode is open.
 const THROW_READY_ICON = 'assets/images/throwicon.png'
-const THROW_SEARCHING_ICON = 'assets/images/ballicon.png'
 
 const TENNIS_YELLOW = Color4.create(0.85, 0.98, 0.2, 1)
 
@@ -176,8 +177,12 @@ function beginThrow(power: number): void {
   const pt = Transform.getOrNull(engine.PlayerEntity)
   if (!pt) return
   const dir = flatForward(pt.rotation)
+  triggerFetchHintFadeOut() // first-ever throw: fade the mobile "Hold to throw" hint out for good
   clientState.fetch.busy = true // block the Fetch button until the pet drops it
-  void triggerSceneEmote({ src: THROW_EMOTE, loop: false, mask: AvatarMask.AM_UPPER_BODY }).catch(() => {})
+  // Masked AM_UPPER_BODY on desktop (Bevy) plays correctly, but on mobile
+  // (Godot) the masked version blends/plays wrong — confirmed by comparing
+  // masked vs unmasked side by side — so mobile gets it unmasked (full body).
+  void triggerSceneEmote({ src: THROW_EMOTE, loop: false, mask: mobile() ? undefined : AvatarMask.AM_UPPER_BODY }).catch(() => {})
 
   let t = 0
   const fire = (dt: number): void => {
@@ -403,27 +408,26 @@ function carryBallSystem(): void {
   }
 }
 
-// Whether the native Throw button is currently shown, and with which icon —
-// `null` means hidden. Tracked so we only touch TouchScreenControls (and
-// re-encode its icon texture) when something actually changed, not every
+// Whether the native Throw button is currently shown. Tracked so we only
+// touch TouchScreenControls when something actually changed, not every
 // frame. Reading the button itself is unconditional (isTriggered on a
 // TouchScreenControls action is a no-op on desktop, per the SDK's own docs,
 // but the underlying InputAction still works from the keyboard — E doubles
 // as a desktop shortcut for the same charge/release).
-let touchButtonShownBusy: boolean | null = null
+let touchButtonShown = false
 
 function fetchTouchInputSystem(): void {
   const st = clientState.fetch
   if (st.active) {
-    if (touchButtonShownBusy !== st.busy) {
-      showFetchTouchButton(st.busy ? THROW_SEARCHING_ICON : THROW_READY_ICON)
-      touchButtonShownBusy = st.busy
+    if (!touchButtonShown) {
+      showFetchTouchButton(THROW_READY_ICON)
+      touchButtonShown = true
     }
     if (inputSystem.isTriggered(FETCH_TOUCH_ACTION, PointerEventType.PET_DOWN)) startCharge()
     if (inputSystem.isTriggered(FETCH_TOUCH_ACTION, PointerEventType.PET_UP)) releaseCharge()
-  } else if (touchButtonShownBusy !== null) {
+  } else if (touchButtonShown) {
     hideFetchTouchButton()
-    touchButtonShownBusy = null
+    touchButtonShown = false
   }
 }
 

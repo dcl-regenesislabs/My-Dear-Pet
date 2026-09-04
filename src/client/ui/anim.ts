@@ -47,6 +47,30 @@ export function sway(): number {
   return Math.sin(pulseT * Math.PI * 1.6)
 }
 
+// Fetch's first-throw tutorial hint (bubble pointing at the mobile Throw
+// button + a glow ring around it) — fully visible until triggered (once,
+// after the player's first throw — see play.ts's beginThrow), then fades out
+// over FETCH_HINT_FADE_MS and stays gone for the rest of the session (same
+// "show once" convention as setup.ts's introShown).
+const FETCH_HINT_FADE_MS = 600
+let fetchHintFadeStartAt = 0 // 0 = not fading (still fully visible, or already gone — see fetchHintGone)
+let fetchHintAlphaValue = 1
+let fetchHintGone = false
+
+export function triggerFetchHintFadeOut(): void {
+  if (fetchHintFadeStartAt || fetchHintGone) return
+  fetchHintFadeStartAt = Date.now()
+}
+
+export function fetchHintAlpha(): number {
+  return fetchHintAlphaValue
+}
+
+/** False once the fade-out has fully finished — stop rendering the hint entirely. */
+export function fetchHintVisible(): boolean {
+  return !fetchHintGone
+}
+
 let started = false
 export function startAnimSystem(): void {
   if (started) return
@@ -63,6 +87,16 @@ export function startAnimSystem(): void {
         a.startAt = 0
       } else {
         a.scale = evalKf(elapsed)
+      }
+    }
+    if (fetchHintFadeStartAt) {
+      const elapsed = now - fetchHintFadeStartAt
+      if (elapsed >= FETCH_HINT_FADE_MS) {
+        fetchHintAlphaValue = 0
+        fetchHintGone = true
+        fetchHintFadeStartAt = 0
+      } else {
+        fetchHintAlphaValue = 1 - elapsed / FETCH_HINT_FADE_MS
       }
     }
   })

@@ -30,7 +30,7 @@ import {
   debugCamPrint
 } from './fruitGame'
 import { buyItemLocal, buySlotLocal, claimStreak, dailyClaimable, dailyLadderDay, spinLocal, streakClaimable, streakWeekDay, useItemLocal } from './sim'
-import { sway, startAnimSystem, attentionPulse } from './ui/anim'
+import { sway, startAnimSystem, attentionPulse, fetchHintAlpha, fetchHintVisible } from './ui/anim'
 import { C, Color, getUiRendererConfig, mobile, OutlineLabel, PanelShell, resolveRuntimePlatform, S, Sbtn, TactileButton } from './ui/theme'
 import { DialogBox, openCaretakerIntro, openCaretakerTips, playerName } from './ui/dialog'
 import { endCaretakerIntroLock } from './caretaker'
@@ -1557,15 +1557,24 @@ function HatchOverlay() {
   )
 }
 
+// Calibrated positions for the mobile first-throw hint (bubble) and charge
+// bar, in raw (pre-S()) pixels from the bottom-right corner — the native
+// Throw button's exact screen position isn't something we control/know
+// precisely, so these were found by testing on-device.
+const bubbleBottomRaw = 180
+const bubbleRightRaw = 250
+const barBottomRaw = 320
+const barRightRaw = 240
+
 // ---------------------------------------------------------------------------
 // Fetch (Play) mode — hold the Throw control to charge (a bar fills above it);
 // releasing throws with that much power, which sets the distance/arc/flight
 // time (see play.ts's beginThrow). Desktop shows its own labeled button;
 // mobile instead gets a native on-screen gamepad button with a custom icon
-// (play.ts's fetchTouchInputSystem + touchControls.ts — swaps icon between
-// "ready" and "searching", and reads its press/release to drive the same
-// charge). Disables (busy) once thrown, until the pet drops the ball back at
-// the player. BACK exits (only when not mid-charge/throw).
+// (play.ts's fetchTouchInputSystem + touchControls.ts — same icon throughout,
+// reads its press/release to drive the same charge). Disables (busy) once
+// thrown, until the pet drops the ball back at the player. BACK exits (only
+// when not mid-charge/throw).
 // ---------------------------------------------------------------------------
 function FetchOverlay() {
   if (!clientState.fetch.active) return <UiEntity />
@@ -1580,8 +1589,9 @@ function FetchOverlay() {
     <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'none' }}>
       {/* BACK — disabled while charging/mid-throw so you don't strand a charge or a ball in the air */}
       <BackButton disabled={busy || charging} onClick={() => (clientState.fetch.active = false)} />
-      {/* Charge bar — fills 0→100% while held, above the button */}
-      {charging && (
+      {/* Charge bar — fills 0→100% while held, above the button. Desktop only —
+          mobile has neither the message nor the bar, just the one-time hint below. */}
+      {charging && !isM && (
         <UiEntity
           uiTransform={{ positionType: 'absolute', position: { bottom: S(80) + bh + S(18), left: '50%' }, margin: { left: -S(150) }, width: S(300), height: S(22), borderRadius: S(11) }}
           uiBackground={{ color: C.trackBg }}
@@ -1589,18 +1599,43 @@ function FetchOverlay() {
           <UiEntity uiTransform={{ width: `${pct}%`, height: '100%', borderRadius: S(11) }} uiBackground={{ color: C.gold }} />
         </UiEntity>
       )}
-      {/* Mobile hint — the native gamepad button has an icon but no label, so
-          spell out what it does at the bottom of the screen. */}
-      {isM && (
-        <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(20), left: '50%' }, margin: { left: -S(160) }, width: S(320), height: S(30), pointerFilter: 'none' }}>
-          <OutlineLabel
-            value={busy ? 'Searching…' : charging ? 'Release!' : 'Hold to throw'}
-            fontSize={S(20)}
-            color={{ r: 1, g: 1, b: 1, a: 1 }}
-            width={S(320)}
-            height={S(30)}
-            textAlign="middle-center"
+      {/* Mobile charge bar — subtle, thin, vertical (fills upward), calibrated
+          on-device. Note for future positioning near this corner: the
+          bottom-right is where the client draws its own native gamepad
+          buttons OVER scene UI (docs: "Bottom-right action buttons — drawn
+          deliberately over the [safe] area"), so anything placed too close to
+          that corner's bottom edge gets hidden underneath them. */}
+      {charging && isM && (
+        <UiEntity
+          uiTransform={{ positionType: 'absolute', position: { bottom: S(barBottomRaw), right: S(barRightRaw) }, width: S(14), height: S(90), borderRadius: S(7), pointerFilter: 'none' }}
+          uiBackground={{ color: { r: 0.5, g: 0.5, b: 0.5, a: 0.35 } }}
+        >
+          <UiEntity
+            uiTransform={{ positionType: 'absolute', position: { bottom: 0, left: 0 }, width: '100%', height: `${pct}%`, borderRadius: S(7) }}
+            uiBackground={{ color: { r: 0.75, g: 0.9, b: 0.35, a: 0.65 } }}
           />
+        </UiEntity>
+      )}
+      {/* Mobile first-throw hint — a speech bubble ("Hold to throw") pointing at
+          the native Throw button, calibrated on-device. (The glow ring is
+          pulled for now — bubble first.) Fully visible until the player's
+          first throw (play.ts's beginThrow triggers the fade), then fades out
+          for good — see ui/anim.ts's fetchHint*. */}
+      {isM && fetchHintVisible() && (
+        <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'none' }}>
+          <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(bubbleBottomRaw), right: S(bubbleRightRaw) }, width: S(280), height: S(187) }}>
+            <UiEntity
+              uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: S(280), height: S(187) }}
+              uiBackground={{ texture: { src: 'assets/images/revamp/bubble.png' }, textureMode: 'stretch', color: { r: 1, g: 1, b: 1, a: fetchHintAlpha() } }}
+            />
+            <Label
+              value="Hold to throw"
+              fontSize={S(20)}
+              color={{ r: 0.25, g: 0.18, b: 0.14, a: fetchHintAlpha() }}
+              textAlign="middle-center"
+              uiTransform={{ positionType: 'absolute', position: { top: S(55), left: S(20) }, width: S(240), height: S(50) }}
+            />
+          </UiEntity>
         </UiEntity>
       )}
       {/* Desktop Throw button (bottom-center) — mobile's equivalent is the
