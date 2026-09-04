@@ -60,6 +60,12 @@ export const clientState: {
   // Carrying the pet to the bath: the pet is held in the player's hands; walk it
   // to the tub (`atStation` true when close) and place it there to bathe it.
   carryPet: { active: boolean; atStation: boolean }
+  // Feed errand (feed.ts): the guide arrow is up and the player is walking to
+  // the tree, where the feeding minigame takes over. Like the carry flows this
+  // OWNS the moment — no other care action can start until it resolves or the
+  // player cancels it with BACK. `petId` is the pet Feed was pressed for, so the
+  // errand can drop itself if the player switches pets mid-walk.
+  feedTask: { active: boolean; petId: string }
   // Hatch gesture: rubbing/tapping the egg fills this progress, then it hatches.
   // Reuses the petting gesture input.
   hatch: { active: boolean; progress: number }
@@ -122,6 +128,7 @@ export const clientState: {
   petting: { active: false, progress: 0 },
   carryEgg: { active: false, species: '', name: '', atHome: false },
   carryPet: { active: false, atStation: false },
+  feedTask: { active: false, petId: '' },
   hatch: { active: false, progress: 0 },
   feedGame: { active: false, phase: 'arrival', caught: 0, timeLeft: 0, catchFlashUntil: 0, countdownAt: 0, resultsAt: 0 },
   fetch: { active: false, busy: false },

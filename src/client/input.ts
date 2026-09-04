@@ -52,7 +52,12 @@ export function triggerCare(action: CareAction): void {
           ? `Your pet is fast asleep — ${formatLockCountdown(lockLeft)} left.`
           : clientState.activePet.sleeping
             ? 'Your pet is asleep!'
-            : 'Your pet is busy right now!'
+            : // The Feed errand leaves the player walking the world, so the
+              // in-world Bath/Sleep hotspots are still clickable — name the
+              // thing that's blocking, and how to get out of it.
+              clientState.feedTask.active
+              ? 'Finish the tree errand or tap BACK first!'
+              : 'Your pet is busy right now!'
     )
     return
   }

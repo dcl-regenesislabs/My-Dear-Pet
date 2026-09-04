@@ -14,7 +14,7 @@ import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg
 import { throwMeteor } from './play'
 import { musicState, playSong, setMusicVolume, SONGS, type SongId, toggleMute } from './music'
 import { triggerCare, careActive, queueLength } from './input'
-import { startFeedTask } from './feed'
+import { cancelFeedTask, startFeedTask } from './feed'
 import {
   cancelFruitGame,
   exitFeedResults,
@@ -304,9 +304,18 @@ function PetPanel() {
   const lockLeft = sleepLockLeft()
   // Energy gate: below PLAY_MIN_ENERGY the pet refuses to play until it sleeps.
   const tired = !canPlayNow()
+  // Why the panel is locked, phrased as something the player can act on. The
+  // Feed errand is the only lock with its own on-screen exit (the BACK button
+  // over the world), so it gets named instead of the generic "busy".
+  const busyMessage = () =>
+    lockLeft > 0
+      ? `${pet.name} is fast asleep — ${Cfg.formatLockCountdown(lockLeft)} left.`
+      : clientState.feedTask.active
+        ? 'Finish the tree errand or tap BACK first!'
+        : 'Your pet is busy right now!'
   const guard = (fn: () => void) => () => {
     if (locked) {
-      pushToast(lockLeft > 0 ? `${pet.name} is fast asleep — ${Cfg.formatLockCountdown(lockLeft)} left.` : 'Your pet is busy right now!')
+      pushToast(busyMessage())
       return
     }
     fn()
@@ -372,7 +381,7 @@ function PetPanel() {
               return
             }
             if (busy) {
-              pushToast('Your pet is busy right now!')
+              pushToast(busyMessage())
               return
             }
             care('sleep')
@@ -2296,6 +2305,26 @@ function BathButton() {
   )
 }
 
+// Feed errand — the player is out walking to the tree behind the guide arrow
+// (feed.ts). Same shape as the bath carry: a banner saying where to go and a
+// BACK button, which is the whole point here — the errand blocks every other
+// care action while it runs, so there has to be a way out of it that doesn't
+// require finishing the walk.
+function FeedErrandOverlay() {
+  if (!clientState.feedTask.active) return <UiEntity />
+  return (
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'none' }}>
+      <BackButton onClick={() => cancelFeedTask()} />
+      <UiEntity
+        uiTransform={{ positionType: 'absolute', position: { top: S(90), left: '50%' }, margin: { left: -S(240) }, width: S(480), height: S(58), alignItems: 'center', justifyContent: 'center', borderRadius: S(29), pointerFilter: 'none' }}
+        uiBackground={{ color: C.panelBg }}
+      >
+        <Label value="Follow the arrow to the tree!" fontSize={S(20)} color={C.text} textAlign="middle-center" textWrap="nowrap" uiTransform={{ width: '100%', height: S(30) }} />
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Loading gate — invisible for the normal case (the server usually answers in
 // well under a second), but if it's genuinely taking a while, a small message
@@ -2364,6 +2393,7 @@ const Root = () => {
         <FetchOverlay />
         <CarryHatchButton />
         <BathButton />
+        <FeedErrandOverlay />
         {/* Rendered after the HUD chrome (side buttons, bottom nav) so it paints
             on top of them instead of the nav icons poking through over it. */}
         <PetPanel />

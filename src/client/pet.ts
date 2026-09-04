@@ -416,9 +416,11 @@ function petTransformOwnedElsewhere(): boolean {
 
 /** True while a self-contained interaction already owns the moment — the
  *  above PLUS petting/fetch's camera-lock UI (those don't touch the pet's
- *  Transform, but they do take over the whole screen). */
+ *  Transform, but they do take over the whole screen) PLUS the Feed errand
+ *  (feed.ts), which owns the PLAYER: they're out walking to the tree with the
+ *  guide arrow up, and starting anything else there would strand that arrow. */
 function otherActivityActive(): boolean {
-  return petTransformOwnedElsewhere() || clientState.petting.active || clientState.fetch.active
+  return petTransformOwnedElsewhere() || clientState.petting.active || clientState.fetch.active || clientState.feedTask.active
 }
 
 /**
@@ -432,15 +434,20 @@ export function canStartPetInteraction(): boolean {
 }
 
 /**
- * Narrower gate for ENQUEUEING a care action (input.ts's triggerCare): queued
- * actions are allowed to stack up (that's the point of the queue, and
- * isBusy() already covers "don't start a 2nd one mid-walk"), and petting/
- * fetch don't touch the pet's Transform so they don't need to block this —
- * only something that's ACTUALLY holding the pet elsewhere does, or the pet
- * already being asleep.
+ * Narrower gate for ENQUEUEING a care action (input.ts's triggerCare): this is
+ * canStartPetInteraction() WITHOUT the isBusy() clause, because queued actions
+ * are allowed to stack up — that's the point of the queue, and isBusy() already
+ * covers "don't start a 2nd one mid-walk".
+ *
+ * Every other interaction still blocks, including the ones that don't own the
+ * pet's Transform (petting, fetch, the Feed errand). They leave the in-world
+ * Bath/Sleep hotspots clickable, so without this a tap on the bed mid-errand
+ * yanks the pet away from whatever is already running — that's the concurrent-
+ * action bug, and for Feed it also stranded the guide arrow. Cancel the running
+ * action (BACK) first.
  */
 export function canQueueCareAction(): boolean {
-  return !hasPendingHatchling() && !clientState.activePet?.sleeping && !petTransformOwnedElsewhere()
+  return !hasPendingHatchling() && !clientState.activePet?.sleeping && !otherActivityActive()
 }
 
 function ensureLocalPet(): void {
@@ -745,7 +752,7 @@ export function startCarryPet(): void {
   clientState.carryPet = { active: true, atStation: false }
   attachPetToHands(clientState.activePet.species)
   playHoldPetEmote()
-  showArrowTo(objectPosition(EntityNames.PetPool_glb))
+  showArrowTo(objectPosition(EntityNames.PetPool_glb), 'carryPet')
 }
 
 /** Cancel the bath carry (BACK): drop the flow, the pet just resumes following. */
@@ -754,7 +761,7 @@ export function cancelCarryPet(): void {
   clientState.carryPet = { active: false, atStation: false }
   detachPetFromHands() // also resets position/rotation — see its doc comment
   stopHoldEmote() // drop the hold pose, pet is no longer in hand
-  hideArrow()
+  hideArrow('carryPet')
 }
 
 /** Bath step 2: place the pet in the tub and run the clean action. */
@@ -763,7 +770,7 @@ export function placePetAtStation(): void {
   clientState.carryPet = { active: false, atStation: false }
   detachPetFromHands()
   stopHoldEmote() // drop the hold pose, pet is no longer in hand
-  hideArrow()
+  hideArrow('carryPet')
   if (localPet) {
     const t = Transform.getMutable(localPet)
     t.position = flat(objectPosition(EntityNames.PetPool_glb))
@@ -785,8 +792,9 @@ export function placePetAtStation(): void {
 
 // ---------------------------------------------------------------------------
 // Ground arrow guide — a flowing arrow on the floor that points from the player
-// toward a destination (e.g. home while carrying the egg). Reusable: set a target
-// with showArrowTo(), clear it with hideArrow().
+// toward a destination (e.g. home while carrying the egg). Reusable, but there
+// is only ONE arrow, so every user claims it under an ArrowOwner tag: set a
+// target with showArrowTo(target, owner), clear it with hideArrow(owner).
 // ---------------------------------------------------------------------------
 const ARROW_MODEL = 'models/arrow_indicator.glb'
 const ARROW_LEAD = 1 // metres ahead of the player, toward the target
@@ -798,11 +806,33 @@ const CARE_CENTER_ARROW_RADIUS = 4.5 // arrow-only footprint around the Care Cen
 let arrow: Entity | null = null
 let arrowTarget: Vector3 | null = null
 
-export function showArrowTo(target: Vector3): void {
+/** Which flow the arrow currently belongs to. Exactly one at a time: the arrow
+ *  is a single shared entity, so without an owner two overlapping flows fight
+ *  over it — one re-pointing it every frame while the other clears it, which is
+ *  how it ended up stuck on screen after switching actions. */
+export type ArrowOwner = 'feed' | 'carryEgg' | 'carryPet'
+let arrowOwner: ArrowOwner | null = null
+
+export function showArrowTo(target: Vector3, owner: ArrowOwner): void {
   arrowTarget = target
+  arrowOwner = owner
 }
-export function hideArrow(): void {
+/** Clear the arrow. Pass the owner that raised it so a flow that is shutting
+ *  down can't yank an arrow another flow has just taken over. */
+export function hideArrow(owner: ArrowOwner): void {
+  if (arrowOwner !== owner) return
   arrowTarget = null
+  arrowOwner = null
+}
+
+/** Is the flow that raised the arrow still running? The arrow outliving its
+ *  owner is the stuck-arrow bug, so updateArrow() drops it here rather than
+ *  trusting every exit path of every flow to call hideArrow(). */
+function arrowOwnerActive(): boolean {
+  if (arrowOwner === 'feed') return clientState.feedTask.active
+  if (arrowOwner === 'carryEgg') return clientState.carryEgg.active
+  if (arrowOwner === 'carryPet') return clientState.carryPet.active
+  return false
 }
 
 function playerNeedsIndoorArrowLift(pos: Vector3): boolean {
@@ -828,6 +858,12 @@ function updateArrow(): void {
   }
   const vis = VisibilityComponent.getMutable(arrow)
 
+  // Safety net: the owning flow ended without clearing its arrow (superseded by
+  // another action, pet switched, ...) — drop it instead of leaving it stuck.
+  if (arrowTarget && !arrowOwnerActive()) {
+    arrowTarget = null
+    arrowOwner = null
+  }
   if (!arrowTarget) {
     if (vis.visible) vis.visible = false
     return
@@ -890,8 +926,8 @@ function updateCarryEgg(): void {
   const home = objectPosition(EntityNames.HomeDome01_glb)
   st.atHome = distFlat(pp, home) <= C.HOME_RADIUS
   // Guide arrow points home until you're there (where the Hatch button shows).
-  if (st.atHome) hideArrow()
-  else showArrowTo(home)
+  if (st.atHome) hideArrow('carryEgg')
+  else showArrowTo(home, 'carryEgg')
 }
 
 /** Hatch button pressed at home: drop the carried egg and start the rub flow. */
@@ -909,7 +945,7 @@ export function beginHatchFromCarry(): void {
   }
   clientState.carryEgg = { active: false, species: '', name: '', atHome: false }
   stopHoldEmote() // drop the hold pose, egg is no longer in hand
-  hideArrow() // stop guiding home, the egg is no longer being carried
+  hideArrow('carryEgg') // stop guiding home, the egg is no longer being carried
   startHatch(species, name)
 }
 
