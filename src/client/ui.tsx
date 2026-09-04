@@ -11,7 +11,7 @@ import * as Cfg from '../shared/config'
 import type { CareAction, Rarity } from '../shared/types'
 import { actions, clientState, discardHatchling, keepHatchling, pushToast, serverConnected, switchActivePet, hasPendingHatchling } from './state'
 import { setFollow, startPetting, cancelPetting, petTap, hatchTap, startCarryEgg, beginHatchFromCarry, startCarryPet, placePetAtStation, cancelCarryPet, canStartPetInteraction } from './pet'
-import { throwMeteor } from './play'
+import { startCharge, releaseCharge } from './play'
 import { musicState, playSong, setMusicVolume, SONGS, type SongId, toggleMute } from './music'
 import { triggerCare, careActive, queueLength } from './input'
 import { startFeedTask } from './feed'
@@ -1558,35 +1558,72 @@ function HatchOverlay() {
 }
 
 // ---------------------------------------------------------------------------
-// Fetch (Play) mode — a big centered "Fetch" button. Tapping it throws the ball
-// and disables the button (busy); it re-enables once the pet drops the ball back
-// at the player. BACK exits (only when not mid-throw).
+// Fetch (Play) mode — hold the Throw control to charge (a bar fills above it);
+// releasing throws with that much power, which sets the distance/arc/flight
+// time (see play.ts's beginThrow). Desktop shows its own labeled button;
+// mobile instead gets a native on-screen gamepad button with a custom icon
+// (play.ts's fetchTouchInputSystem + touchControls.ts — swaps icon between
+// "ready" and "searching", and reads its press/release to drive the same
+// charge). Disables (busy) once thrown, until the pet drops the ball back at
+// the player. BACK exits (only when not mid-charge/throw).
 // ---------------------------------------------------------------------------
 function FetchOverlay() {
   if (!clientState.fetch.active) return <UiEntity />
-  const busy = clientState.fetch.busy
+  const st = clientState.fetch
+  const busy = st.busy
+  const charging = st.charging
+  const pct = Math.round(st.charge * 100)
+  const isM = mobile()
   const bw = S(300)
   const bh = S(92)
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', pointerFilter: 'none' }}>
-      {/* BACK — disabled mid-throw so you don't leave a ball in the air */}
-      <BackButton disabled={busy} onClick={() => (clientState.fetch.active = false)} />
-      {/* Fetch button (bottom-center) */}
-      <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(80), left: '50%' }, margin: { left: -bw / 2 }, width: bw, height: bh, alignItems: 'center', justifyContent: 'center' }}>
-        <TactileButton
-          id="fetch_throw"
-          label={busy ? 'Searching…' : 'Throw'}
-          width={bw}
-          height={bh}
-          bg={busy ? C.cardAlt : C.green}
-          textColor={busy ? C.dim : C.outline}
-          fontSize={S(32)}
-          radius={S(26)}
-          disabled={busy}
-          pulse={!busy}
-          onClick={() => throwMeteor()}
-        />
-      </UiEntity>
+      {/* BACK — disabled while charging/mid-throw so you don't strand a charge or a ball in the air */}
+      <BackButton disabled={busy || charging} onClick={() => (clientState.fetch.active = false)} />
+      {/* Charge bar — fills 0→100% while held, above the button */}
+      {charging && (
+        <UiEntity
+          uiTransform={{ positionType: 'absolute', position: { bottom: S(80) + bh + S(18), left: '50%' }, margin: { left: -S(150) }, width: S(300), height: S(22), borderRadius: S(11) }}
+          uiBackground={{ color: C.trackBg }}
+        >
+          <UiEntity uiTransform={{ width: `${pct}%`, height: '100%', borderRadius: S(11) }} uiBackground={{ color: C.gold }} />
+        </UiEntity>
+      )}
+      {/* Mobile hint — the native gamepad button has an icon but no label, so
+          spell out what it does at the bottom of the screen. */}
+      {isM && (
+        <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(20), left: '50%' }, margin: { left: -S(160) }, width: S(320), height: S(30), pointerFilter: 'none' }}>
+          <OutlineLabel
+            value={busy ? 'Searching…' : charging ? 'Release!' : 'Hold to throw'}
+            fontSize={S(20)}
+            color={{ r: 1, g: 1, b: 1, a: 1 }}
+            width={S(320)}
+            height={S(30)}
+            textAlign="middle-center"
+          />
+        </UiEntity>
+      )}
+      {/* Desktop Throw button (bottom-center) — mobile's equivalent is the
+          native gamepad button, not drawn here. */}
+      {!isM && (
+        <UiEntity uiTransform={{ positionType: 'absolute', position: { bottom: S(80), left: '50%' }, margin: { left: -bw / 2 }, width: bw, height: bh, alignItems: 'center', justifyContent: 'center' }}>
+          <UiEntity
+            uiTransform={{ width: bw, height: bh, alignItems: 'center', justifyContent: 'center', borderRadius: S(26), pointerFilter: busy ? 'none' : 'block' }}
+            uiBackground={{ color: busy ? C.cardAlt : charging ? C.gold : C.green }}
+            onMouseDown={() => startCharge()}
+            onMouseUp={() => releaseCharge()}
+            onMouseLeave={() => releaseCharge()}
+          >
+            <Label
+              value={busy ? 'Searching…' : charging ? 'Release!' : 'Hold to Throw'}
+              fontSize={S(28)}
+              color={busy ? C.dim : C.outline}
+              textAlign="middle-center"
+              uiTransform={{ width: bw, height: bh }}
+            />
+          </UiEntity>
+        </UiEntity>
+      )}
     </UiEntity>
   )
 }

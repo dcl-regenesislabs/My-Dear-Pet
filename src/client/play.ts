@@ -1,22 +1,30 @@
 // Play action (Fetch): as soon as Fetch mode is opened, a ball (a plain
 // yellow sphere for now — see applyBallShape(), a placeholder for a real
 // tennis-ball texture later) appears attached to the player's right hand
-// (same AvatarAttach trick pet.ts uses to carry the egg). Tapping the Fetch
-// button plays a throw emote — the ball stays in the hand through the
-// wind-up — and right as the throw is finishing, the held ball is swapped
-// for a free-flying one that arcs out ahead of the avatar while tumbling and
-// lands. Then the pet runs to it, grabs it, carries it back to the player and
-// drops it — which applies the normal "play" reward, and a fresh ball
-// reappears in the hand for the next throw. (The old play action — pet walks
-// to the ball — is suspended; see input.ts / ui.tsx.)
+// (same AvatarAttach trick pet.ts uses to carry the egg). Holding the Throw
+// button charges a throw (clientState.fetch.charge ramps 0→1 over
+// CHARGE_TIME) — the ball just sits in the hand while charging, no animation
+// change — and releasing plays the throw emote (the ball stays in the hand
+// through the wind-up) and, right as the throw is finishing, swaps the held
+// ball for a free-flying one whose distance/arc/flight-time/bounce all scale
+// with how long it was charged. Then the pet runs to it, grabs it, carries it
+// back to the player and drops it — which applies the normal "play" reward,
+// and a fresh ball reappears in the hand for the next throw. (The old play
+// action — pet walks to the ball — is suspended; see input.ts / ui.tsx.)
 
-import { engine, Entity, Transform, MeshRenderer, Material, AvatarMask, AvatarAttach, AvatarAnchorPointType } from '@dcl/sdk/ecs'
+import { engine, Entity, Transform, MeshRenderer, Material, AvatarMask, AvatarAttach, AvatarAnchorPointType, inputSystem, PointerEventType } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion, Color4 } from '@dcl/sdk/math'
 import { triggerSceneEmote } from '~system/RestrictedActions'
 import * as C from '../shared/config'
 import { getLocalPet, sendPetTo, getLogicalClip } from './pet'
 import { applyCareLocal } from './sim'
 import { actions, clientState } from './state'
+import { FETCH_TOUCH_ACTION, showFetchTouchButton, hideFetchTouchButton } from './touchControls'
+
+// Native mobile Throw button (see touchControls.ts) icons — swapped between
+// "ready to throw" and "pet is off retrieving it".
+const THROW_READY_ICON = 'assets/images/throwicon.png'
+const THROW_SEARCHING_ICON = 'assets/images/ballicon.png'
 
 const TENNIS_YELLOW = Color4.create(0.85, 0.98, 0.2, 1)
 
@@ -48,9 +56,15 @@ const HAND_BALL_Z = -0.01
 const HAND_FORWARD_OFFSET = 0.17
 const HAND_RIGHT_OFFSET = 0.26
 const HAND_HEIGHT = 1.68
-const FLIGHT_TIME = 1.1 // seconds in the air
-const THROW_DISTANCE = 9 // metres forward from the avatar
-const ARC_HEIGHT = 3.2 // peak height of the throw arc
+const CHARGE_TIME = 1.1 // seconds of holding Throw to go from 0 to full charge
+// Charge (0..1, how long Throw was held) scales the whole throw between these
+// MIN_/MAX_ pairs — a tap throws weak/short, a full hold throws far.
+const MIN_FLIGHT_TIME = 0.8
+const MAX_FLIGHT_TIME = 1.6
+const MIN_THROW_DISTANCE = 6
+const MAX_THROW_DISTANCE = 18
+const MIN_ARC_HEIGHT = 2.0
+const MAX_ARC_HEIGHT = 4.8
 const SPIN_SPEED = 540 // deg/sec tumble while flying
 const LINGER = 2.0 // seconds resting on the ground if there's no pet to fetch
 export const SCALE = 0.14 // ball diameter in metres — was 0.35 (tuned for the old meteorite mesh), way too big for a primitive sphere at scale 1 = 1m
@@ -92,14 +106,20 @@ export function carryOffsetForSpecies(species: string, state: AnimState = 'walk'
   const key = C.SPROUT_SPECIES.includes(species) ? C.SPROUT_BASE : species
   return CARRY_OFFSET_BY_SPECIES[key]?.[state] ?? DEFAULT_CARRY_OFFSET
 }
+const lerp = (a: number, b: number, t: number): number => a + (b - a) * t
+
 // Decaying bounces after the primary landing, before the pet is sent to
 // fetch it — each bounce keeps BOUNCE_DECAY of the previous one's height,
-// forward travel and duration, continuing in the same throw direction.
+// forward travel and duration, continuing in the same throw direction. The
+// first bounce also scales with charge power, same as the throw itself.
 const BOUNCE_COUNT = 2
 const BOUNCE_DECAY = 0.4
-const FIRST_BOUNCE_HEIGHT = 0.6 // metres
-const FIRST_BOUNCE_FORWARD = 1.0 // metres
-const FIRST_BOUNCE_DURATION = 0.35 // seconds
+const MIN_FIRST_BOUNCE_HEIGHT = 0.4
+const MAX_FIRST_BOUNCE_HEIGHT = 0.9
+const MIN_FIRST_BOUNCE_FORWARD = 0.7
+const MAX_FIRST_BOUNCE_FORWARD = 1.8
+const MIN_FIRST_BOUNCE_DURATION = 0.25
+const MAX_FIRST_BOUNCE_DURATION = 0.45
 
 // 'fly' = arcing through the air. 'bounce' = decaying bounces after landing
 // (see BOUNCE_COUNT). 'wait' = grounded (settled), pet running to it.
@@ -113,6 +133,8 @@ type Flight = {
   t: number
   phase: Phase
   spin: number
+  flightTime: number // this throw's charge-scaled flight duration
+  arcHeight: number // this throw's charge-scaled arc peak height
   dir: Vector3 // throw direction, reused to keep bouncing forward in a straight line
   bounceIndex: number // how many bounces have completed so far
   bounceHeight: number // current/next bounce's peak height
@@ -123,11 +145,33 @@ let flight: Flight | null = null
 let handAnchor: Entity | null = null // empty attached to the right-hand bone, alive while Fetch mode is open
 let handBall: Entity | null = null // the visible held meteorite, child of handAnchor; absent while one is in flight
 
-/** Fetch button tapped: play the throw emote right away — the ball stays in
+/** Throw button held down: start charging (no visual/animation change — the
+ *  ball just sits in the hand — see clientState.fetch.charge/charging). */
+export function startCharge(): void {
+  if (flight || clientState.fetch.busy || clientState.fetch.charging) return
+  clientState.fetch.charging = true
+  clientState.fetch.charge = 0
+}
+
+/** Throw button released: play the throw emote right away — the ball stays in
  *  the hand through the wind-up (see carryBallSystem) — and swap it for a
  *  free-flying one once the emote is finishing (THROW_RELEASE_DELAY later).
- *  The pet fetches it once it lands. */
-export function throwMeteor(): void {
+ *  How long it was charged (0 for a plain tap) scales the whole throw. The
+ *  pet fetches it once it lands. */
+export function releaseCharge(): void {
+  if (!clientState.fetch.charging) return
+  const power = clientState.fetch.charge
+  clientState.fetch.charging = false
+  clientState.fetch.charge = 0
+  beginThrow(power)
+}
+
+function chargeSystem(dt: number): void {
+  if (!clientState.fetch.charging) return
+  clientState.fetch.charge = Math.min(1, clientState.fetch.charge + dt / CHARGE_TIME)
+}
+
+function beginThrow(power: number): void {
   if (flight) return // a fetch is already in progress — ignore extra throws
   const pt = Transform.getOrNull(engine.PlayerEntity)
   if (!pt) return
@@ -139,7 +183,7 @@ export function throwMeteor(): void {
   const fire = (dt: number): void => {
     t += dt
     if (t >= THROW_RELEASE_DELAY) {
-      launchMeteor(dir)
+      launchMeteor(dir, power)
       engine.removeSystem(fire)
     }
   }
@@ -147,24 +191,42 @@ export function throwMeteor(): void {
 }
 
 /** Actually spawns the meteorite and starts its flight, in the given (flat,
- *  normalized) direction — split out from throwMeteor() so the spawn can be
- *  delayed to match the throw emote's release point. */
-function launchMeteor(dir: Vector3): void {
+ *  normalized) direction, scaled by `power` (0..1, how long Throw was
+ *  charged) — split out from beginThrow() so the spawn can be delayed to
+ *  match the throw emote's release point. */
+function launchMeteor(dir: Vector3, power: number): void {
   if (flight) return
   const pt = Transform.getOrNull(engine.PlayerEntity)
   if (!pt) return
+  const distance = lerp(MIN_THROW_DISTANCE, MAX_THROW_DISTANCE, power)
+  const arcHeight = lerp(MIN_ARC_HEIGHT, MAX_ARC_HEIGHT, power)
+  const flightTime = lerp(MIN_FLIGHT_TIME, MAX_FLIGHT_TIME, power)
   const right = flatRight(pt.rotation)
   const from = Vector3.create(
     pt.position.x + dir.x * HAND_FORWARD_OFFSET + right.x * HAND_RIGHT_OFFSET,
     pt.position.y + HAND_HEIGHT,
     pt.position.z + dir.z * HAND_FORWARD_OFFSET + right.z * HAND_RIGHT_OFFSET
   )
-  const to = Vector3.create(pt.position.x + dir.x * THROW_DISTANCE, C.PET_BASE_Y + GROUND_REST_Y, pt.position.z + dir.z * THROW_DISTANCE)
+  const to = Vector3.create(pt.position.x + dir.x * distance, C.PET_BASE_Y + GROUND_REST_Y, pt.position.z + dir.z * distance)
 
   const entity = engine.addEntity()
   Transform.createOrReplace(entity, { position: from, scale: Vector3.scale(Vector3.One(), SCALE) })
   applyBallShape(entity)
-  flight = { entity, from, to, t: 0, phase: 'fly', spin: 0, dir, bounceIndex: 0, bounceHeight: FIRST_BOUNCE_HEIGHT, bounceForward: FIRST_BOUNCE_FORWARD, bounceDuration: FIRST_BOUNCE_DURATION }
+  flight = {
+    entity,
+    from,
+    to,
+    t: 0,
+    phase: 'fly',
+    spin: 0,
+    flightTime,
+    arcHeight,
+    dir,
+    bounceIndex: 0,
+    bounceHeight: lerp(MIN_FIRST_BOUNCE_HEIGHT, MAX_FIRST_BOUNCE_HEIGHT, power),
+    bounceForward: lerp(MIN_FIRST_BOUNCE_FORWARD, MAX_FIRST_BOUNCE_FORWARD, power),
+    bounceDuration: lerp(MIN_FIRST_BOUNCE_DURATION, MAX_FIRST_BOUNCE_DURATION, power)
+  }
 }
 
 /** Forward from a rotation, flattened to the ground plane and normalized. */
@@ -220,9 +282,9 @@ function flightSystem(dt: number): void {
 
   if (flight.phase === 'fly') {
     flight.spin += SPIN_SPEED * dt
-    const u = Math.min(1, flight.t / FLIGHT_TIME)
+    const u = Math.min(1, flight.t / flight.flightTime)
     const p = Vector3.lerp(flight.from, flight.to, u)
-    p.y += 4 * ARC_HEIGHT * u * (1 - u) // parabolic arc: 0 at ends, peak at u=0.5
+    p.y += 4 * flight.arcHeight * u * (1 - u) // parabolic arc: 0 at ends, peak at u=0.5
     const t = Transform.getMutable(flight.entity)
     t.position = p
     t.rotation = Quaternion.fromEulerDegrees(flight.spin, flight.spin * 0.6, 0)
@@ -341,7 +403,33 @@ function carryBallSystem(): void {
   }
 }
 
+// Whether the native Throw button is currently shown, and with which icon —
+// `null` means hidden. Tracked so we only touch TouchScreenControls (and
+// re-encode its icon texture) when something actually changed, not every
+// frame. Reading the button itself is unconditional (isTriggered on a
+// TouchScreenControls action is a no-op on desktop, per the SDK's own docs,
+// but the underlying InputAction still works from the keyboard — E doubles
+// as a desktop shortcut for the same charge/release).
+let touchButtonShownBusy: boolean | null = null
+
+function fetchTouchInputSystem(): void {
+  const st = clientState.fetch
+  if (st.active) {
+    if (touchButtonShownBusy !== st.busy) {
+      showFetchTouchButton(st.busy ? THROW_SEARCHING_ICON : THROW_READY_ICON)
+      touchButtonShownBusy = st.busy
+    }
+    if (inputSystem.isTriggered(FETCH_TOUCH_ACTION, PointerEventType.PET_DOWN)) startCharge()
+    if (inputSystem.isTriggered(FETCH_TOUCH_ACTION, PointerEventType.PET_UP)) releaseCharge()
+  } else if (touchButtonShownBusy !== null) {
+    hideFetchTouchButton()
+    touchButtonShownBusy = null
+  }
+}
+
 export function setupPlay(): void {
   engine.addSystem(flightSystem)
   engine.addSystem(carryBallSystem)
+  engine.addSystem(chargeSystem)
+  engine.addSystem(fetchTouchInputSystem)
 }
